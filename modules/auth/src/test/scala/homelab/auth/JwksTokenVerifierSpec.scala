@@ -26,10 +26,8 @@ object JwksTokenVerifierSpec extends ZIOSpecDefault:
 
   // --- publish the two public keys as a JWKS -----------------------------------------------------
 
-
   private def b64url(v: BigInteger): String =
     Base64.getUrlEncoder.withoutPadding.encodeToString(v.toByteArray.dropWhile(_ == 0.toByte))
-
 
   private def jwkX(pub: EdECPublicKey): String =
     val be  = Array.fill[Byte](32)(0)
@@ -38,27 +36,21 @@ object JwksTokenVerifierSpec extends ZIOSpecDefault:
     if pub.getPoint.isXOdd then be(0) = (be(0) | 0x80).toByte
     Base64.getUrlEncoder.withoutPadding.encodeToString(be.reverse)
 
-
-  private val edJwk  = JsonWebKey.OKP(edKid, "sig", "Ed25519", "EdDSA", jwkX(edPair.getPublic.asInstanceOf[EdECPublicKey]))
-
+  private val edJwk = JsonWebKey.OKP(edKid, "sig", "Ed25519", "EdDSA", jwkX(edPair.getPublic.asInstanceOf[EdECPublicKey]))
 
   private val rsaJwk =
     val p = rsaPair.getPublic.asInstanceOf[RSAPublicKey]
     JsonWebKey.RSA(rsaKid, "sig", "RS256", b64url(p.getModulus), b64url(p.getPublicExponent))
 
-
-  private val jwks   = JsonWebKey.Set(List(edJwk, rsaJwk))
+  private val jwks = JsonWebKey.Set(List(edJwk, rsaJwk))
 
   // --- issue tokens ------------------------------------------------------------------------------
-
 
   private def claim(expiresInSeconds: Long): JwtClaim =
     JwtClaim(subject = Some(subject), expiration = Some(Instant.now.plusSeconds(expiresInSeconds).getEpochSecond))
 
-
   private def token(kid: String, algorithm: JwtAlgorithm, key: PrivateKey, claim: JwtClaim): SignedToken =
     SignedToken(Jwt.encode(JwtHeader(algorithm = Some(algorithm), keyId = Some(kid)), claim, key))
-
 
   private val edToken      = token(edKid, JwtAlgorithm.EdDSA, edPair.getPrivate, claim(3600))
   private val rsaToken     = token(rsaKid, JwtAlgorithm.RS256, rsaPair.getPrivate, claim(3600))
@@ -68,15 +60,12 @@ object JwksTokenVerifierSpec extends ZIOSpecDefault:
 
   // --- an in-memory source that counts how often it's consulted ----------------------------------
 
-
   private def verifierCounting(counter: Ref[Int]): UIO[JwksTokenVerifier] = JwksTokenVerifier.make:
     new JwksSource:
       def all: IO[AdapterError, JsonWebKey.Set] = counter.update(_ + 1).as(jwks)
 
-
   private def verifier: UIO[JwksTokenVerifier] =
     Ref.make(0).flatMap(verifierCounting)
-
 
   def spec = suite("JwksTokenVerifier")(
     test("verifies an EdDSA token and returns its claims") {

@@ -22,13 +22,11 @@ object HttpKeySourceSpec extends ZIOSpecDefault:
   private val kid     = "reg-key-http"
   private val keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair
 
-
   private def sign(name: String): SignedToken =
     val header = JwtHeader(algorithm = Some(JwtAlgorithm.EdDSA), keyId = Some(kid))
     val claim  =
       JwtClaim(content = s"""{"name":"$name"}""", subject = Some(userId.toString), expiration = Some(Instant.now.plusSeconds(3600).getEpochSecond))
     SignedToken(Jwt.encode(header, claim, keyPair.getPrivate))
-
 
   /** Encode an Ed25519 public key into its JWK `x` (inverse of HttpKeySource's decode). */
   private def jwkX(pub: EdECPublicKey): String =
@@ -38,12 +36,10 @@ object HttpKeySourceSpec extends ZIOSpecDefault:
     if pub.getPoint.isXOdd then be(0) = (be(0) | 0x80).toByte
     Base64.getUrlEncoder.withoutPadding.encodeToString(be.reverse)
 
-
   private val jwksJson =
     s"""{"keys":[{"kty":"OKP","crv":"Ed25519","use":"sig","alg":"EdDSA","kid":"$kid","x":"${jwkX(
         keyPair.getPublic.asInstanceOf[EdECPublicKey]
       )}"}]}"""
-
 
   /** Start a local HTTP server serving `body` at `/jwks`; stop it when the scope closes. */
   private def jwksServer(body: String): ZIO[Scope, Throwable, HttpServer] =
@@ -64,7 +60,6 @@ object HttpKeySourceSpec extends ZIOSpecDefault:
         server
       }
     )(server => ZIO.succeed(server.stop(0)))
-
 
   def spec = suite("HttpKeySource")(
     test("fetches JWKS over HTTP and verifies a registration token end-to-end") {

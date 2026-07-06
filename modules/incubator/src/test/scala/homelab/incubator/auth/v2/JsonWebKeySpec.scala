@@ -14,11 +14,9 @@ object JsonWebKeySpec extends ZIOSpecDefault:
   private val rsaJwk = """{"use":"sig","kty":"RSA","kid":"k1","alg":"RS256","n":"abc","e":"AQAB"}"""
   private val okpJwk = """{"use":"sig","kty":"OKP","crv":"Ed25519","kid":"reg-1","alg":"EdDSA","x":"xyz"}"""
 
-
   // A real RSA-2048 modulus (from the file's example) so reconstruction actually succeeds.
   private val realModulus =
     "nK0KElRi8SXxBTttFepQyoQaF20ayN_aftDX0NZMG-KeCR4McT_0VtzWD0NVauE41s7N5WGimYxNOPHgTsInQY6XI4YxejRjcZboIyZXzyTL3pW-leqXNUUxN2Vl4ScZs61YWU62Cv4IF-hY3phCwhTOIbXi66mQYui-38F7Fe1QtVMtNHgM7ToNh7IJZrc0XWj0ehviuHEuFDsG_hn6NxsVDNvhTHIf0SIld4JgPQ2ywWbtC9URiGBUljRJavQDRY06QXXNSXe5oiX1nRruJyowSwboaOfr1EeWXy7_xgOzNtXQVegwvnXDOY_zInQ7y0xsv6D7s71HZhJzxLvCWQ"
-
 
   private def jwkX(pub: EdECPublicKey): String =
     val be  = Array.fill[Byte](32)(0)
@@ -26,7 +24,6 @@ object JsonWebKeySpec extends ZIOSpecDefault:
     java.lang.System.arraycopy(src, 0, be, 32 - src.length, src.length)
     if pub.getPoint.isXOdd then be(0) = (be(0) | 0x80).toByte
     Base64.getUrlEncoder.withoutPadding.encodeToString(be.reverse)
-
 
   def spec = suite("JsonWebKey")(
     suite("decoder")(

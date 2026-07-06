@@ -25,7 +25,6 @@ import java.util.Base64
 final class JwksServiceAuthenticator private (source: PublicKeySource, cache: Ref[Map[String, PublicKey]]) extends ServiceAuthenticator:
   import JwksServiceAuthenticator.*
 
-
   /**
    * Authenticate a calling service from its bearer token: pick the key named by the header, verify the
    * JWT, and lift the `sub` claim to the calling [[Service]].
@@ -42,7 +41,6 @@ final class JwksServiceAuthenticator private (source: PublicKeySource, cache: Re
       claim   <- verify(token, key)
       service <- toService(claim)
     yield service
-
 
   /**
    * Read the `kid` from the token's (unverified) header — needed to pick the key before verifying.
@@ -61,7 +59,6 @@ final class JwksServiceAuthenticator private (source: PublicKeySource, cache: Re
       }
       .mapError(InvalidServiceToken(_))
 
-
   /**
    * Resolve the public key for `kid` from the cache, falling back to [[fetch]] on a miss.
    *
@@ -75,7 +72,6 @@ final class JwksServiceAuthenticator private (source: PublicKeySource, cache: Re
         case None      => fetch(kid)
     }
 
-
   /**
    * Fetch the key for `kid` from the source, cache it on success, and classify its failures.
    *
@@ -85,7 +81,6 @@ final class JwksServiceAuthenticator private (source: PublicKeySource, cache: Re
    */
   private def fetch(kid: String): IO[AdapterError | UnauthorisedError, PublicKey] =
     source.get(kid).mapError(untrustedKeyOrForward(kid)).tap(key => cache.update(_.updated(kid, key)))
-
 
   /**
    * Verify the JWT's signature and expiry with `key`, restricted to the supported asymmetric algorithms.
@@ -99,7 +94,6 @@ final class JwksServiceAuthenticator private (source: PublicKeySource, cache: Re
       .fromTry(Jwt.decode(token, key, Seq(JwtAlgorithm.EdDSA, JwtAlgorithm.RS256)))
       .mapError(e => InvalidServiceToken(Option(e.getMessage).getOrElse(e.toString)))
 
-
   /**
    * Map the verified claims to the calling service — the `sub` claim is the service identity.
    *
@@ -108,7 +102,6 @@ final class JwksServiceAuthenticator private (source: PublicKeySource, cache: Re
    */
   private def toService(claim: JwtClaim): IO[UnauthorisedError, Service] =
     ZIO.fromOption(claim.subject).orElseFail(InvalidServiceToken("missing subject claim")).map(sub => Service(ServiceName(sub)))
-
 
   /**
    * Classify a key-source failure: an unknown `kid` is an untrusted token, everything else is infra.
@@ -134,14 +127,12 @@ object JwksServiceAuthenticator:
   def make(source: PublicKeySource): UIO[JwksServiceAuthenticator] =
     Ref.make(Map.empty[String, PublicKey]).map(new JwksServiceAuthenticator(source, _))
 
-
   /**
    * The presented service token could not be accepted — missing/malformed, signed by an unknown key,
    * failing signature or expiry checks, or lacking a subject. `reason` carries the specific cause.
    */
   final case class InvalidServiceToken(reason: String) extends UnauthorisedError:
     override def message: String = s"invalid service token: $reason"
-
 
   /** The subset of a JWT header read before verification — just the `kid`. */
   final private case class Header(kid: Option[String]) derives JsonDecoder

@@ -13,15 +13,12 @@ object K8sServiceAccountVerifierSpec extends ZIOSpecDefault:
   private val saName   = "system:serviceaccount:homelab:registration"
   private val anyToken = SignedToken("sa-token")
 
-
   private def reviewer(outcome: IO[TokenReviewer.Unavailable, TokenReviewer.Result]): TokenReviewer =
     new TokenReviewer:
       def review(token: SignedToken): IO[TokenReviewer.Unavailable, TokenReviewer.Result] = outcome
 
-
   private def verifier(outcome: IO[TokenReviewer.Unavailable, TokenReviewer.Result]): K8sServiceAccountVerifier =
     new K8sServiceAccountVerifier(reviewer(outcome))
-
 
   def spec = suite("K8sServiceAccountVerifier")(
     test("authenticated SA token → Claims with the canonical name") {

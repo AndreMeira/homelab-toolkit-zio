@@ -12,7 +12,6 @@ object KeySourceSpec extends ZIOSpecDefault:
 
   private def genKey: PublicKey = KeyPairGenerator.getInstance("Ed25519").generateKeyPair.getPublic
 
-
   def spec = suite("JwksKeySource")(
     test("known key resolves, and repeated lookups are served from cache (one fetch)") {
       val key = genKey

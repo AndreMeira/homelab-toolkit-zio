@@ -18,7 +18,6 @@ object PublicKeyDecoder {
     case other                                       => Left(Failure.UnsupportedKey(other))
   }
 
-
   /**
    * OKP → Ed25519 (`EdDSA`): the JWK `x` is the raw 32-byte public key. Wrap it in the fixed Ed25519
    * SubjectPublicKeyInfo DER header and let `KeyFactory` decode the point — no manual y / x-sign parsing.
@@ -29,7 +28,6 @@ object PublicKeyDecoder {
     KeyFactory.getInstance("Ed25519").generatePublic(X509EncodedKeySpec(der))
   }.toEither.left.map(err => Failure.KeyGenerationFailed(err))
 
-
   /** 
    * RSA → `RS256`: `n` (modulus) and `e` (exponent) are base64url big-endian unsigned integers. 
    */
@@ -39,14 +37,12 @@ object PublicKeyDecoder {
     KeyFactory.getInstance("RSA").generatePublic(RSAPublicKeySpec(modulus, exponent))
   }.toEither.left.map(err => Failure.KeyGenerationFailed(err))
 
-
   /**
    *
    */
   enum Failure extends ApplicationError.DecodingError:
     case UnsupportedKey(key: JsonWebKey)
     case KeyGenerationFailed(err: Throwable)
-
 
     override def message: String = this match {
       case UnsupportedKey(key)      => s"unsupported JWK algorithm: $key"

@@ -20,7 +20,6 @@ object RegistrationTokenVerifierSpec extends ZIOSpecDefault:
   private val keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair
   private val jwks    = Map(kid -> keyPair.getPublic)
 
-
   /** The registration "issuer" side of the round-trip: sign an EdDSA token with a `kid` header. */
   private def sign(signingKey: PrivateKey, keyId: String, name: String, expiresInSeconds: Long = 3600): SignedToken =
     val header = JwtHeader(algorithm = Some(JwtAlgorithm.EdDSA), keyId = Some(keyId))
@@ -31,10 +30,8 @@ object RegistrationTokenVerifierSpec extends ZIOSpecDefault:
     )
     SignedToken(Jwt.encode(header, claim, signingKey))
 
-
   private def verifierWith(fetch: JwksKeySource.FetchAll): UIO[RegistrationTokenVerifier] =
     JwksKeySource.make(fetch).map(new RegistrationTokenVerifier(_))
-
 
   def spec = suite("RegistrationTokenVerifier")(
     test("a registration-issued token verifies to the user claims") {

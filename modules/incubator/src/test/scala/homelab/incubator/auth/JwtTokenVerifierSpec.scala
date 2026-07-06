@@ -21,7 +21,6 @@ object JwtTokenVerifierSpec extends ZIOSpecDefault:
 
   private val userId = UUID.fromString("00000000-0000-0000-0000-000000000009")
 
-
   /** Issue a signed token (the "issuer" side of the round-trip). */
   private def sign(secretUsed: String, subject: String, name: String, expiresInSeconds: Long = 3600): SignedToken =
     val claim = JwtClaim(
@@ -30,7 +29,6 @@ object JwtTokenVerifierSpec extends ZIOSpecDefault:
       expiration = Some(Instant.now.plusSeconds(expiresInSeconds).getEpochSecond),
     )
     SignedToken(Jwt.encode(claim, secretUsed, algo))
-
 
   def spec = suite("JwtTokenVerifier (round-trip)")(
     test("issued token authenticates back to the user")(
@@ -48,7 +46,6 @@ object JwtTokenVerifierSpec extends ZIOSpecDefault:
       failsWith(user.authenticate(sign("a-different-secret-9876543210", userId.toString, "alice")))(_.isInstanceOf[InvalidToken])
     ),
   )
-
 
   private def failsWith[E](effect: IO[E, Any])(pred: E => Boolean): UIO[TestResult] =
     effect.either.map {

@@ -9,7 +9,6 @@ enum JsonWebKey:
   case RSA(kid: String, use: String, alg: String, n: String, e: String)
   case OKP(kid: String, use: String, crv: String, alg: String, x: String)
 
-
   def keyId: String = this match
     case JsonWebKey.RSA(kid, _, _, _, _) => kid
     case JsonWebKey.OKP(kid, _, _, _, _) => kid
@@ -22,7 +21,6 @@ object JsonWebKey:
   given JsonDecoder[JsonWebKey.OKP] = JsonDecoder.derived
 
   given JsonDecoder[JsonWebKey.RSA] = JsonDecoder.derived
-
 
   given JsonDecoder[JsonWebKey] = JsonDecoder[Json].mapOrFail: json =>
     JsonDecoder[KeyType].fromJsonAST(json).flatMap {

@@ -27,7 +27,6 @@ class CachedJwksSource(source: JwksSource, cache: Ref[Option[JsonWebKey.Set]]) e
       case Some(set) => ZIO.succeed(set)
       case None      => refreshedCache
 
-
   /**
    * The key for `keyId` — from the cached set if present, otherwise from a refetched set (so a rotated-in
    * key resolves on first use); `None` if still absent after a refetch.
@@ -44,7 +43,6 @@ class CachedJwksSource(source: JwksSource, cache: Ref[Option[JsonWebKey.Set]]) e
                  case Some(found) => ZIO.succeed(Some(found))
                  case None        => refreshedCache.map(_.keys.find(_.keyId == keyId))
     yield found
-
 
   /**
    * Fetch the whole key set from `source` and replace the cache with it.

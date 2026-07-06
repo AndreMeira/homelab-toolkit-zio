@@ -34,7 +34,6 @@ object TokenVerifier:
   def from(uri: URI): UIO[TokenVerifier] =
     verifierFor(HttpJwksSource.make(uri))
 
-
   /**
    * A verifier over the in-cluster Kubernetes issuer described by `config` — a [[K8sJwksSource]] wrapped in
    * a [[CachedJwksSource]].
@@ -44,7 +43,6 @@ object TokenVerifier:
    */
   def k8s(config: K8sJwksSource.Config): IO[CaUnreadable, TokenVerifier] =
     K8sJwksSource.make(config).flatMap(verifierFor)
-
 
   /**
    * Wrap `source` in a fresh key-set cache and a caching [[JwksTokenVerifier]].

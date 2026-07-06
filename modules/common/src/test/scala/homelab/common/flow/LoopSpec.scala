@@ -12,7 +12,6 @@ object LoopSpec extends ZIOSpecDefault:
     def incr: UIO[Unit]
     def value: UIO[Int]
 
-
   object Counter:
 
     val layer: ULayer[Counter] =
@@ -21,7 +20,6 @@ object LoopSpec extends ZIOSpecDefault:
           def incr  = ref.update(_ + 1)
           def value = ref.get
       })
-
 
   // NOTE: every `Loop(...)` below is written WITHOUT type annotations on purpose — if it compiles,
   // pure inference handled the signature. The `val _: ExpectedType = …` lines assert *what* it inferred.

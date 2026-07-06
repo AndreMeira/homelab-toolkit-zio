@@ -18,7 +18,6 @@ object HttpTokenReviewerSpec extends ZIOSpecDefault:
 
   private val saName = "system:serviceaccount:homelab:registration"
 
-
   /** A stub API server that answers the TokenReview endpoint with a fixed status + body. */
   private def stubApiServer(status: Int, body: String): ZIO[Scope, Throwable, HttpServer] =
     ZIO.acquireRelease(
@@ -39,13 +38,11 @@ object HttpTokenReviewerSpec extends ZIOSpecDefault:
       }
     )(server => ZIO.succeed(server.stop(0)))
 
-
   private def reviewerFor(server: HttpServer): HttpTokenReviewer =
     new HttpTokenReviewer(
       HttpTokenReviewer.Config(URI.create(s"http://localhost:${server.getAddress.getPort}"), authToken = "test-auth-token"),
       HttpClient.newHttpClient(),
     )
-
 
   /** Like the stub, but records the incoming Authorization header + request body into `sink`. */
   private def capturingServer(sink: AtomicReference[(String, String)]): ZIO[Scope, Throwable, HttpServer] =
@@ -69,7 +66,6 @@ object HttpTokenReviewerSpec extends ZIOSpecDefault:
         server
       }
     )(server => ZIO.succeed(server.stop(0)))
-
 
   def spec = suite("HttpTokenReviewer")(
     test("reviews B's token in the body, using A's own token as the request credential") {

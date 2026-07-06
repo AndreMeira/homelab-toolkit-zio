@@ -20,14 +20,11 @@ object HttpPublicKeySourceSpec extends ZIOSpecDefault:
   private val keyPair = KeyPairGenerator.getInstance("RSA").generateKeyPair
   private val pub     = keyPair.getPublic.asInstanceOf[RSAPublicKey]
 
-
   private def b64url(v: BigInteger): String =
     Base64.getUrlEncoder.withoutPadding.encodeToString(v.toByteArray.dropWhile(_ == 0.toByte)) // minimal unsigned big-endian
 
-
   private val jwksJson =
     s"""{"keys":[{"use":"sig","kty":"RSA","kid":"$kid","alg":"RS256","n":"${b64url(pub.getModulus)}","e":"${b64url(pub.getPublicExponent)}"}]}"""
-
 
   private def jwksServer(body: String): ZIO[Scope, Throwable, HttpServer] =
     ZIO.acquireRelease(
@@ -48,10 +45,8 @@ object HttpPublicKeySourceSpec extends ZIOSpecDefault:
       }
     )(server => ZIO.succeed(server.stop(0)))
 
-
   private def sourceAt(server: HttpServer): URIO[Client, HttpPublicKeySource] =
     ZIO.serviceWith[Client](new HttpPublicKeySource(HttpPublicKeySource.Config(URI.create(s"http://localhost:${server.getAddress.getPort}/jwks")), _))
-
 
   def spec = suite("HttpPublicKeySource")(
     test("fetches JWKS and reconstructs the public key for a kid") {

@@ -25,17 +25,14 @@ object HttpKeySource:
 
   final case class Config(jwksUri: URI, connectTimeout: Duration = 10.seconds, requestTimeout: Duration = 10.seconds)
 
-
   /** A caching, HTTP-backed key source. */
   def make(config: Config): UIO[KeySource] =
     ZIO
       .succeed(HttpClient.newBuilder.connectTimeout(config.connectTimeout).build())
       .flatMap(client => JwksKeySource.make(fetch(config, client)))
 
-
   private def fetch(config: Config, client: HttpClient): JwksKeySource.FetchAll =
     get(config, client).flatMap(parse)
-
 
   private def get(config: Config, client: HttpClient): IO[KeySource.Failure, String] =
     val request = HttpRequest.newBuilder(config.jwksUri).timeout(config.requestTimeout).GET().build()
@@ -50,7 +47,6 @@ object HttpKeySource:
           )
       }
 
-
   private def parse(body: String): IO[KeySource.Failure, Map[String, PublicKey]] =
     ZIO
       .fromEither(body.fromJson[Jwks])
@@ -60,7 +56,6 @@ object HttpKeySource:
           .attempt(jwks.keys.collect { case Jwk("OKP", Some("Ed25519"), Some(kid), Some(x)) => kid -> ed25519(x) }.toMap)
           .mapError(e => KeySource.Failure.Unavailable("could not decode JWKS keys", e))
       }
-
 
   /**
    * Reconstruct an Ed25519 public key from a JWK `x` (RFC 8037 / 8032): 32 bytes, little-endian y with
@@ -72,7 +67,6 @@ object HttpKeySource:
     bigEndian(0) = (bigEndian(0) & 0x7f).toByte
     val point     = EdECPoint(xIsOdd, BigInteger(1, bigEndian))
     KeyFactory.getInstance("Ed25519").generatePublic(EdECPublicKeySpec(NamedParameterSpec.ED25519, point))
-
 
   final private case class Jwks(keys: List[Jwk]) derives JsonDecoder
   final private case class Jwk(kty: String, crv: Option[String], kid: Option[String], x: Option[String]) derives JsonDecoder

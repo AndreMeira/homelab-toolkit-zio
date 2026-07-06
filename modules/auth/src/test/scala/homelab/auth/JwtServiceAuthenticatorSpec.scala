@@ -17,18 +17,14 @@ object JwtServiceAuthenticatorSpec extends ZIOSpecDefault:
   private val expectations = JwtServiceAuthenticator.Expectations(audience, issuer)
   private val token        = SignedToken("x") // ignored by the stub verifier
 
-
   private def claim(aud: Set[String], iss: String, sub: Option[String] = Some(subject)): JwtClaim =
     JwtClaim(subject = sub, audience = Some(aud), issuer = Some(iss))
-
 
   private def verifierReturning(c: JwtClaim): TokenVerifier = new TokenVerifier:
     def verify(token: SignedToken): IO[AdapterError | UnauthorisedError, JwtClaim] = ZIO.succeed(c)
 
-
   private def authenticate(c: JwtClaim) =
     JwtServiceAuthenticator(verifierReturning(c), expectations).authenticate(token)
-
 
   def spec = suite("JwtServiceAuthenticator")(
     test("a matching audience and issuer → the calling Service") {

@@ -44,7 +44,6 @@ final class CachedTokenProvider private (
                  case _                                 => refresh(now)
     yield token
 
-
   /**
    * Fetch a fresh token, cache it with its skew-adjusted refresh instant, and return it.
    *
@@ -60,7 +59,6 @@ final class CachedTokenProvider private (
       _      <- cache.set(Some(entry))
     yield token
 
-
   /**
    * Read the `exp` claim from a token, decoding it without any verification.
    *
@@ -74,7 +72,6 @@ final class CachedTokenProvider private (
       expiry <- expiryOf(claim)
     yield expiry
 
-
   /**
    * Decode a token into its claims, without any signature or time verification.
    *
@@ -85,7 +82,6 @@ final class CachedTokenProvider private (
     val decoded = Jwt.decode(token, JwtOptions(signature = false, expiration = false, notBefore = false))
     ZIO.fromTry(decoded).mapError(err => TokenExpiryUnreadable(err.getMessage))
   }
-
 
   /**
    * Extract the expiry instant from decoded claims.
@@ -112,7 +108,6 @@ object CachedTokenProvider:
   def make(source: JwtProvider, refreshSkew: Duration = 1.minute): UIO[CachedTokenProvider] =
     Ref.make(Option.empty[Entry]).map(new CachedTokenProvider(source, refreshSkew, _))
 
-
   /** The cached token and the instant from which it's considered due for refresh (`exp` minus the skew). */
   final private case class Entry(token: SignedToken, refreshAt: Instant):
 
@@ -123,7 +118,6 @@ object CachedTokenProvider:
      * @return `true` while `now` is before the refresh instant
      */
     def isFresh(now: Instant): Boolean = now.isBefore(refreshAt)
-
 
   /** A refetched token couldn't be decoded, or carried no `exp` — so its lifetime is unknown. */
   final case class TokenExpiryUnreadable(reason: String) extends DecodingError, AdapterError:

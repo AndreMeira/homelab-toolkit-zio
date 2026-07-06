@@ -19,7 +19,6 @@ object ProjectedTokenProviderSpec extends ZIOSpecDefault:
       }
     )(path => ZIO.attempt(Files.deleteIfExists(path)).ignore)
 
-
   def spec = suite("ProjectedTokenProvider")(
     test("reads the token, trimming the trailing newline") {
       ZIO.scoped {

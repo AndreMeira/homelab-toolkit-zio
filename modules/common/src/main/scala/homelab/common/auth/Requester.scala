@@ -19,7 +19,6 @@ object Requester:
   /** A human caller — anonymous or authenticated. */
   sealed trait User extends Requester
 
-
   object User:
     /** No valid credentials presented. */
     case object Anonymous extends User

@@ -38,7 +38,6 @@ final class JwtServiceAuthenticator(verifier: TokenVerifier, expectations: Expec
       service <- serviceOf(claim)
     yield service
 
-
   /**
    * Check the token was minted for us — its `aud` includes the expected audience.
    *
@@ -49,7 +48,6 @@ final class JwtServiceAuthenticator(verifier: TokenVerifier, expectations: Expec
     if claim.audience.exists(_.contains(expectations.audience)) then ZIO.unit
     else ZIO.fail(InvalidServiceToken(s"audience ${claim.audience.getOrElse(Set.empty)} does not include '${expectations.audience}'"))
 
-
   /**
    * Check the token came from the trusted issuer — its `iss` equals the expected issuer.
    *
@@ -59,7 +57,6 @@ final class JwtServiceAuthenticator(verifier: TokenVerifier, expectations: Expec
   private def checkIssuer(claim: JwtClaim): IO[UnauthorisedError, Unit] =
     if claim.issuer.contains(expectations.issuer) then ZIO.unit
     else ZIO.fail(InvalidServiceToken(s"issuer ${claim.issuer.getOrElse("<none>")} is not '${expectations.issuer}'"))
-
 
   /**
    * Map the token's subject to the calling service.
@@ -80,7 +77,6 @@ object JwtServiceAuthenticator:
    * @param issuer   the issuer the token must come from (its `iss` must equal this)
    */
   final case class Expectations(audience: String, issuer: String)
-
 
   /** The token verified cryptographically but isn't acceptable — wrong audience/issuer, or no subject. */
   final case class InvalidServiceToken(reason: String) extends UnauthorisedError:

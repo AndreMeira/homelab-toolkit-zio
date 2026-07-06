@@ -61,18 +61,15 @@ sealed trait JsonWebKey:
     case okp: JsonWebKey.OKP => okp.alg
     case rsa: JsonWebKey.RSA => rsa.alg
 
-
   def keyId: String = this match
     case okp: JsonWebKey.OKP => okp.kid
     case rsa: JsonWebKey.RSA => rsa.kid
-
 
   /** Reconstruct the java `PublicKey`, or a [[DecodingError]] if the key's algorithm is unsupported. */
   def publicKey: Either[DecodingError, PublicKey] = this match
     case okp: JsonWebKey.OKP if okp.alg == "EdDSA" & okp.crv == "Ed25519" => ed25519(okp)
     case rsa: JsonWebKey.RSA if rsa.alg == "RS256"                        => rsaKey(rsa)
     case other                                                            => unsupported(other)
-
 
   /**
    * OKP → Ed25519 (`EdDSA`): the JWK `x` is the raw 32-byte public key. Wrap it in the fixed Ed25519
@@ -84,14 +81,12 @@ sealed trait JsonWebKey:
     KeyFactory.getInstance("Ed25519").generatePublic(X509EncodedKeySpec(der))
   }.toEither.left.map(e => KeyGenerationFailed(e.getMessage))
 
-
   /** RSA → `RS256`: `n` (modulus) and `e` (exponent) are base64url big-endian unsigned integers. */
   private def rsaKey(key: JsonWebKey.RSA): Either[DecodingError, PublicKey] = Try {
     val modulus  = BigInteger(1, Base64.getUrlDecoder.decode(key.n))
     val exponent = BigInteger(1, Base64.getUrlDecoder.decode(key.e))
     KeyFactory.getInstance("RSA").generatePublic(RSAPublicKeySpec(modulus, exponent))
   }.toEither.left.map(e => KeyGenerationFailed(e.getMessage))
-
 
   /** Unsupported  */
   private def unsupported(key: JsonWebKey): Either[DecodingError, PublicKey] =
@@ -102,14 +97,11 @@ object JsonWebKey:
   case class KeyType(kty: String) derives JsonDecoder
   case class Set(keys: List[JsonWebKey]) derives JsonDecoder
 
-
   case class UnsupportedAlgorithm(name: String) extends DecodingError:
     override def message: String = s"unsupported JWK algorithm: $name"
 
-
   case class KeyGenerationFailed(name: String) extends DecodingError:
     override def message: String = s"failed to generate public key from JWK: $name"
-
 
   case class OKP(kid: String, use: String, crv: String, alg: String, x: String) extends JsonWebKey
   case class RSA(kid: String, use: String, alg: String, n: String, e: String)   extends JsonWebKey
@@ -123,7 +115,6 @@ object JsonWebKey:
    *
    */
   given JsonDecoder[RSA] = JsonDecoder.derived
-
 
   /**
    * Decode a JWK by first reading its `kty`, then delegating to the matching key-type decoder. Decodes

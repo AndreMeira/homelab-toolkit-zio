@@ -28,7 +28,6 @@ import javax.net.ssl.{ SSLContext, TrustManagerFactory }
 final class HttpTokenReviewer(config: HttpTokenReviewer.Config, client: HttpClient) extends TokenReviewer:
   import HttpTokenReviewer.*
 
-
   def review(token: SignedToken): IO[TokenReviewer.Unavailable, TokenReviewer.Result] =
     val body    = ReviewRequest(spec = ReviewSpec(token, Option.when(config.audiences.nonEmpty)(config.audiences))).toJson
     val request = HttpRequest
@@ -56,7 +55,6 @@ object HttpTokenReviewer:
 
   final case class Config(apiServer: URI, authToken: String, audiences: List[String] = Nil, requestTimeout: Duration = 10.seconds)
 
-
   /** In-cluster wiring: read the pod's SA token + cluster CA and target the API server over TLS. */
   def inCluster(audiences: List[String] = Nil): Task[HttpTokenReviewer] =
     for
@@ -67,10 +65,8 @@ object HttpTokenReviewer:
       port    = sys.env.getOrElse("KUBERNETES_SERVICE_PORT", "443")
     yield new HttpTokenReviewer(Config(URI.create(s"https://$host:$port"), token.trim, audiences), client)
 
-
   private def readFile(path: String): Task[String] =
     ZIO.attemptBlocking(Files.readString(Path.of(path)))
-
 
   private def tlsClient(caPem: String): HttpClient =
     val cert     = CertificateFactory.getInstance("X.509").generateCertificate(new ByteArrayInputStream(caPem.getBytes(UTF_8)))
@@ -83,16 +79,13 @@ object HttpTokenReviewer:
     ssl.init(null, trust.getTrustManagers, null)
     HttpClient.newBuilder.sslContext(ssl).build()
 
-
   private def toResult(response: ReviewResponse): TokenReviewer.Result =
     val authenticated = response.status.flatMap(_.authenticated).getOrElse(false)
     val username      = response.status.flatMap(_.user).flatMap(_.username)
     TokenReviewer.Result(authenticated, if authenticated then username else None)
 
-
   final private case class ReviewRequest(apiVersion: String = "authentication.k8s.io/v1", kind: String = "TokenReview", spec: ReviewSpec)
       derives JsonEncoder
-
 
   final private case class ReviewSpec(token: String, audiences: Option[List[String]]) derives JsonEncoder
   final private case class ReviewResponse(status: Option[ReviewStatus]) derives JsonDecoder

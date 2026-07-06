@@ -19,22 +19,18 @@ object AuthSketchSpec extends ZIOSpecDefault:
       if unavailable then ZIO.fail(TokenVerifier.Failure.Unavailable("key source unreachable", new RuntimeException("stub")))
       else ZIO.fromOption(valid.get(token)).orElseFail(TokenVerifier.Failure.Invalid("unknown or expired token"))
 
-
   private val userId       = UUID.fromString("00000000-0000-0000-0000-000000000001")
   private val userToken    = SignedToken("user-token")
   private val serviceToken = SignedToken("service-token")
   private val badToken     = SignedToken("nope")
 
-
   private val verifier =
     new InMemory(Map(userToken -> Claims(userId.toString, "alice"), serviceToken -> Claims("registration", "registration-service")))
 
-
-  private val down     = new InMemory(Map.empty, unavailable = true)
+  private val down = new InMemory(Map.empty, unavailable = true)
 
   private val service = JwtServiceAuthenticator(verifier)
   private val user    = JwtUserAuthenticator(verifier)
-
 
   /** Assert the effect fails, and its error satisfies `pred`. */
   private def failsWith[E](effect: IO[E, Any])(pred: E => Boolean): UIO[TestResult] =
@@ -42,7 +38,6 @@ object AuthSketchSpec extends ZIOSpecDefault:
       case Left(e)  => assertTrue(pred(e))
       case Right(_) => assertTrue(false) // expected a failure
     }
-
 
   def spec = suite("auth sketches")(
     suite("ServiceAuthenticator")(

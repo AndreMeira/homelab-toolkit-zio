@@ -28,7 +28,6 @@ final class JwksKeySource(cache: Ref[Map[String, PublicKey]], fetchAll: JwksKeyS
         case None      => refreshAndLookup(keyId)
     }
 
-
   private def refreshAndLookup(keyId: String): IO[KeySource.Failure, PublicKey] =
     for
       fresh <- fetchAll
@@ -41,7 +40,6 @@ object JwksKeySource:
 
   /** The raw JWKS fetch: all published keys by id, or an infrastructure failure (an `Unavailable`). */
   type FetchAll = IO[KeySource.Failure, Map[String, PublicKey]]
-
 
   /** An empty-cache key source over the given fetch. */
   def make(fetchAll: FetchAll): UIO[JwksKeySource] =

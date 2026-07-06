@@ -45,7 +45,6 @@ object ProjectedTokenProvider:
    */
   def inPod: ProjectedTokenProvider = new ProjectedTokenProvider(DefaultTokenPath)
 
-
   /** The projected token file is missing or unreadable (e.g. automount disabled, or a restrictive mode). */
   final case class TokenUnavailable(path: Path, cause: Throwable) extends AdapterError:
     override def message: String = s"could not read the service-account token at $path: ${cause.getMessage}"

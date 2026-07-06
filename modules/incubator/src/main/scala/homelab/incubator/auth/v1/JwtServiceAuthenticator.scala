@@ -21,7 +21,6 @@ final class JwtServiceAuthenticator(verifier: TokenVerifier) extends ServiceAuth
       .mapError(toApplicationError)
       .map(claims => Service(ServiceName(claims.subject)))
 
-
   private def toApplicationError(failure: TokenVerifier.Failure): AdapterError | UnauthorisedError =
     failure match
       case TokenVerifier.Failure.Invalid(reason)            => InvalidToken(reason)

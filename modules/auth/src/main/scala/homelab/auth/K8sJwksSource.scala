@@ -22,11 +22,18 @@ import javax.net.ssl.{ SSLContext, TrustManagerFactory }
  * Build it with [[K8sJwksSource.make]], which bundles the CA-trusting client and the token provider from a
  * [[K8sJwksSource.Config]] — the constructor is private so those pieces can't drift apart.
  *
- * @param uri    the JWKS endpoint
- * @param tokens the provider of the bearer — the pod's rotating service-account token, read per fetch
- * @param client the HTTP client trusting the cluster CA
+ * @param uri        the JWKS endpoint
+ * @param tokens     the provider of the bearer — the pod's rotating service-account token, read per fetch
+ * @param httpClient the HTTP client trusting the cluster CA
  */
-final class K8sJwksSource private (uri: URI, tokens: JwtProvider, protected val client: HttpClient) extends HttpJwksSource:
+final class K8sJwksSource private (uri: URI, tokens: JwtProvider, httpClient: HttpClient) extends HttpJwksSource:
+
+  /**
+   * The HTTP client used to send [[request]] trusting a specific CA for the in-cluster issuer.
+   *
+   * @return the client to send with
+   */
+  override protected def client: HttpClient = httpClient
 
   /**
    * The JWKS GET request, presenting a freshly-read service-account token as the bearer.
@@ -52,7 +59,6 @@ object K8sJwksSource:
     tokenPath: Path = Path.of("/var/run/secrets/kubernetes.io/serviceaccount/token"),
   )
 
-
   /**
    * Build a source for the in-cluster issuer from `config`: constructs the CA-trusting HTTP client and the
    * projected-token provider, and wires them into the source.
@@ -65,7 +71,6 @@ object K8sJwksSource:
       .attempt(caTrustingClient(config.caCertPath))
       .mapError(CaUnreadable(config.caCertPath, _))
       .map(client => new K8sJwksSource(config.jwksUri, ProjectedTokenProvider(config.tokenPath), client))
-
 
   /**
    * A JDK HTTP client whose TLS trust store is just the CA cert at `caCertPath` — for the in-cluster API
@@ -86,7 +91,6 @@ object K8sJwksSource:
     ssl.init(null, trust.getTrustManagers, null)
     HttpClient.newBuilder.sslContext(ssl).build()
   }
-
 
   /** The cluster CA certificate at `path` couldn't be read or parsed — the trusting client can't be built. */
   final case class CaUnreadable(path: Path, cause: Throwable) extends ApplicationError:

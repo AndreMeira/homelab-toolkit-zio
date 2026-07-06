@@ -29,7 +29,6 @@ final class RegistrationTokenVerifier(keySource: KeySource) extends TokenVerifie
       claims <- extract(claim)
     yield claims
 
-
   /** Read the `kid` from the (unverified) header — needed to pick the key before we can verify. */
   private def keyId(token: SignedToken): IO[TokenVerifier.Failure, String] =
     ZIO
@@ -42,14 +41,12 @@ final class RegistrationTokenVerifier(keySource: KeySource) extends TokenVerifie
       }
       .mapError(reason => TokenVerifier.Failure.Invalid(reason))
 
-
   private def decode(token: SignedToken, key: PublicKey): IO[TokenVerifier.Failure, JwtClaim] =
     ZIO.suspendSucceed {
       Jwt
         .decode(token, key, Seq(JwtAlgorithm.EdDSA))
         .fold(error => ZIO.fail(TokenVerifier.Failure.Invalid(Option(error.getMessage).getOrElse(error.toString))), ZIO.succeed)
     }
-
 
   private def extract(claim: JwtClaim): IO[TokenVerifier.Failure, Claims] =
     for
@@ -58,7 +55,6 @@ final class RegistrationTokenVerifier(keySource: KeySource) extends TokenVerifie
                    .fromEither(claim.content.fromJson[RegistrationTokenVerifier.Name])
                    .mapError(reason => TokenVerifier.Failure.Invalid(s"malformed claims: $reason"))
     yield Claims(subject, name.name)
-
 
   private def fromKeySource(failure: KeySource.Failure): TokenVerifier.Failure =
     failure match

@@ -24,6 +24,5 @@ final class K8sServiceAccountVerifier(reviewer: TokenReviewer) extends TokenVeri
         case _                                          => ZIO.fail(TokenVerifier.Failure.Invalid("service account token not authenticated"))
       }
 
-
   /** `system:serviceaccount:<ns>:<name>` → `<name>`. */
   private def shortName(username: String): String = username.split(':').lastOption.getOrElse(username)
