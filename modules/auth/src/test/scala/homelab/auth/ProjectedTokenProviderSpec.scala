@@ -1,10 +1,12 @@
 package homelab.auth
 
+
 import homelab.common.types.SignedToken
 import zio.*
 import zio.test.*
 
 import java.nio.file.{ Files, Path }
+
 
 object ProjectedTokenProviderSpec extends ZIOSpecDefault:
 
@@ -16,6 +18,7 @@ object ProjectedTokenProviderSpec extends ZIOSpecDefault:
         path
       }
     )(path => ZIO.attempt(Files.deleteIfExists(path)).ignore)
+
 
   def spec = suite("ProjectedTokenProvider")(
     test("reads the token, trimming the trailing newline") {

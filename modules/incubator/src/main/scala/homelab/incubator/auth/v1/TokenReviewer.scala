@@ -1,7 +1,9 @@
 package homelab.incubator.auth.v1
 
+
 import homelab.common.types.SignedToken
 import zio.*
+
 
 /**
  * Sketch seam: the Kubernetes `TokenReview` — hand a ServiceAccount token to the API server and all back
@@ -11,6 +13,7 @@ import zio.*
  */
 trait TokenReviewer:
   def review(token: SignedToken): IO[TokenReviewer.Unavailable, TokenReviewer.Result]
+
 
 object TokenReviewer:
   /** The review outcome: whether the token authenticated, and the caller's username when it did. */

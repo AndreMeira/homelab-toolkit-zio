@@ -1,5 +1,6 @@
 package homelab.incubator.auth.v1
 
+
 import homelab.common.types.SignedToken
 import pdi.jwt.{ Jwt, JwtAlgorithm, JwtClaim }
 import zio.*
@@ -8,6 +9,7 @@ import zio.json.*
 import java.nio.charset.StandardCharsets.UTF_8
 import java.security.PublicKey
 import java.util.Base64
+
 
 /**
  * Sketch: verifies tokens issued by the registration service (EdDSA). Reads the `kid` from the JWT
@@ -27,6 +29,7 @@ final class RegistrationTokenVerifier(keySource: KeySource) extends TokenVerifie
       claims <- extract(claim)
     yield claims
 
+
   /** Read the `kid` from the (unverified) header — needed to pick the key before we can verify. */
   private def keyId(token: SignedToken): IO[TokenVerifier.Failure, String] =
     ZIO
@@ -39,6 +42,7 @@ final class RegistrationTokenVerifier(keySource: KeySource) extends TokenVerifie
       }
       .mapError(reason => TokenVerifier.Failure.Invalid(reason))
 
+
   private def decode(token: SignedToken, key: PublicKey): IO[TokenVerifier.Failure, JwtClaim] =
     ZIO.suspendSucceed {
       Jwt
@@ -46,19 +50,22 @@ final class RegistrationTokenVerifier(keySource: KeySource) extends TokenVerifie
         .fold(error => ZIO.fail(TokenVerifier.Failure.Invalid(Option(error.getMessage).getOrElse(error.toString))), ZIO.succeed)
     }
 
+
   private def extract(claim: JwtClaim): IO[TokenVerifier.Failure, Claims] =
     for
       subject <- ZIO.fromOption(claim.subject).orElseFail(TokenVerifier.Failure.Invalid("missing subject claim"))
-      name <- ZIO
-                .fromEither(claim.content.fromJson[RegistrationTokenVerifier.Name])
-                .mapError(reason => TokenVerifier.Failure.Invalid(s"malformed claims: $reason"))
+      name    <- ZIO
+                   .fromEither(claim.content.fromJson[RegistrationTokenVerifier.Name])
+                   .mapError(reason => TokenVerifier.Failure.Invalid(s"malformed claims: $reason"))
     yield Claims(subject, name.name)
+
 
   private def fromKeySource(failure: KeySource.Failure): TokenVerifier.Failure =
     failure match
       case KeySource.Failure.UnknownKey(kid)            => TokenVerifier.Failure.Invalid(s"unknown signing key: $kid")
       case KeySource.Failure.Unavailable(reason, cause) => TokenVerifier.Failure.Unavailable(reason, cause)
 
+
 object RegistrationTokenVerifier:
-  private final case class Head(kid: Option[String]) derives JsonDecoder
-  private final case class Name(name: String) derives JsonDecoder
+  final private case class Head(kid: Option[String]) derives JsonDecoder
+  final private case class Name(name: String) derives JsonDecoder

@@ -1,10 +1,12 @@
 package homelab.incubator.auth.v1
 
+
 import homelab.common.types.SignedToken
 import pdi.jwt.{ Jwt, JwtClaim }
 import pdi.jwt.algorithms.JwtHmacAlgorithm
 import zio.*
 import zio.json.*
+
 
 /**
  * Sketch: a [[TokenVerifier]] backed by jwt-scala. Verifies the token's signature and expiry against
@@ -21,18 +23,21 @@ final class JwtTokenVerifier(secret: String, algorithm: JwtHmacAlgorithm) extend
       Jwt.decode(token, secret, Seq(algorithm)).fold(error => ZIO.fail(classify(error)), fromClaim)
     }
 
+
   private def fromClaim(claim: JwtClaim): IO[TokenVerifier.Failure, Claims] =
     for
       subject <- ZIO.fromOption(claim.subject).orElseFail(TokenVerifier.Failure.Invalid("missing subject claim"))
-      name <- ZIO
-                .fromEither(claim.content.fromJson[JwtTokenVerifier.NameClaim])
-                .mapError(reason => TokenVerifier.Failure.Invalid(s"malformed claims: $reason"))
+      name    <- ZIO
+                   .fromEither(claim.content.fromJson[JwtTokenVerifier.NameClaim])
+                   .mapError(reason => TokenVerifier.Failure.Invalid(s"malformed claims: $reason"))
     yield Claims(subject, name.name)
+
 
   // jwt-scala's decode failures (bad signature, expired, malformed) are all token-level → Invalid. A
   // JWKS-backed impl would additionally surface Unavailable when the key source can't be reached.
   private def classify(error: Throwable): TokenVerifier.Failure =
     TokenVerifier.Failure.Invalid(Option(error.getMessage).getOrElse(error.toString))
 
+
 object JwtTokenVerifier:
-  private final case class NameClaim(name: String) derives JsonDecoder
+  final private case class NameClaim(name: String) derives JsonDecoder

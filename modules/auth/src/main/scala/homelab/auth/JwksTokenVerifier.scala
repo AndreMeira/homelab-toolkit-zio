@@ -1,5 +1,6 @@
 package homelab.auth
 
+
 import homelab.common.error.ApplicationError
 import homelab.common.error.ApplicationError.{ AdapterError, UnauthorisedError }
 import homelab.common.types.SignedToken
@@ -12,6 +13,7 @@ import java.nio.charset.StandardCharsets.UTF_8
 import java.security.PublicKey
 import java.util.Base64
 import scala.util.Try
+
 
 /**
  * A [[TokenVerifier]] backed by a [[JwksSource]]: reads the token's `kid`, resolves the matching JWK from
@@ -50,6 +52,7 @@ final class JwksTokenVerifier private (source: JwksSource, cache: Ref[Map[String
       claim <- decode(token, key)
     yield claim
 
+
   /**
    * Read the `kid` from the token's header segment, decoded as JSON — cheaper than a full JWT decode, and
    * this is the only place the header is inspected.
@@ -59,6 +62,7 @@ final class JwksTokenVerifier private (source: JwksSource, cache: Ref[Map[String
    */
   private def keyId(token: SignedToken): IO[UnauthorisedError, String] =
     ZIO.fromEither(headerKeyId(token)).mapError(MalformedToken(_))
+
 
   /**
    * Pull the `kid` out of the token's first (header) segment: base64url-decode it and read the `kid` field.
@@ -75,6 +79,7 @@ final class JwksTokenVerifier private (source: JwksSource, cache: Ref[Map[String
       kid     <- header.kid.toRight("token header has no kid")
     yield kid
 
+
   /**
    * The public key for `keyId`, cached: served from the cache if present, otherwise fetched from the
    * source, reconstructed, and cached. Two concurrent misses may reconstruct the same key twice — harmless,
@@ -87,13 +92,14 @@ final class JwksTokenVerifier private (source: JwksSource, cache: Ref[Map[String
   private def publicKey(keyId: String): IO[AdapterError | UnauthorisedError, PublicKey] =
     cache.get.map(_.get(keyId)).flatMap {
       case Some(key) => ZIO.succeed(key)
-      case None =>
+      case None      =>
         for
           jwk <- jwkFor(keyId)
           key <- reconstruct(jwk)
           _   <- cache.update(_.updated(keyId, key))
         yield key
     }
+
 
   /**
    * Resolve the JWK the token was signed with.
@@ -108,6 +114,7 @@ final class JwksTokenVerifier private (source: JwksSource, cache: Ref[Map[String
       case None      => ZIO.fail(UnknownKey(keyId))
     }
 
+
   /**
    * Reconstruct the public key from a JWK.
    *
@@ -116,6 +123,7 @@ final class JwksTokenVerifier private (source: JwksSource, cache: Ref[Map[String
    */
   private def reconstruct(jwk: JsonWebKey): IO[AdapterError, PublicKey] =
     ZIO.fromEither(PublicKeyDecoder.decode(jwk)).mapError(failure => KeyUnusable(failure.message))
+
 
   /**
    * Verify the token's signature and expiry against `key`, returning its claims.
@@ -129,6 +137,7 @@ final class JwksTokenVerifier private (source: JwksSource, cache: Ref[Map[String
       .fromTry(JwtZIOJson.decode(token, key, Seq(JwtAlgorithm.EdDSA, JwtAlgorithm.RS256)))
       .mapError(err => UntrustedToken(err.getMessage))
 
+
 object JwksTokenVerifier:
 
   /**
@@ -140,23 +149,28 @@ object JwksTokenVerifier:
   def make(source: JwksSource): UIO[JwksTokenVerifier] =
     Ref.make(Map.empty[String, PublicKey]).map(new JwksTokenVerifier(source, _))
 
+
   /** Just enough of a JWT header to route to a signing key — its `kid`. */
   final private case class Header(kid: Option[String]) derives JsonDecoder
 
   /** Marker for every failure this verifier can raise itself (source failures pass through unchanged). */
   sealed trait Failure extends ApplicationError
 
+
   /** The token header couldn't be decoded, or carries no `kid` — there's nothing to look a key up by. */
   final case class MalformedToken(reason: String) extends Failure, UnauthorisedError:
     override def message: String = s"malformed token: $reason"
+
 
   /** No JWK in the source carries the token's `kid` — signed by a key we don't publish or trust. */
   final case class UnknownKey(keyId: String) extends Failure, UnauthorisedError:
     override def message: String = s"no JWK with kid '$keyId'"
 
+
   /** The signature or expiry check failed — the token is invalid. */
   final case class UntrustedToken(reason: String) extends Failure, UnauthorisedError:
     override def message: String = s"token failed verification: $reason"
+
 
   /** A JWK was found but couldn't be turned into a public key (unsupported or corrupt key material). */
   final case class KeyUnusable(reason: String) extends Failure, AdapterError:

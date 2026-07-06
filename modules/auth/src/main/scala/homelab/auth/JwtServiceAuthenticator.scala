@@ -1,5 +1,6 @@
 package homelab.auth
 
+
 import homelab.common.auth.Requester.Service
 import homelab.common.auth.ServiceAuthenticator
 import homelab.common.error.ApplicationError.{ AdapterError, UnauthorisedError }
@@ -7,6 +8,7 @@ import homelab.common.types.{ ServiceName, SignedToken }
 import homelab.auth.JwtServiceAuthenticator.*
 import pdi.jwt.JwtClaim
 import zio.*
+
 
 /**
  * A [[ServiceAuthenticator]] over a [[TokenVerifier]]: verifies the service token, checks it was minted for
@@ -36,6 +38,7 @@ final class JwtServiceAuthenticator(verifier: TokenVerifier, expectations: Expec
       service <- serviceOf(claim)
     yield service
 
+
   /**
    * Check the token was minted for us — its `aud` includes the expected audience.
    *
@@ -45,6 +48,7 @@ final class JwtServiceAuthenticator(verifier: TokenVerifier, expectations: Expec
   private def checkAudience(claim: JwtClaim): IO[UnauthorisedError, Unit] =
     if claim.audience.exists(_.contains(expectations.audience)) then ZIO.unit
     else ZIO.fail(InvalidServiceToken(s"audience ${claim.audience.getOrElse(Set.empty)} does not include '${expectations.audience}'"))
+
 
   /**
    * Check the token came from the trusted issuer — its `iss` equals the expected issuer.
@@ -56,6 +60,7 @@ final class JwtServiceAuthenticator(verifier: TokenVerifier, expectations: Expec
     if claim.issuer.contains(expectations.issuer) then ZIO.unit
     else ZIO.fail(InvalidServiceToken(s"issuer ${claim.issuer.getOrElse("<none>")} is not '${expectations.issuer}'"))
 
+
   /**
    * Map the token's subject to the calling service.
    *
@@ -64,6 +69,7 @@ final class JwtServiceAuthenticator(verifier: TokenVerifier, expectations: Expec
    */
   private def serviceOf(claim: JwtClaim): IO[UnauthorisedError, Service] =
     ZIO.fromOption(claim.subject).mapBoth(_ => InvalidServiceToken("token has no subject"), sub => Service(ServiceName(sub)))
+
 
 object JwtServiceAuthenticator:
 
@@ -74,6 +80,7 @@ object JwtServiceAuthenticator:
    * @param issuer   the issuer the token must come from (its `iss` must equal this)
    */
   final case class Expectations(audience: String, issuer: String)
+
 
   /** The token verified cryptographically but isn't acceptable — wrong audience/issuer, or no subject. */
   final case class InvalidServiceToken(reason: String) extends UnauthorisedError:

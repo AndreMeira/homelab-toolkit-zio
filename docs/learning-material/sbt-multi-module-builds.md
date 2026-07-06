@@ -145,6 +145,39 @@ Prefer inheriting the strict flags for real modules; only relax deliberately.
 - **`aggregate` ≠ `dependsOn`.** Forgetting `aggregate` means `sbt test` at the root silently skips your
   module; forgetting `dependsOn` means your code can't see `common`. You usually need both.
 
+## Publishing via JitPack
+
+The modules are consumable straight from GitHub without a publishing pipeline: **[JitPack](https://jitpack.io)
+builds them on demand from a git tag** and serves the artifacts. As a maintainer you do two things:
+
+1. **Add a `jitpack.yml`** at the repo root pinning a JDK new enough for the code (Ed25519 needs 15+; use 17):
+
+   ```yaml
+   jdk:
+     - openjdk17
+   ```
+
+2. **Push a git tag** — that tag *is* the version:
+
+   ```
+   git tag v0.1.0 && git push origin v0.1.0
+   ```
+
+That's it. On the first request, JitPack clones the tag, runs `sbt publishM2`, and caches the result.
+Consumers then reference the module under the `com.github.<owner>.<repo>` group by its artifact name — see
+[`using-modules-as-a-dependency.md`](using-modules-as-a-dependency.md).
+
+Notes:
+
+- **`publish / skip` modules are excluded** — the `root` and `incubator` won't be published, which is what
+  we want; only real modules (`common`, `auth`, …) are served.
+- **sbt multi-module is JitPack's rough edge.** If the first build fails, read the log at
+  `jitpack.io/com/github/<owner>/<repo>/<tag>/build.log` and expect to iterate once on the tag / `jitpack.yml`.
+- **Tags are immutable coordinates.** To ship a fix, push a new tag (`v0.1.1`); don't move an existing one.
+
+For local iteration (same machine) `sbt publishLocal` is simpler — publishing all modules to `~/.ivy2/local`;
+JitPack is for handing a **pinned, cross-machine** coordinate to a consumer.
+
 ## Cheat sheet
 
 ```scala

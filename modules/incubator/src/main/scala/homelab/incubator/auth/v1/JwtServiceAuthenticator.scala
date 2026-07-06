@@ -1,10 +1,12 @@
 package homelab.incubator.auth.v1
 
+
 import homelab.common.auth.Requester.Service
 import homelab.common.auth.ServiceAuthenticator
 import homelab.common.error.ApplicationError.{ AdapterError, UnauthorisedError }
 import homelab.common.types.{ ServiceName, SignedToken }
 import zio.*
+
 
 /**
  * Sketch: [[ServiceAuthenticator]] over a [[TokenVerifier]]. Verifies the service token and builds the
@@ -18,6 +20,7 @@ final class JwtServiceAuthenticator(verifier: TokenVerifier) extends ServiceAuth
       .verify(token)
       .mapError(toApplicationError)
       .map(claims => Service(ServiceName(claims.subject)))
+
 
   private def toApplicationError(failure: TokenVerifier.Failure): AdapterError | UnauthorisedError =
     failure match

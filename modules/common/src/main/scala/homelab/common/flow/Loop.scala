@@ -2,6 +2,7 @@ package homelab.common.flow
 
 import zio.*
 
+
 /**
  * A stack-safe, effectful loop driven by an explicit state machine. Starting from `state`, it runs
  * `run` to get the next [[Loop.Next]] step and either continues with a new state or stops with a
@@ -29,6 +30,7 @@ object Loop:
       case Next.Continue(nextState) => Loop(nextState)(run)
       case Next.Done(value)         => ZIO.succeed(value)
 
+
   /**
    * Smart constructor for [[Next.Continue]]: leaves `O` as `Nothing` so covariance widens the result to
    * the loop's `O` at the call site — callers write `Loop.continue(state)` without naming `O`.
@@ -47,6 +49,7 @@ object Loop:
    * `Nothing` so covariance fits it into any step's result type.
    */
   def succeed[O](outcome: O): UIO[Next[Nothing, O]] = ZIO.succeed(Next.Done(outcome))
+
 
   /**
    * The outcome of one loop step: [[Continue]] to iterate again with a new state,

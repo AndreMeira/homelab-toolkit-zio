@@ -1,5 +1,6 @@
 package homelab.incubator.auth.v2
 
+
 import HttpPublicKeySource.*
 import homelab.common.error.ApplicationError.{ AdapterError, DecodingError, TransientError }
 import zio.*
@@ -10,6 +11,7 @@ import zio.json.*
 
 import java.net.URI
 import java.security.PublicKey
+
 
 /**
  * A [[PublicKeySource]] that fetches a JWKS over HTTP (ZIO HTTP `Client.batched`), decodes it into a
@@ -24,6 +26,7 @@ import java.security.PublicKey
 final class HttpPublicKeySource(config: HttpPublicKeySource.Config, client: Client) extends PublicKeySource:
 
   private val batched = client.batched
+
 
   /**
    * Fetch the JWKS, decode it, and return the public key for `keyId`.
@@ -42,6 +45,7 @@ final class HttpPublicKeySource(config: HttpPublicKeySource.Config, client: Clie
       key      <- ZIO.fromEither(jwk.publicKey).mapError(e => JwksDecodingFailed(e.message))
     yield key
 
+
   /**
    * GET the JWKS endpoint, failing on a non-2xx status.
    *
@@ -55,6 +59,7 @@ final class HttpPublicKeySource(config: HttpPublicKeySource.Config, client: Clie
       else ZIO.fail(badStatus(config.uri, response))
     }
 
+
   /**
    * The JWKS GET request, carrying the configured bearer credential when one is set.
    *
@@ -63,6 +68,7 @@ final class HttpPublicKeySource(config: HttpPublicKeySource.Config, client: Clie
   private def jwksRequest: Request =
     val base = Request.get(config.uri.toString)
     config.bearer.fold(base)(token => base.addHeader("Authorization", s"Bearer $token"))
+
 
 object HttpPublicKeySource:
 
@@ -78,6 +84,7 @@ object HttpPublicKeySource:
   /** The in-pod path of the cluster CA that signs the Kubernetes API server's TLS certificate. */
   val ClusterCaPath = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 
+
   /** A ZIO HTTP `Client` whose TLS trust store is just the cluster CA (from [[ClusterCaPath]]). */
   private val clusterCaClient: ZLayer[Any, Throwable, Client] =
     ZLayer.make[Client](
@@ -87,6 +94,7 @@ object HttpPublicKeySource:
       NettyClientDriver.live,
       Client.customized,
     )
+
 
   /**
    * An [[HttpPublicKeySource]] over `config`'s JWKS endpoint, using a `Client` that trusts the Kubernetes
@@ -98,6 +106,7 @@ object HttpPublicKeySource:
   def layer(config: Config): ZLayer[Any, Throwable, HttpPublicKeySource] =
     clusterCaClient >>> ZLayer.fromFunction((client: Client) => new HttpPublicKeySource(config, client))
 
+
   /**
    * Turn a non-2xx response into an [[Unreachable]] failure.
    *
@@ -107,6 +116,7 @@ object HttpPublicKeySource:
    */
   def badStatus(uri: URI, response: Response): Unreachable =
     Unreachable(s"JWKS at $uri returned HTTP ${response.status.code}", StatusError(response.status.code))
+
 
   /**
    * Turn a body-read failure into an [[Unreachable]] failure.
@@ -118,16 +128,20 @@ object HttpPublicKeySource:
   def badResponseBody(uri: URI, err: Throwable): Unreachable =
     Unreachable(s"could not read JWKS body from $uri", err)
 
+
   /** The JWKS endpoint couldn't be reached, or returned a non-2xx status — retryable infrastructure. */
   final case class Unreachable(reason: String, cause: Throwable) extends AdapterError, TransientError:
     override def message: String = reason
+
 
   /** The requested `kid` isn't present in the fetched key set. */
   final case class KeyNotFound(keyId: String) extends AdapterError:
     override def message: String = s"no JWK with kid '$keyId' in the key set"
 
+
   /** The JWKS body — or one of its keys — couldn't be decoded: both a decoding and an adapter failure. */
   final case class JwksDecodingFailed(reason: String) extends DecodingError, AdapterError:
     override def message: String = s"could not decode JWKS: $reason"
+
 
   final private case class StatusError(status: Int) extends RuntimeException(s"HTTP $status")

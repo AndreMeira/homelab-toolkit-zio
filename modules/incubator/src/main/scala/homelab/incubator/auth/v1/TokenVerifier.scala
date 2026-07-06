@@ -1,10 +1,13 @@
 package homelab.incubator.auth.v1
 
+
 import homelab.common.types.SignedToken
 import zio.*
 
+
 /** Verified claims lifted from a signed token — signature and expiry already checked by the verifier. */
 final case class Claims(subject: String, name: String)
+
 
 /**
  * Sketch seam: verify a signed token against the issuer's keys and return its claims. It separates the
@@ -15,7 +18,9 @@ final case class Claims(subject: String, name: String)
 trait TokenVerifier:
   def verify(token: SignedToken): IO[TokenVerifier.Failure, Claims]
 
+
 object TokenVerifier:
+
   enum Failure:
     /** Malformed, unsigned, tampered, or expired — the caller is unauthorised. */
     case Invalid(reason: String)

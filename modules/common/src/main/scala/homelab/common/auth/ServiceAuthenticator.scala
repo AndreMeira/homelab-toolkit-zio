@@ -1,9 +1,11 @@
 package homelab.common.auth
 
+
 import homelab.common.auth.Requester.Service
 import homelab.common.error.ApplicationError.{ AdapterError, UnauthorisedError }
 import homelab.common.types.SignedToken
 import zio.*
+
 
 /**
  * Port: verifies a service-to-service token and reconstructs the calling [[Requester.Service]].

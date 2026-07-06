@@ -1,15 +1,17 @@
 package homelab.auth
 
+
 import homelab.common.error.ApplicationError
 import homelab.common.error.ApplicationError.AdapterError
 import zio.*
 
 import java.net.URI
-import java.net.http.{HttpClient, HttpRequest}
-import java.nio.file.{Files, Path}
+import java.net.http.{ HttpClient, HttpRequest }
+import java.nio.file.{ Files, Path }
 import java.security.KeyStore
 import java.security.cert.CertificateFactory
-import javax.net.ssl.{SSLContext, TrustManagerFactory}
+import javax.net.ssl.{ SSLContext, TrustManagerFactory }
+
 
 /**
  * A [[HttpJwksSource]] for the in-cluster Kubernetes service-account token issuer: fetches the cluster's
@@ -34,6 +36,7 @@ final class K8sJwksSource private (uri: URI, tokens: JwtProvider, protected val 
   protected def request: IO[AdapterError, HttpRequest] =
     tokens.get.map(token => HttpRequest.newBuilder(uri).header("Authorization", s"Bearer $token").GET().build())
 
+
 object K8sJwksSource:
 
   /**
@@ -49,6 +52,7 @@ object K8sJwksSource:
     tokenPath: Path = Path.of("/var/run/secrets/kubernetes.io/serviceaccount/token"),
   )
 
+
   /**
    * Build a source for the in-cluster issuer from `config`: constructs the CA-trusting HTTP client and the
    * projected-token provider, and wires them into the source.
@@ -61,6 +65,7 @@ object K8sJwksSource:
       .attempt(caTrustingClient(config.caCertPath))
       .mapError(CaUnreadable(config.caCertPath, _))
       .map(client => new K8sJwksSource(config.jwksUri, ProjectedTokenProvider(config.tokenPath), client))
+
 
   /**
    * A JDK HTTP client whose TLS trust store is just the CA cert at `caCertPath` — for the in-cluster API
@@ -81,6 +86,7 @@ object K8sJwksSource:
     ssl.init(null, trust.getTrustManagers, null)
     HttpClient.newBuilder.sslContext(ssl).build()
   }
+
 
   /** The cluster CA certificate at `path` couldn't be read or parsed — the trusting client can't be built. */
   final case class CaUnreadable(path: Path, cause: Throwable) extends ApplicationError:

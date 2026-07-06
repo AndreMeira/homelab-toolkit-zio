@@ -1,5 +1,6 @@
 package homelab.auth
 
+
 import homelab.common.auth.Requester.User
 import homelab.common.auth.UserAuthenticator
 import homelab.common.error.ApplicationError.{ AdapterError, UnauthorisedError }
@@ -11,6 +12,7 @@ import zio.json.*
 
 import java.util.UUID
 import scala.util.Try
+
 
 /**
  * A [[UserAuthenticator]] over a [[TokenVerifier]]: verifies the user token and maps its claims to a
@@ -40,6 +42,7 @@ final class JwtUserAuthenticator(verifier: TokenVerifier) extends UserAuthentica
           case adapter: AdapterError => ZIO.fail(adapter)
         }
 
+
   /**
    * Required auth — a signed-in user or a rejection.
    *
@@ -53,6 +56,7 @@ final class JwtUserAuthenticator(verifier: TokenVerifier) extends UserAuthentica
       user  <- authenticated(claim)
     yield user
 
+
   /**
    * Map verified claims to an authenticated user.
    *
@@ -64,6 +68,7 @@ final class JwtUserAuthenticator(verifier: TokenVerifier) extends UserAuthentica
       id   <- userId(claim)
       name <- userName(claim)
     yield User.Authenticated(id, name)
+
 
   /**
    * Read the user id from the subject claim (a UUID).
@@ -77,6 +82,7 @@ final class JwtUserAuthenticator(verifier: TokenVerifier) extends UserAuthentica
       id  <- ZIO.fromTry(Try(UUID.fromString(sub))).mapBoth(_ => InvalidUserToken(s"subject '$sub' is not a user id"), UserId(_))
     yield id
 
+
   /**
    * Read the user name from the `name` claim (a custom claim in the token content).
    *
@@ -89,10 +95,12 @@ final class JwtUserAuthenticator(verifier: TokenVerifier) extends UserAuthentica
       name     <- ZIO.fromOption(identity.name).orElseFail(InvalidUserToken("token has no name claim"))
     yield UserName(name)
 
+
 object JwtUserAuthenticator:
 
   /** The custom claims a user token carries beyond the registered ones — the display `name`. */
-  private final case class Identity(name: Option[String]) derives JsonDecoder
+  final private case class Identity(name: Option[String]) derives JsonDecoder
+
 
   /** The token verified cryptographically but its claims don't map to a user — no subject/id or no name. */
   final case class InvalidUserToken(reason: String) extends UnauthorisedError:

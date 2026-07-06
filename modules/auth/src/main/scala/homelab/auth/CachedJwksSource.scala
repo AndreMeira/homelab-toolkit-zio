@@ -1,8 +1,10 @@
 package homelab.auth
 
+
 import homelab.common.error.ApplicationError
 import homelab.common.error.ApplicationError.AdapterError
 import zio.*
+
 
 /**
  * A [[JwksSource]] decorator that caches the fetched [[JsonWebKey.Set]] in a `Ref`, serving from memory
@@ -25,6 +27,7 @@ class CachedJwksSource(source: JwksSource, cache: Ref[Option[JsonWebKey.Set]]) e
       case Some(set) => ZIO.succeed(set)
       case None      => refreshedCache
 
+
   /**
    * The key for `keyId` — from the cached set if present, otherwise from a refetched set (so a rotated-in
    * key resolves on first use); `None` if still absent after a refetch.
@@ -42,6 +45,7 @@ class CachedJwksSource(source: JwksSource, cache: Ref[Option[JsonWebKey.Set]]) e
                  case None        => refreshedCache.map(_.keys.find(_.keyId == keyId))
     yield found
 
+
   /**
    * Fetch the whole key set from `source` and replace the cache with it.
    *
@@ -49,4 +53,5 @@ class CachedJwksSource(source: JwksSource, cache: Ref[Option[JsonWebKey.Set]]) e
    */
   private def refreshedCache: IO[AdapterError, JsonWebKey.Set] =
     source.all.tap(set => cache.set(Some(set)))
+
 }

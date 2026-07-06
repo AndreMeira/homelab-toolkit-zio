@@ -1,5 +1,6 @@
 package homelab.auth
 
+
 import homelab.common.error.ApplicationError.{ AdapterError, DecodingError, TransientError }
 import homelab.auth.HttpJwksSource.*
 import zio.*
@@ -8,6 +9,7 @@ import zio.json.*
 import java.net.URI
 import java.net.http.HttpResponse.BodyHandlers
 import java.net.http.{ HttpClient, HttpRequest }
+
 
 /**
  * Abstract base for a [[JwksSource]] served over HTTP with the JDK's `java.net.http.HttpClient`.
@@ -40,6 +42,7 @@ trait HttpJwksSource extends JwksSource:
    */
   protected def request: IO[AdapterError, HttpRequest]
 
+
   /**
    * Build the request, send it, and decode the response body into the key set.
    *
@@ -53,6 +56,7 @@ trait HttpJwksSource extends JwksSource:
       body <- send(req)
       set  <- ZIO.fromEither(body.fromJson[JsonWebKey.Set]).mapError(JwksDecodingFailed(_))
     yield set
+
 
   /**
    * Send `req` and return the response body, failing on a non-2xx status.
@@ -68,6 +72,7 @@ trait HttpJwksSource extends JwksSource:
         if response.statusCode() / 100 == 2 then ZIO.succeed(response.body())
         else ZIO.fail(BadStatus(req.uri(), response.statusCode()))
 
+
 object HttpJwksSource:
 
   /**
@@ -78,20 +83,24 @@ object HttpJwksSource:
    * @return a ready source
    */
   def make(uri: URI): HttpJwksSource = new HttpJwksSource:
-    protected val client: HttpClient = HttpClient.newHttpClient()
+    protected val client: HttpClient                     = HttpClient.newHttpClient()
     protected def request: IO[AdapterError, HttpRequest] =
       ZIO.succeed(HttpRequest.newBuilder(uri).GET().build())
 
+
   /** Marker for every failure this source can produce (all `AdapterError`). */
   sealed trait Error extends AdapterError
+
 
   /** The request failed to reach the endpoint (connection/read error) — retryable infrastructure. */
   final case class Unreachable(uri: URI, cause: Throwable) extends Error, TransientError:
     override def message: String = s"could not reach JWKS at $uri: ${cause.getMessage}"
 
+
   /** The JWKS endpoint answered with a non-2xx status. */
   final case class BadStatus(uri: URI, status: Int) extends Error:
     override def message: String = s"JWKS at $uri returned HTTP $status"
+
 
   /** The response body wasn't a valid JWKS — both a decoding and an adapter failure. */
   final case class JwksDecodingFailed(reason: String) extends Error, DecodingError:

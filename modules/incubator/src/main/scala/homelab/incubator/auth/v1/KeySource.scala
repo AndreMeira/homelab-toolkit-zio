@@ -1,8 +1,10 @@
 package homelab.incubator.auth.v1
 
+
 import zio.*
 
 import java.security.PublicKey
+
 
 /**
  * Sketch port: resolve a signing key id (`kid`, from a JWT header) to the issuer's public key, backed by
@@ -13,7 +15,9 @@ import java.security.PublicKey
 trait KeySource:
   def publicKey(keyId: String): IO[KeySource.Failure, PublicKey]
 
+
 object KeySource:
+
   enum Failure:
     /** The key set was reachable but has no key with this id — the token is untrusted (→ invalid). */
     case UnknownKey(keyId: String)

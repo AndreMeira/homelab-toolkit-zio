@@ -1,7 +1,9 @@
 package homelab.common.store
 
+
 import homelab.common.error.ApplicationError.AdapterError
 import zio.*
+
 
 /**
  * Port: a generic key-value store over keys `K` and values `V` — get / upsert / delete. Implemented by

@@ -32,9 +32,9 @@ import homelab.common.types.SignedToken
 import java.net.URI
 
 for
-  verifier <- TokenVerifier.from(URI.create("https://issuer.example/.well-known/jwks.json"))
-  auth      = JwtUserAuthenticator(verifier)
-  user     <- auth.authenticate(token)          // IO[AdapterError | UnauthorisedError, User.Authenticated]
+  verifier <- TokenVerifier.fromJwks(URI.create("https://issuer.example/.well-known/jwks.json"))
+  auth = JwtUserAuthenticator(verifier)
+  user <- auth.authenticate(token) // IO[AdapterError | UnauthorisedError, User.Authenticated]
 yield user
 ```
 

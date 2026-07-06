@@ -2,6 +2,7 @@ package homelab.common.monitor
 
 import zio.*
 
+
 /**
  * Observability port — wrap an operation to open a trace span AND record execution metrics (a hit
  * counter, latency, and an error count) about it, so any use case can be observed without importing the

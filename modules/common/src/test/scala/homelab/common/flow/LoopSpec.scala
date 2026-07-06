@@ -1,7 +1,9 @@
 package homelab.common.flow
 
+
 import zio.*
 import zio.test.*
+
 
 object LoopSpec extends ZIOSpecDefault:
 
@@ -9,8 +11,10 @@ object LoopSpec extends ZIOSpecDefault:
   trait Counter:
     def incr: UIO[Unit]
     def value: UIO[Int]
-    
+
+
   object Counter:
+
     val layer: ULayer[Counter] =
       ZLayer.fromZIO(Ref.make(0).map { ref =>
         new Counter:
@@ -18,11 +22,12 @@ object LoopSpec extends ZIOSpecDefault:
           def value = ref.get
       })
 
+
   // NOTE: every `Loop(...)` below is written WITHOUT type annotations on purpose — if it compiles,
   // pure inference handled the signature. The `val _: ExpectedType = …` lines assert *what* it inferred.
   def spec = suite("Loop")(
     test("infers S and O from continue/done, counting to a bound") {
-      val counted = Loop(0) { i =>
+      val counted                   = Loop(0) { i =>
         if i < 10 then ZIO.succeed(Loop.continue(i + 1))
         else ZIO.succeed(Loop.done(i))
       }
@@ -30,16 +35,17 @@ object LoopSpec extends ZIOSpecDefault:
       counted.map(result => assertTrue(result == 10))
     },
     test("infers when the result O differs from the state S") {
-      val summed = Loop((List(1, 2, 3, 4, 5), 0)) { case (remaining, acc) =>
-        remaining match
-          case Nil    => ZIO.succeed(Loop.done(acc))
-          case h :: t => ZIO.succeed(Loop.continue((t, acc + h)))
+      val summed                    = Loop((List(1, 2, 3, 4, 5), 0)) {
+        case (remaining, acc) =>
+          remaining match
+            case Nil    => ZIO.succeed(Loop.done(acc))
+            case h :: t => ZIO.succeed(Loop.continue((t, acc + h)))
       }
       val _: ZIO[Any, Nothing, Int] = summed // S = (List[Int], Int), O = Int
       summed.map(sum => assertTrue(sum == 15))
     },
     test("infers E from a failing step (O collapses to Nothing with no done branch)") {
-      val mayFail = Loop(0) { i =>
+      val mayFail                      = Loop(0) { i =>
         if i == 3 then ZIO.fail("boom")
         else ZIO.succeed(Loop.continue(i + 1))
       }
@@ -47,7 +53,7 @@ object LoopSpec extends ZIOSpecDefault:
       mayFail.either.map(r => assertTrue(r == Left("boom")))
     },
     test("infers R from an environmental step") {
-      val envLoop = Loop(0) { i =>
+      val envLoop                       = Loop(0) { i =>
         if i < 3 then ZIO.serviceWithZIO[Counter](_.incr).as(Loop.continue(i + 1))
         else ZIO.succeed(Loop.done(i))
       }

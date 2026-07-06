@@ -1,5 +1,6 @@
 package homelab.auth
 
+
 import homelab.common.auth.Requester.User
 import homelab.common.error.ApplicationError.{ AdapterError, UnauthorisedError }
 import homelab.common.types.{ SignedToken, UserId, UserName }
@@ -9,24 +10,31 @@ import zio.test.*
 
 import java.util.UUID
 
+
 object JwtUserAuthenticatorSpec extends ZIOSpecDefault:
 
   private val userId = UUID.fromString("00000000-0000-0000-0000-00000000000a")
   private val token  = SignedToken("x") // ignored by the stub verifier
 
+
   private case object BackendDown extends AdapterError:
     override def message: String = "backend down"
+
 
   private def claim(content: String = """{"name":"alice"}""", sub: Option[String] = Some(userId.toString)): JwtClaim =
     JwtClaim(content = content, subject = sub)
 
+
   private def verifierReturning(c: JwtClaim): TokenVerifier = new TokenVerifier:
     def verify(token: SignedToken): IO[AdapterError | UnauthorisedError, JwtClaim] = ZIO.succeed(c)
+
 
   private def verifierFailing(error: AdapterError | UnauthorisedError): TokenVerifier = new TokenVerifier:
     def verify(token: SignedToken): IO[AdapterError | UnauthorisedError, JwtClaim] = ZIO.fail(error)
 
+
   private def authenticator(c: JwtClaim) = JwtUserAuthenticator(verifierReturning(c))
+
 
   def spec = suite("JwtUserAuthenticator")(
     test("authenticate a valid token → Authenticated") {

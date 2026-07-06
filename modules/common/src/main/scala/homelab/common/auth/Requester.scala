@@ -10,6 +10,7 @@ import homelab.common.types.*
  */
 sealed trait Requester
 
+
 object Requester:
 
   /** Another homelab authenticate calling this one (authenticate-to-authenticate), identified by its `ServiceName`. */
@@ -17,6 +18,7 @@ object Requester:
 
   /** A human caller — anonymous or authenticated. */
   sealed trait User extends Requester
+
 
   object User:
     /** No valid credentials presented. */

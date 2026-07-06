@@ -1,9 +1,11 @@
 package homelab.common.auth
 
+
 import homelab.common.auth.Requester.User
 import homelab.common.error.ApplicationError.{ AdapterError, UnauthorisedError }
 import homelab.common.types.*
 import zio.*
+
 
 /**
  * Port: verifies a user token and reconstructs the calling [[Requester.User]]. Two entry points, one

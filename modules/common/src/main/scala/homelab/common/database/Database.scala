@@ -1,8 +1,10 @@
 package homelab.common.database
 
+
 import homelab.common.error.ApplicationError
 import homelab.common.error.ApplicationError.AdapterError
 import zio.*
+
 
 /**
  * Port for running effects atomically inside a database transaction — the hexagonal Unit of Work.
@@ -38,7 +40,9 @@ trait Database[Tx <: Database.Transaction] {
   def transaction[R, E <: ApplicationError, A](
     effect: ZIO[R & Tx, E, A]
   ): ZIO[R, AdapterError | E, A]
+
 }
+
 
 object Database:
 

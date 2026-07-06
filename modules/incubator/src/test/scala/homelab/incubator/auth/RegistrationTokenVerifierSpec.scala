@@ -1,15 +1,17 @@
 package homelab.incubator.auth
 
+
 import homelab.common.auth.Requester.User
-import homelab.common.types.{SignedToken, UserId, UserName}
-import homelab.incubator.auth.v1.{Claims, JwksKeySource, JwtUserAuthenticator, KeySource, RegistrationTokenVerifier, TokenVerifier}
-import pdi.jwt.{Jwt, JwtAlgorithm, JwtClaim, JwtHeader}
+import homelab.common.types.{ SignedToken, UserId, UserName }
+import homelab.incubator.auth.v1.{ Claims, JwksKeySource, JwtUserAuthenticator, KeySource, RegistrationTokenVerifier, TokenVerifier }
+import pdi.jwt.{ Jwt, JwtAlgorithm, JwtClaim, JwtHeader }
 import zio.*
 import zio.test.*
 
-import java.security.{KeyPairGenerator, PrivateKey, PublicKey}
+import java.security.{ KeyPairGenerator, PrivateKey, PublicKey }
 import java.time.Instant
 import java.util.UUID
+
 
 object RegistrationTokenVerifierSpec extends ZIOSpecDefault:
 
@@ -18,18 +20,21 @@ object RegistrationTokenVerifierSpec extends ZIOSpecDefault:
   private val keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair
   private val jwks    = Map(kid -> keyPair.getPublic)
 
+
   /** The registration "issuer" side of the round-trip: sign an EdDSA token with a `kid` header. */
   private def sign(signingKey: PrivateKey, keyId: String, name: String, expiresInSeconds: Long = 3600): SignedToken =
     val header = JwtHeader(algorithm = Some(JwtAlgorithm.EdDSA), keyId = Some(keyId))
-    val claim = JwtClaim(
+    val claim  = JwtClaim(
       content = s"""{"name":"$name"}""",
       subject = Some(userId.toString),
       expiration = Some(Instant.now.plusSeconds(expiresInSeconds).getEpochSecond),
     )
     SignedToken(Jwt.encode(header, claim, signingKey))
 
+
   private def verifierWith(fetch: JwksKeySource.FetchAll): UIO[RegistrationTokenVerifier] =
     JwksKeySource.make(fetch).map(new RegistrationTokenVerifier(_))
+
 
   def spec = suite("RegistrationTokenVerifier")(
     test("a registration-issued token verifies to the user claims") {

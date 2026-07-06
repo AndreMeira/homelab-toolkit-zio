@@ -1,14 +1,17 @@
 package homelab.incubator.auth
 
-import homelab.incubator.auth.v1.{JwksKeySource, KeySource}
+
+import homelab.incubator.auth.v1.{ JwksKeySource, KeySource }
 import zio.*
 import zio.test.*
 
-import java.security.{KeyPairGenerator, PublicKey}
+import java.security.{ KeyPairGenerator, PublicKey }
+
 
 object KeySourceSpec extends ZIOSpecDefault:
 
   private def genKey: PublicKey = KeyPairGenerator.getInstance("Ed25519").generateKeyPair.getPublic
+
 
   def spec = suite("JwksKeySource")(
     test("known key resolves, and repeated lookups are served from cache (one fetch)") {

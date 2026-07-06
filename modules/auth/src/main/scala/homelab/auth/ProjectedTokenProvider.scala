@@ -1,10 +1,12 @@
 package homelab.auth
 
+
 import homelab.common.error.ApplicationError.AdapterError
 import homelab.common.types.SignedToken
 import zio.*
 
 import java.nio.file.{ Files, Path }
+
 
 /**
  * A [[JwtProvider]] that reads the pod's projected service-account token from the filesystem, fresh on
@@ -30,6 +32,7 @@ final class ProjectedTokenProvider(tokenPath: Path) extends JwtProvider:
       .attemptBlocking(Files.readString(tokenPath).trim)
       .mapBoth(ProjectedTokenProvider.TokenUnavailable(tokenPath, _), SignedToken(_))
 
+
 object ProjectedTokenProvider:
 
   /** The standard in-pod path of the projected service-account token. */
@@ -41,6 +44,7 @@ object ProjectedTokenProvider:
    * @return a provider bound to the default in-pod token file
    */
   def inPod: ProjectedTokenProvider = new ProjectedTokenProvider(DefaultTokenPath)
+
 
   /** The projected token file is missing or unreadable (e.g. automount disabled, or a restrictive mode). */
   final case class TokenUnavailable(path: Path, cause: Throwable) extends AdapterError:

@@ -1,12 +1,14 @@
 package homelab.auth
 
-import homelab.common.error.ApplicationError.{AdapterError, UnauthorisedError}
+
+import homelab.common.error.ApplicationError.{ AdapterError, UnauthorisedError }
 import homelab.common.types.SignedToken
 import homelab.auth.K8sJwksSource.CaUnreadable
 import pdi.jwt.JwtClaim
 import zio.*
 
 import java.net.URI
+
 
 /** Verify a signed token against an issuer's keys and return its claims. */
 trait TokenVerifier:
@@ -20,6 +22,7 @@ trait TokenVerifier:
    */
   def verify(token: SignedToken): IO[AdapterError | UnauthorisedError, JwtClaim]
 
+
 object TokenVerifier:
 
   /**
@@ -31,6 +34,7 @@ object TokenVerifier:
   def from(uri: URI): UIO[TokenVerifier] =
     verifierFor(HttpJwksSource.make(uri))
 
+
   /**
    * A verifier over the in-cluster Kubernetes issuer described by `config` — a [[K8sJwksSource]] wrapped in
    * a [[CachedJwksSource]].
@@ -40,6 +44,7 @@ object TokenVerifier:
    */
   def k8s(config: K8sJwksSource.Config): IO[CaUnreadable, TokenVerifier] =
     K8sJwksSource.make(config).flatMap(verifierFor)
+
 
   /**
    * Wrap `source` in a fresh key-set cache and a caching [[JwksTokenVerifier]].

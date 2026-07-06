@@ -1,7 +1,9 @@
 package homelab.common.error
 
+
 import homelab.common.error.ApplicationError.DomainError
 import zio.NonEmptyChunk
+
 
 /**
  * Aggregates one or more validation failures so every input problem can be
@@ -11,6 +13,7 @@ import zio.NonEmptyChunk
  */
 case class ValidationError(errors: NonEmptyChunk[ValidationError.InvalidInput]) extends DomainError:
   override def message: String = errors.map(_.toString).mkString(", ")
+
 
 object ValidationError:
 

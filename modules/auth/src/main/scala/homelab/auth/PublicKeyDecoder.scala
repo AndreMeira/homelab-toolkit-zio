@@ -1,5 +1,6 @@
 package homelab.auth
 
+
 import homelab.common.error.ApplicationError
 
 import java.math.BigInteger
@@ -8,12 +9,15 @@ import java.security.{ KeyFactory, PublicKey }
 import java.util.Base64
 import scala.util.Try
 
+
 object PublicKeyDecoder {
+
   def decode(key: JsonWebKey): Either[Failure, PublicKey] = key match {
     case okp: JsonWebKey.OKP if okp.crv == "Ed25519" => ed25519(okp)
     case rsa: JsonWebKey.RSA if rsa.alg == "RS256"   => rsaKey(rsa)
     case other                                       => Left(Failure.UnsupportedKey(other))
   }
+
 
   /**
    * OKP → Ed25519 (`EdDSA`): the JWK `x` is the raw 32-byte public key. Wrap it in the fixed Ed25519
@@ -25,6 +29,7 @@ object PublicKeyDecoder {
     KeyFactory.getInstance("Ed25519").generatePublic(X509EncodedKeySpec(der))
   }.toEither.left.map(err => Failure.KeyGenerationFailed(err))
 
+
   /** 
    * RSA → `RS256`: `n` (modulus) and `e` (exponent) are base64url big-endian unsigned integers. 
    */
@@ -34,6 +39,7 @@ object PublicKeyDecoder {
     KeyFactory.getInstance("RSA").generatePublic(RSAPublicKeySpec(modulus, exponent))
   }.toEither.left.map(err => Failure.KeyGenerationFailed(err))
 
+
   /**
    *
    */
@@ -41,8 +47,10 @@ object PublicKeyDecoder {
     case UnsupportedKey(key: JsonWebKey)
     case KeyGenerationFailed(err: Throwable)
 
+
     override def message: String = this match {
       case UnsupportedKey(key)      => s"unsupported JWK algorithm: $key"
       case KeyGenerationFailed(err) => s"key generation failed with ${err.getMessage}"
     }
+
 }

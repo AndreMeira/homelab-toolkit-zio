@@ -1,5 +1,6 @@
 package homelab.common.error
 
+
 /**
  * Base trait for all application errors in the registration authenticate.
  *
@@ -19,6 +20,7 @@ trait ApplicationError:
   def kind: String = getClass.getSimpleName
 
   override def toString: String = s"{kind: $kind, message: $message}"
+
 
 object ApplicationError:
 
