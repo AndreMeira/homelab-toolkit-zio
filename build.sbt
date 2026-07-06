@@ -72,6 +72,7 @@ lazy val incubator = project
     libraryDependencies ++= Seq(
       "com.github.jwt-scala" %% "jwt-zio-json" % jwtVersion,
       "dev.zio"              %% "zio-http"     % zioHttpVersion,
+      "com.augustnagro"      %% "magnum"       % "1.3.1", // sketch: Magnum Database[Tx] adapter
       "dev.zio"              %% "zio-test"     % zioVersion % Test,
       "dev.zio"              %% "zio-test-sbt" % zioVersion % Test,
     ),
