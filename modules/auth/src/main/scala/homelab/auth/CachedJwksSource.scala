@@ -23,9 +23,7 @@ class CachedJwksSource(source: JwksSource, cache: Ref[Option[JsonWebKey.Set]]) e
    * @return the [[JsonWebKey.Set]]; fails with `source`'s `AdapterError` when a fetch is needed and fails
    */
   override def all: IO[ApplicationError.AdapterError, JsonWebKey.Set] =
-    cache.get.flatMap:
-      case Some(set) => ZIO.succeed(set)
-      case None      => refreshedCache
+    cache.get.someOrElseZIO(refreshedCache)
 
   /**
    * The key for `keyId` — from the cached set if present, otherwise from a refetched set (so a rotated-in

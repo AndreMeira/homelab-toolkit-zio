@@ -1,10 +1,12 @@
 package homelab.common.flow
 
+
+import homelab.common.error.ApplicationError
 import zio.*
 
 
 /**
- * A named, effectful **stepper** — repeatedly advances a state `S` via [[next]] until a step finishes,
+ * A named, effectful **Workflow** (stepper)— repeatedly advances a state `S` via [[next]] until a step finishes,
  * yielding the terminal state and an output. Autonomous: each step is driven by the current state
  * alone, with no per-step input — hence "stepper" rather than a `(In, State) => (State, Out)` machine.
  *
@@ -24,7 +26,7 @@ import zio.*
  * @tparam S the state advanced from step to step
  * @tparam O the output produced when the stepper finishes
  */
-trait Stepper[R, E, S, O] {
+trait Workflow[R, E, S, O] {
 
   /**
    * The transition: given the current state, continue with a new state or finish with the terminal
@@ -40,4 +42,17 @@ trait Stepper[R, E, S, O] {
    * @return the terminal `(state, output)`; fails with `E` if any step fails
    */
   def execute(initial: S): ZIO[R, E, (S, O)] = Loop(initial)(next)
+}
+
+
+object Workflow {
+
+  /**
+   * A helper trait for common domain implementations:
+   * the stepper needs no environment and fails only with [[ApplicationError]].
+   *
+   * @tparam S the state advanced from step to step
+   * @tparam O the output produced when the stepper finishes
+   */
+  trait Simple[S, O] extends Workflow[Any, ApplicationError, S, O]
 }
