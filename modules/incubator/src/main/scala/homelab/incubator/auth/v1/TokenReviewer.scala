@@ -4,7 +4,7 @@ import homelab.common.types.SignedToken
 import zio.*
 
 /**
- * Sketch seam: the Kubernetes `TokenReview` — hand a ServiceAccount token to the API server and get back
+ * Sketch seam: the Kubernetes `TokenReview` — hand a ServiceAccount token to the API server and all back
  * whether it authenticated and, if so, the caller's username (`system:serviceaccount:<ns>:<name>`). A
  * real impl POSTs an `authentication.k8s.io/v1` TokenReview to the API server. Injected so the k8s
  * verifier is testable without a cluster.

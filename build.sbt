@@ -7,9 +7,10 @@
 // adapters (magnum/inmemory/auth) come next.
 
 val scala3Version     = "3.3.4"
-val zioVersion        = "2.1.14"
+val zioVersion        = "2.1.23" // keep in sync with the zio-core that zio-prelude/zio-http pull, else zio-test layer macros break
 val zioPreludeVersion = "1.0.0-RC47"
 val jwtVersion        = "11.0.4"
+val zioHttpVersion    = "3.0.1"
 
 ThisBuild / scalaVersion := scala3Version
 ThisBuild / organization := "com.andremeira.homelab"
@@ -50,7 +51,15 @@ lazy val inmemory = project
 lazy val auth = project
   .in(file("modules/auth"))
   .dependsOn(common)
-  .settings(name := "homelab-auth")
+  .settings(
+    name := "homelab-auth",
+    libraryDependencies ++= Seq(
+      "com.github.jwt-scala" %% "jwt-zio-json" % jwtVersion, // brings zio-json transitively; JDK HttpClient for transport (no zio-http)
+      "dev.zio"              %% "zio-test"     % zioVersion % Test,
+      "dev.zio"              %% "zio-test-sbt" % zioVersion % Test,
+    ),
+    testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
+  )
 
 // Incubator — throwaway sketches / experiments (the ZIO answer to Kyo's playground). Not published.
 lazy val incubator = project
@@ -62,6 +71,7 @@ lazy val incubator = project
     scalacOptions  := Nil, // experiment area — Java-interop heavy; skip the strict prod flags
     libraryDependencies ++= Seq(
       "com.github.jwt-scala" %% "jwt-zio-json" % jwtVersion,
+      "dev.zio"              %% "zio-http"     % zioHttpVersion,
       "dev.zio"              %% "zio-test"     % zioVersion % Test,
       "dev.zio"              %% "zio-test-sbt" % zioVersion % Test,
     ),

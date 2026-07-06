@@ -14,7 +14,7 @@ import java.util.Base64
  * header, resolves the matching public key from the [[KeySource]] (registration's JWKS), then verifies
  * the Ed25519 signature + expiry with jwt-scala.
  *
- * Error mapping is the whole point: `KeySource.Failure.UnknownKey → Invalid` (the token is signed by a
+ * Error mapping is the whole point: `PublicKeySource.Failure.UnknownKey → Invalid` (the token is signed by a
  * key we don't trust) and `Unavailable → Unavailable` (the JWKS is unreachable → infrastructure).
  */
 final class RegistrationTokenVerifier(keySource: KeySource) extends TokenVerifier:
