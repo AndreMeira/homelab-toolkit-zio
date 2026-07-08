@@ -1,3 +1,11 @@
+---
+title: "Checkpoint — 2026-07-05 — toolkit bootstrapped; auth verification prototyped in `incubator`"
+type: session
+status: current
+updated: 2026-07-05
+tags: [homelab-toolkit-zio, auth, jwks, zio, checkpoint]
+---
+
 # Checkpoint — 2026-07-05 — toolkit bootstrapped; auth verification prototyped in `incubator`
 
 > First real session on `homelab-toolkit-zio`. Stood up the repo, populated `common` with data + ports,

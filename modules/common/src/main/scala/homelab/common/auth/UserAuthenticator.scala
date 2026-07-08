@@ -14,14 +14,16 @@ import zio.*
 trait UserAuthenticator {
 
   /**
-   * Optional auth — for routes that also serve anonymous callers. Never rejects: a missing OR
-   * unverifiable token yields [[Requester.User.Anonymous]], a valid one a [[Requester.User.Authenticated]].
+   * Optional auth — for routes that also serve anonymous callers. A *missing* token yields
+   * [[Requester.User.Anonymous]] and a valid one a [[Requester.User.Authenticated]]; a *present-but-invalid*
+   * token is rejected with `UnauthorisedError` (whether to tolerate that as anonymous is the application's
+   * decision, not this port's).
    *
    * @param token the bearer token, if one was presented
-   * @return the caller (anonymous or authenticated); fails only with `AdapterError` on an infrastructure
-   *         failure — a present-but-invalid token is downgraded to anonymous, not rejected
+   * @return the caller (anonymous or authenticated); fails with `UnauthorisedError` if a token was
+   *         presented but is invalid or expired, or with `AdapterError` on an infrastructure failure
    */
-  def any(token: Option[SignedToken]): IO[AdapterError, User]
+  def any(token: Option[SignedToken]): IO[AdapterError | UnauthorisedError, User]
 
   /**
    * Required auth — for routes that mandate a signed-in user.

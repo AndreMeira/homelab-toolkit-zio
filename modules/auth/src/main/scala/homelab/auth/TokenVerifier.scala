@@ -41,7 +41,7 @@ object TokenVerifier:
    * @param config the in-cluster issuer configuration
    * @return the verifier; fails with [[K8sJwksSource.CaUnreadable]] if the cluster CA can't be read
    */
-  def k8s(config: K8sJwksSource.Config): IO[CaUnreadable, TokenVerifier] =
+  def k8s(config: K8sJwksSource.Config = K8sJwksSource.Config()): IO[CaUnreadable, TokenVerifier] =
     K8sJwksSource.make(config).flatMap(verifierFor)
 
   /**

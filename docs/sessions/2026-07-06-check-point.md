@@ -1,3 +1,11 @@
+---
+title: "Checkpoint — 2026-07-06 — auth stack built and promoted to the `auth` module"
+type: session
+status: current
+updated: 2026-07-06
+tags: [auth, jwks, jwt, kubernetes, checkpoint]
+---
+
 # Checkpoint — 2026-07-06 — auth stack built and promoted to the `auth` module
 
 > Built the whole service/user token-verification stack in `incubator/v3`, then promoted it to a real

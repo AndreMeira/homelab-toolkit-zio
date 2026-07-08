@@ -1,3 +1,11 @@
+---
+title: "Adding modules to the sbt build"
+type: learning-material
+status: current
+updated: 2026-07-06
+tags: [sbt, multi-module, build, jitpack, modules]
+---
+
 # Adding modules to the sbt build
 
 This toolkit is a **multi-module sbt build**: one repository, several independently-publishable libraries

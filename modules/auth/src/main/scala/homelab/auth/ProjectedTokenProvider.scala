@@ -1,11 +1,12 @@
 package homelab.auth
 
 
+import homelab.auth.ProjectedTokenProvider.TokenUnavailable
 import homelab.common.error.ApplicationError.AdapterError
 import homelab.common.types.SignedToken
 import zio.*
 
-import java.nio.file.{ Files, Path }
+import java.nio.file.{Files, Path}
 
 
 /**
@@ -27,7 +28,7 @@ final class ProjectedTokenProvider(tokenPath: Path) extends JwtProvider:
    *
    * @return the token; fails with [[ProjectedTokenProvider.TokenUnavailable]] if the file is missing or can't be read
    */
-  def get: IO[AdapterError, SignedToken] =
+  def get: IO[TokenUnavailable, SignedToken] =
     ZIO
       .attemptBlocking(Files.readString(tokenPath).trim)
       .mapBoth(ProjectedTokenProvider.TokenUnavailable(tokenPath, _), SignedToken(_))

@@ -4,8 +4,10 @@ package homelab.auth
 import homelab.common.auth.Requester.Service
 import homelab.common.auth.ServiceAuthenticator
 import homelab.common.error.ApplicationError.{ AdapterError, UnauthorisedError }
+import homelab.common.monitor.Monitor
 import homelab.common.types.{ ServiceName, SignedToken }
 import homelab.auth.JwtServiceAuthenticator.*
+import homelab.common.someOrFail
 import pdi.jwt.JwtClaim
 import zio.*
 
@@ -20,8 +22,13 @@ import zio.*
  *
  * @param verifier     verifies the token's signature and expiry
  * @param expectations the audience and issuer the token must carry
+ * @param monitor      observes each authentication (span + metrics; defaults to [[Monitor.Noop]])
  */
-final class JwtServiceAuthenticator(verifier: TokenVerifier, expectations: Expectations) extends ServiceAuthenticator:
+final class JwtServiceAuthenticator(
+  verifier: TokenVerifier,
+  expectations: Expectations,
+  monitor: Monitor = Monitor.Noop,
+) extends ServiceAuthenticator:
 
   /**
    * Authenticate a calling service from its bearer token.
@@ -31,12 +38,13 @@ final class JwtServiceAuthenticator(verifier: TokenVerifier, expectations: Expec
    *         or the subject is missing, or forwards the verifier's `AdapterError | UnauthorisedError`
    */
   def authenticate(token: SignedToken): IO[AdapterError | UnauthorisedError, Service] =
-    for
-      claim   <- verifier.verify(token)
-      _       <- checkAudience(claim)
-      _       <- checkIssuer(claim)
-      service <- serviceOf(claim)
-    yield service
+    monitor.track("JwtServiceAuthenticator.authenticate", "resource" -> "auth"):
+      for
+        claim   <- verifier.verify(token)
+        _       <- checkAudience(claim)
+        _       <- checkIssuer(claim)
+        service <- serviceOf(claim)
+      yield service
 
   /**
    * Check the token was minted for us — its `aud` includes the expected audience.
@@ -46,7 +54,7 @@ final class JwtServiceAuthenticator(verifier: TokenVerifier, expectations: Expec
    */
   private def checkAudience(claim: JwtClaim): IO[UnauthorisedError, Unit] =
     if claim.audience.exists(_.contains(expectations.audience)) then ZIO.unit
-    else ZIO.fail(InvalidServiceToken(s"audience ${claim.audience.getOrElse(Set.empty)} does not include '${expectations.audience}'"))
+    else ZIO.fail(wrongAudience(claim, expectations))
 
   /**
    * Check the token came from the trusted issuer — its `iss` equals the expected issuer.
@@ -56,7 +64,7 @@ final class JwtServiceAuthenticator(verifier: TokenVerifier, expectations: Expec
    */
   private def checkIssuer(claim: JwtClaim): IO[UnauthorisedError, Unit] =
     if claim.issuer.contains(expectations.issuer) then ZIO.unit
-    else ZIO.fail(InvalidServiceToken(s"issuer ${claim.issuer.getOrElse("<none>")} is not '${expectations.issuer}'"))
+    else ZIO.fail(wrongIssuer(claim, expectations))
 
   /**
    * Map the token's subject to the calling service.
@@ -65,10 +73,32 @@ final class JwtServiceAuthenticator(verifier: TokenVerifier, expectations: Expec
    * @return the service; fails with [[InvalidServiceToken]] if the subject is missing
    */
   private def serviceOf(claim: JwtClaim): IO[UnauthorisedError, Service] =
-    ZIO.fromOption(claim.subject).mapBoth(_ => InvalidServiceToken("token has no subject"), sub => Service(ServiceName(sub)))
+    claim.subject
+      .map(sub => Service(ServiceName(sub)))
+      .someOrFail(InvalidServiceToken("token has no subject"))
 
 
 object JwtServiceAuthenticator:
+
+  /**
+   * The rejection for a token whose audience doesn't include the expected one.
+   *
+   * @param claim        the verified claims (for its actual `aud`)
+   * @param expectations the expected audience
+   * @return the [[InvalidServiceToken]] naming the mismatch
+   */
+  private def wrongAudience(claim: JwtClaim, expectations: Expectations): InvalidServiceToken =
+    InvalidServiceToken(s"audience ${claim.audience.getOrElse(Set.empty)} does not include '${expectations.audience}'")
+
+  /**
+   * The rejection for a token whose issuer doesn't match the expected one.
+   *
+   * @param claim        the verified claims (for its actual `iss`)
+   * @param expectations the expected issuer
+   * @return the [[InvalidServiceToken]] naming the mismatch
+   */
+  private def wrongIssuer(claim: JwtClaim, expectations: Expectations): InvalidServiceToken =
+    InvalidServiceToken(s"issuer ${claim.issuer.getOrElse("<none>")} is not '${expectations.issuer}'")
 
   /**
    * What a service token must carry to be accepted.

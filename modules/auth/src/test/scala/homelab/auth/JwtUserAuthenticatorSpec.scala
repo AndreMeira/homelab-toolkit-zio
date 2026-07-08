@@ -51,9 +51,10 @@ object JwtUserAuthenticatorSpec extends ZIOSpecDefault:
       for who <- authenticator(claim()).any(Some(token))
       yield assertTrue(who == User.Authenticated(UserId(userId), UserName("alice")))
     },
-    test("any downgrades an invalid token → Anonymous") {
-      for who <- JwtUserAuthenticator(verifierFailing(JwksTokenVerifier.UntrustedToken("bad signature"))).any(Some(token))
-      yield assertTrue(who == User.Anonymous)
+    test("any with a present-but-invalid token → rejected (UnauthorisedError)") {
+      val invalid = JwksTokenVerifier.UntrustedToken("bad signature")
+      for exit <- JwtUserAuthenticator(verifierFailing(invalid)).any(Some(token)).either
+      yield assertTrue(exit.swap.exists(_ == invalid))
     },
     test("any propagates an AdapterError") {
       for exit <- JwtUserAuthenticator(verifierFailing(BackendDown)).any(Some(token)).either

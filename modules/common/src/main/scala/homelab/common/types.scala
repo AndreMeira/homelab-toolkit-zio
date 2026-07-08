@@ -1,6 +1,10 @@
 package homelab.common
 
+
+import homelab.common.error.ValidationError
+
 import java.util.UUID
+import scala.util.Try
 
 
 object types:

@@ -1,10 +1,10 @@
 package homelab.auth
 
 
-import homelab.common.error.ApplicationError.{ AdapterError, DecodingError }
+import homelab.common.error.ApplicationError.{AdapterError, DecodingError}
 import homelab.common.types.SignedToken
-import homelab.auth.CachedTokenProvider.TokenExpiryUnreadable
-import pdi.jwt.{ Jwt, JwtClaim, JwtOptions }
+import homelab.auth.CachedTokenProvider.{TokenClaimsUnreadable, TokenExpiryUnreadable}
+import pdi.jwt.{Jwt, JwtClaim, JwtOptions}
 import zio.*
 
 import java.time.Instant
@@ -66,7 +66,7 @@ final class CachedTokenProvider private (
    * @return the expiry instant; fails with [[CachedTokenProvider.TokenExpiryUnreadable]] if the token
    *         can't be decoded or carries no `exp`
    */
-  private def expiryOf(token: SignedToken): IO[AdapterError, Instant] =
+  private def expiryOf(token: SignedToken): IO[TokenExpiryUnreadable | TokenClaimsUnreadable, Instant] =
     for
       claim  <- claimOf(token)
       expiry <- expiryOf(claim)
@@ -78,9 +78,9 @@ final class CachedTokenProvider private (
    * @param token the token to decode
    * @return the decoded claims; fails with [[CachedTokenProvider.TokenExpiryUnreadable]] if the token can't be decoded
    */
-  private def claimOf(token: SignedToken): IO[AdapterError, JwtClaim] = {
+  private def claimOf(token: SignedToken): IO[TokenClaimsUnreadable, JwtClaim] = {
     val decoded = Jwt.decode(token, JwtOptions(signature = false, expiration = false, notBefore = false))
-    ZIO.fromTry(decoded).mapError(err => TokenExpiryUnreadable(err.getMessage))
+    ZIO.fromTry(decoded).mapError(err => TokenClaimsUnreadable(err.getMessage))
   }
 
   /**
@@ -89,7 +89,7 @@ final class CachedTokenProvider private (
    * @param claim the decoded claims
    * @return the expiry instant; fails with [[CachedTokenProvider.TokenExpiryUnreadable]] if there's no `exp` claim
    */
-  private def expiryOf(claim: JwtClaim): IO[AdapterError, Instant] =
+  private def expiryOf(claim: JwtClaim): IO[TokenExpiryUnreadable, Instant] =
     ZIO
       .fromOption(claim.expiration)
       .map(Instant.ofEpochSecond)
@@ -118,6 +118,11 @@ object CachedTokenProvider:
      * @return `true` while `now` is before the refresh instant
      */
     def isFresh(now: Instant): Boolean = now.isBefore(refreshAt)
+
+
+  /** A refetched token couldn't be decoded, or had malformed claims. */
+  final case class TokenClaimsUnreadable(reason: String) extends DecodingError, AdapterError:
+    override def message: String = s"could not read the token's claims: $reason"
 
   /** A refetched token couldn't be decoded, or carried no `exp` — so its lifetime is unknown. */
   final case class TokenExpiryUnreadable(reason: String) extends DecodingError, AdapterError:

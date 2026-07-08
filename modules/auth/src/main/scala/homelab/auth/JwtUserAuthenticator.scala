@@ -4,8 +4,10 @@ package homelab.auth
 import homelab.common.auth.Requester.User
 import homelab.common.auth.UserAuthenticator
 import homelab.common.error.ApplicationError.{ AdapterError, UnauthorisedError }
+import homelab.common.monitor.Monitor
 import homelab.common.types.{ SignedToken, UserId, UserName }
 import homelab.auth.JwtUserAuthenticator.*
+import homelab.common.{ rightOrFail, someOrFail, successOrFail }
 import pdi.jwt.JwtClaim
 import zio.*
 import zio.json.*
@@ -23,24 +25,22 @@ import scala.util.Try
  * minting tokens for other audiences to guard against.
  *
  * @param verifier verifies the token's signature and expiry
+ * @param monitor  observes each authentication (span + metrics; defaults to [[Monitor.Noop]])
  */
-final class JwtUserAuthenticator(verifier: TokenVerifier) extends UserAuthenticator:
+final class JwtUserAuthenticator(verifier: TokenVerifier, monitor: Monitor = Monitor.Noop) extends UserAuthenticator:
 
   /**
-   * Optional auth — a missing or unverifiable token yields [[Requester.User.Anonymous]], never a failure,
-   * except an infrastructure failure which still propagates.
+   * Optional auth — a *missing* token yields [[Requester.User.Anonymous]]; a *present* token must be valid,
+   * or it's rejected. Downgrading a rejected token to anonymous is left to the application.
    *
    * @param token the bearer token, if one was presented
-   * @return the caller; fails only with `AdapterError` — a present-but-invalid token downgrades to anonymous
+   * @return the caller (anonymous or authenticated); fails with `UnauthorisedError` if a token was
+   *         presented but is invalid, or with `AdapterError` on an infrastructure failure
    */
-  def any(token: Option[SignedToken]): IO[AdapterError, User] =
+  def any(token: Option[SignedToken]): IO[AdapterError | UnauthorisedError, User] =
     token match
       case None    => ZIO.succeed(User.Anonymous)
-      case Some(t) =>
-        authenticate(t).catchAll {
-          case _: UnauthorisedError  => ZIO.succeed(User.Anonymous)
-          case adapter: AdapterError => ZIO.fail(adapter)
-        }
+      case Some(t) => authenticate(t)
 
   /**
    * Required auth — a signed-in user or a rejection.
@@ -50,10 +50,11 @@ final class JwtUserAuthenticator(verifier: TokenVerifier) extends UserAuthentica
    *         forwards the verifier's `AdapterError | UnauthorisedError`
    */
   def authenticate(token: SignedToken): IO[AdapterError | UnauthorisedError, User.Authenticated] =
-    for
-      claim <- verifier.verify(token)
-      user  <- authenticated(claim)
-    yield user
+    monitor.track("JwtUserAuthenticator.authenticate", "resource" -> "auth"):
+      for
+        claim <- verifier.verify(token)
+        user  <- authenticated(claim)
+      yield user
 
   /**
    * Map verified claims to an authenticated user.
@@ -75,8 +76,9 @@ final class JwtUserAuthenticator(verifier: TokenVerifier) extends UserAuthentica
    */
   private def userId(claim: JwtClaim): IO[UnauthorisedError, UserId] =
     for
-      sub <- ZIO.fromOption(claim.subject).orElseFail(InvalidUserToken("token has no subject"))
-      id  <- ZIO.fromTry(Try(UUID.fromString(sub))).mapBoth(_ => InvalidUserToken(s"subject '$sub' is not a user id"), UserId(_))
+      sub <- claim.subject.someOrFail(InvalidUserToken("token has no subject"))
+      id  <- Try(UserId(UUID.fromString(sub)))
+               .successOrFail(_ => InvalidUserToken(s"subject '$sub' is not a user id"))
     yield id
 
   /**
@@ -85,11 +87,13 @@ final class JwtUserAuthenticator(verifier: TokenVerifier) extends UserAuthentica
    * @param claim the verified claims
    * @return the user name; fails with [[InvalidUserToken]] if the content is unreadable or has no `name`
    */
-  private def userName(claim: JwtClaim): IO[UnauthorisedError, UserName] =
+  private def userName(claim: JwtClaim): IO[UnauthorisedError, UserName] = {
+    val decoded = claim.content.fromJson[Identity]
     for
-      identity <- ZIO.fromEither(claim.content.fromJson[Identity]).mapError(reason => InvalidUserToken(s"unreadable claims: $reason"))
-      name     <- ZIO.fromOption(identity.name).orElseFail(InvalidUserToken("token has no name claim"))
+      identity <- decoded.rightOrFail(reason => InvalidUserToken(s"unreadable claims: $reason"))
+      name     <- identity.name.someOrFail(InvalidUserToken("token has no name claim"))
     yield UserName(name)
+  }
 
 
 object JwtUserAuthenticator:

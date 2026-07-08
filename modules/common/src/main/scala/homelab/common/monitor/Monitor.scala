@@ -47,3 +47,38 @@ trait Monitor {
    */
   def track[R, E, A](name: String, tags: (String, String)*)(effect: => ZIO[R, E, A]): ZIO[R, E, A]
 }
+
+
+object Monitor:
+
+  /**
+   * A [[Monitor]] that observes nothing — every operation runs unchanged, with no span opened and no
+   * metric recorded. For tests, and for running without a telemetry backend without touching call sites.
+   */
+  object Noop extends Monitor:
+
+    /**
+     * Run `effect` unobserved.
+     *
+     * @tparam R the wrapped effect's environment
+     * @tparam E the wrapped effect's error
+     * @tparam A the wrapped effect's result
+     * @param name   ignored
+     * @param tags   ignored
+     * @param effect the work to run
+     * @return `effect` unchanged
+     */
+    def start[R, E, A](name: String, tags: (String, String)*)(effect: => ZIO[R, E, A]): ZIO[R, E, A] = effect
+
+    /**
+     * Run `effect` unobserved.
+     *
+     * @tparam R the wrapped effect's environment
+     * @tparam E the wrapped effect's error
+     * @tparam A the wrapped effect's result
+     * @param name   ignored
+     * @param tags   ignored
+     * @param effect the work to run
+     * @return `effect` unchanged
+     */
+    def track[R, E, A](name: String, tags: (String, String)*)(effect: => ZIO[R, E, A]): ZIO[R, E, A] = effect

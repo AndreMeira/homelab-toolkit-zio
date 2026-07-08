@@ -1,3 +1,11 @@
+---
+title: "Depending on a toolkit module from your service"
+type: learning-material
+status: current
+updated: 2026-07-06
+tags: [sbt, dependencies, jitpack, publishing, modules]
+---
+
 # Depending on a toolkit module from your service
 
 This repo is a set of small libraries (`homelab-common`, `homelab-auth`, …). This note is for the **other

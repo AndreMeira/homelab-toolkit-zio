@@ -62,7 +62,7 @@ trait HttpJwksSource extends JwksSource:
    * @param req the request to send
    * @return the response body; fails with [[Unreachable]] if the request errors, or [[BadStatus]] if the status isn't 2xx
    */
-  private def send(req: HttpRequest): IO[AdapterError, String] =
+  private def send(req: HttpRequest): IO[Unreachable | BadStatus, String] =
     ZIO
       .fromCompletableFuture(client.sendAsync(req, BodyHandlers.ofString()))
       .mapError(Unreachable(req.uri(), _))
