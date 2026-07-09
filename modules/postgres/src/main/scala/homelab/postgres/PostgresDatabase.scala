@@ -44,7 +44,9 @@ final class PostgresDatabase(dataSource: DataSource, monitor: Monitor) extends D
   ): ZIO[R, PostgresTransaction.Error | E, A] =
     monitor.track("PostgresDatabase.transaction", PostgresDatabase.Tag):
       ZIO.acquireReleaseExitWith(acquire)(release): tx =>
-        effect.provideSomeEnvironment[R](_.add[PostgresTransaction](tx)) <* tx.commit
+        effect
+          .provideSomeEnvironment[R](_.add[PostgresTransaction](tx))
+          .tap[R, PostgresTransaction.Error | E](_ => tx.commit)
 
   /**
    * Check a connection out of the datasource, switch off auto-commit, and wrap it as a transaction.
@@ -73,7 +75,7 @@ final class PostgresDatabase(dataSource: DataSource, monitor: Monitor) extends D
   private def release[E](tx: PostgresTransaction, exit: Exit[AdapterError | E, Any]): UIO[Unit] =
     exit match {
       case Exit.Success(_) => close(tx)
-      case Exit.Failure(_) => tx.rollback.ignore *> close(tx)
+      case Exit.Failure(_) => tx.rollback.ignore *> close(tx) // @todo logging? die?
     }
 
   /**

@@ -17,16 +17,20 @@ val postgresqlVersion = "42.7.11"
 val hikariVersion     = "7.1.0"
 val zioOtelVersion    = "3.1.13"
 val otelVersion       = "1.57.0"
+val fabric8Version    = "6.0.0"
+val testcontainersVersion = "1.20.6"
 
 ThisBuild / scalaVersion := scala3Version
 ThisBuild / organization := "com.andremeira.homelab"
 ThisBuild / version      := "0.1.0-SNAPSHOT"
+
 
 ThisBuild / scalacOptions ++= Seq(
   "-Wvalue-discard",
   "-Wnonunit-statement",
   "-Wconf:msg=(unused.*value|discarded.*value|pure.*statement):error",
 )
+
 
 lazy val common = project
   .in(file("modules/common"))
@@ -40,6 +44,7 @@ lazy val common = project
     ),
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
   )
+
 
 // Persistence adapter — Postgres via Magnum (effect-agnostic; blocking JDBC lifted with ZIO.attemptBlocking,
 // no cats-effect). Flyway for migrations. See docs/sessions for the Magnum-vs-doobie rationale.
@@ -55,16 +60,19 @@ lazy val postgres = project
       "com.zaxxer"       % "HikariCP"                   % hikariVersion,
       "org.flywaydb"     % "flyway-core"                % flywayVersion,
       "org.flywaydb"     % "flyway-database-postgresql" % flywayVersion,
-      "dev.zio"         %% "zio-test"                   % zioVersion % Test,
-      "dev.zio"         %% "zio-test-sbt"               % zioVersion % Test,
+      "dev.zio"         %% "zio-test"                   % zioVersion            % Test,
+      "dev.zio"         %% "zio-test-sbt"               % zioVersion            % Test,
+      "org.testcontainers" % "postgresql"              % testcontainersVersion % Test,
     ),
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
   )
+
 
 lazy val inmemory = project
   .in(file("modules/inmemory"))
   .dependsOn(common)
   .settings(name := "homelab-inmemory")
+
 
 // Telemetry adapter — OpenTelemetry implementation of the common `Monitor` port (spans + metrics), via
 // zio-telemetry. The app wires the Tracing/Meter layers; the toolkit provides the OtelMonitor class.
@@ -74,13 +82,14 @@ lazy val telemetry = project
   .settings(
     name := "homelab-telemetry",
     libraryDependencies ++= Seq(
-      "dev.zio"          %% "zio-opentelemetry" % zioOtelVersion,
-      "io.opentelemetry"  % "opentelemetry-api" % otelVersion,
-      "dev.zio"          %% "zio-test"          % zioVersion % Test,
-      "dev.zio"          %% "zio-test-sbt"      % zioVersion % Test,
+      "dev.zio"         %% "zio-opentelemetry" % zioOtelVersion,
+      "io.opentelemetry" % "opentelemetry-api" % otelVersion,
+      "dev.zio"         %% "zio-test"          % zioVersion % Test,
+      "dev.zio"         %% "zio-test-sbt"      % zioVersion % Test,
     ),
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
   )
+
 
 lazy val auth = project
   .in(file("modules/auth"))
@@ -88,12 +97,14 @@ lazy val auth = project
   .settings(
     name := "homelab-auth",
     libraryDependencies ++= Seq(
-      "com.github.jwt-scala" %% "jwt-zio-json" % jwtVersion, // brings zio-json transitively; JDK HttpClient for transport (no zio-http)
-      "dev.zio"              %% "zio-test"     % zioVersion % Test,
-      "dev.zio"              %% "zio-test-sbt" % zioVersion % Test,
+      "io.fabric8"            % "kubernetes-client" % fabric8Version,
+      "com.github.jwt-scala" %% "jwt-zio-json"      % jwtVersion, // brings zio-json transitively; JDK HttpClient for transport (no zio-http)
+      "dev.zio"              %% "zio-test"          % zioVersion % Test,
+      "dev.zio"              %% "zio-test-sbt"      % zioVersion % Test,
     ),
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
   )
+
 
 // Incubator — throwaway sketches / experiments (the ZIO answer to Kyo's playground). Not published.
 lazy val incubator = project
@@ -111,6 +122,7 @@ lazy val incubator = project
     ),
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
   )
+
 
 lazy val root = project
   .in(file("."))

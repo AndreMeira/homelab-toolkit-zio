@@ -40,6 +40,13 @@ object ApplicationError:
   trait UnrecoverableError extends ApplicationError
 
   /**
+   * A defect in our own code — a violated invariant or a misused API, not a domain condition or an external
+   * failure. Should be fixed, not handled: the boundary maps it to a 500 and an alert, and callers surface
+   * it as a defect rather than recovering from it.
+   */
+  trait ImplementationError extends ApplicationError
+
+  /**
    * Failures during network communication.
    */
   trait NetworkError extends ApplicationError

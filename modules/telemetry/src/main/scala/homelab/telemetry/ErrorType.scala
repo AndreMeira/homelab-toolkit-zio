@@ -38,21 +38,22 @@ object ErrorType:
    * @return the error type for a given failure value
    */
   val defaultClassifier: Classifier = {
-    case _: ValidationError    => ErrorType("validation", serverSide = false)
-    case _: UnauthorisedError  => ErrorType("unauthorised", serverSide = false)
-    case _: NotFoundError      => ErrorType("not_found", serverSide = false)
-    case _: ConflictError      => ErrorType("conflict", serverSide = false)
-    case _: InconsistentState  => ErrorType("inconsistent_state", serverSide = true)
-    case _: DomainError        => ErrorType("domain", serverSide = false)
-    case _: TransientError     => ErrorType("transient", serverSide = true)
-    case _: NetworkError       => ErrorType("network", serverSide = true)
-    case _: PersistenceError   => ErrorType("persistence", serverSide = true)
-    case _: VendorError        => ErrorType("vendor", serverSide = true)
-    case _: DecodingError      => ErrorType("decoding", serverSide = true)
-    case _: UnrecoverableError => ErrorType("unrecoverable", serverSide = true)
-    case _: AdapterError       => ErrorType("adapter", serverSide = true)
-    case _: ApplicationError   => ErrorType("application", serverSide = true)
-    case _                     => ErrorType("defect", serverSide = true)
+    case _: ValidationError     => ErrorType("validation", serverSide = false)
+    case _: UnauthorisedError   => ErrorType("unauthorised", serverSide = false)
+    case _: NotFoundError       => ErrorType("not_found", serverSide = false)
+    case _: ConflictError       => ErrorType("conflict", serverSide = false)
+    case _: InconsistentState   => ErrorType("inconsistent_state", serverSide = true)
+    case _: DomainError         => ErrorType("domain", serverSide = false)
+    case _: TransientError      => ErrorType("transient", serverSide = true)
+    case _: NetworkError        => ErrorType("network", serverSide = true)
+    case _: PersistenceError    => ErrorType("persistence", serverSide = true)
+    case _: VendorError         => ErrorType("vendor", serverSide = true)
+    case _: DecodingError       => ErrorType("decoding", serverSide = true)
+    case _: UnrecoverableError  => ErrorType("unrecoverable", serverSide = true)
+    case _: AdapterError        => ErrorType("adapter", serverSide = true)
+    case _: ImplementationError => ErrorType("bug", serverSide = true)
+    case _: ApplicationError    => ErrorType("application", serverSide = true)
+    case _                      => ErrorType("defect", serverSide = true)
   }
 
   /**
