@@ -1,0 +1,38 @@
+# Runs the full test suite on pushes to main and on pull requests. This toolkit is a library
+# (no deploy pipeline), so this is the whole CI: keep main green and gate PRs. Needs no secrets.
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs on the same ref (e.g. rapid pushes to a PR branch).
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Temurin 25 for consistency with the rest of the homelab (services build on 25); building
+      # here surfaces any JDK-25 issue in CI. Scala emits JVM-agnostic bytecode, so the build JDK
+      # barely affects the artifact.
+      - name: Set up JDK 25 + sbt cache
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: sbt
+
+      - uses: sbt/setup-sbt@v1
+
+      # Full suite incl. the Postgres Testcontainers integration test — Docker is available on
+      # ubuntu-latest, and the test pins the Docker Remote API version itself (Engine MinAPIVersion),
+      # so no runner-side Docker setup is needed.
+      - name: Test
+        run: sbt -batch -no-colors test
