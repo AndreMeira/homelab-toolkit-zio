@@ -6,18 +6,19 @@
 // Status: scaffold — only `common` DATA is populated (errors, value objects, Requester). Ports and
 // adapters (magnum/inmemory/auth) come next.
 
-val scala3Version     = "3.3.4"
-val zioVersion        = "2.1.23" // keep in sync with the zio-core that zio-prelude/zio-http pull, else zio-test layer macros break
-val zioPreludeVersion = "1.0.0-RC47"
-val jwtVersion        = "11.0.4"
-val zioHttpVersion    = "3.0.1"
-val magnumVersion     = "1.3.1"
-val flywayVersion     = "12.9.0"
-val postgresqlVersion = "42.7.11"
-val hikariVersion     = "7.1.0"
-val zioOtelVersion    = "3.1.13"
-val otelVersion       = "1.57.0"
-val fabric8Version    = "6.0.0"
+val scala3Version         = "3.3.4"
+val zioVersion            = "2.1.23" // keep in sync with the zio-core that zio-prelude/zio-http pull, else zio-test layer macros break
+val zioPreludeVersion     = "1.0.0-RC47"
+val zioLoggingVersion     = "2.5.0"
+val jwtVersion            = "11.0.4"
+val zioHttpVersion        = "3.0.1"
+val magnumVersion         = "1.3.1"
+val flywayVersion         = "12.9.0"
+val postgresqlVersion     = "42.7.11"
+val hikariVersion         = "7.1.0"
+val zioOtelVersion        = "3.1.13"
+val otelVersion           = "1.57.0"
+val fabric8Version        = "6.0.0"
 val testcontainersVersion = "1.20.6"
 
 ThisBuild / scalaVersion := scala3Version
@@ -37,10 +38,12 @@ lazy val common = project
   .settings(
     name := "homelab-common",
     libraryDependencies ++= Seq(
-      "dev.zio" %% "zio"          % zioVersion,
-      "dev.zio" %% "zio-prelude"  % zioPreludeVersion,
-      "dev.zio" %% "zio-test"     % zioVersion % Test,
-      "dev.zio" %% "zio-test-sbt" % zioVersion % Test,
+      "dev.zio" %% "zio"                       % zioVersion,
+      "dev.zio" %% "zio-prelude"               % zioPreludeVersion,
+      "dev.zio" %% "zio-logging"               % zioLoggingVersion,
+      "dev.zio" %% "zio-logging-slf4j2-bridge" % zioLoggingVersion,
+      "dev.zio" %% "zio-test"                  % zioVersion % Test,
+      "dev.zio" %% "zio-test-sbt"              % zioVersion % Test,
     ),
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
   )
@@ -54,15 +57,15 @@ lazy val postgres = project
   .settings(
     name := "homelab-postgres",
     libraryDependencies ++= Seq(
-      "com.augustnagro" %% "magnum"                     % magnumVersion,
-      "com.augustnagro" %% "magnumpg"                   % magnumVersion,
-      "org.postgresql"   % "postgresql"                 % postgresqlVersion,
-      "com.zaxxer"       % "HikariCP"                   % hikariVersion,
-      "org.flywaydb"     % "flyway-core"                % flywayVersion,
-      "org.flywaydb"     % "flyway-database-postgresql" % flywayVersion,
-      "dev.zio"         %% "zio-test"                   % zioVersion            % Test,
-      "dev.zio"         %% "zio-test-sbt"               % zioVersion            % Test,
-      "org.testcontainers" % "postgresql"              % testcontainersVersion % Test,
+      "com.augustnagro"   %% "magnum"                     % magnumVersion,
+      "com.augustnagro"   %% "magnumpg"                   % magnumVersion,
+      "org.postgresql"     % "postgresql"                 % postgresqlVersion,
+      "com.zaxxer"         % "HikariCP"                   % hikariVersion,
+      "org.flywaydb"       % "flyway-core"                % flywayVersion,
+      "org.flywaydb"       % "flyway-database-postgresql" % flywayVersion,
+      "dev.zio"           %% "zio-test"                   % zioVersion            % Test,
+      "dev.zio"           %% "zio-test-sbt"               % zioVersion            % Test,
+      "org.testcontainers" % "postgresql"                 % testcontainersVersion % Test,
     ),
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
   )

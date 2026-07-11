@@ -14,6 +14,11 @@ private[data] trait BatchOps[+E, +A] {
 
   /** The backing slots, keyed by input position. */
   def items: Map[Int, Either[E, A]]
+  
+  def zipItems[E2 >: E, B](other: Map[Int, Either[E2, B]]): Map[Int, Either[E2, (A, B)]] =
+    items.flatMap:
+      case (index, Left(err))    => Some(index -> Left(err))
+      case (index, Right(value)) => other.get(index).map(otherEither => index -> otherEither.map(b => (value, b)))
 
   /**
    * The slots as `Either`s in index order — the single source of ordering for the materialisers below.

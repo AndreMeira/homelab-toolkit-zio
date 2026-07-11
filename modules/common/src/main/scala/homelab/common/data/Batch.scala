@@ -41,6 +41,27 @@ trait Batch[+E, +A] {
   def errors: List[E]
 
   /**
+   * Check whether `other` comes from the same input universe as this batch.
+   *
+   * Lineage is reference identity on the underlying [[Batch.make]] universe, so two batches with equal
+   * contents still mismatch if they were built independently.
+   *
+   * @param other the batch to compare against this batch's lineage
+   * @return `Right(())` when the two batches share lineage; otherwise `Left([[LineageMismatch]])`
+   */
+  def verifyLineage(other: Batch[?, ?]): Either[LineageMismatch, Unit]
+
+  /**
+   * Check whether `other` comes from the same input universe as this batch.
+   *
+   * Useful before overlaying or otherwise combining this complete batch with a partial derived elsewhere.
+   *
+   * @param other the partial to compare against this batch's lineage
+   * @return `Right(())` when the batch and partial share lineage; otherwise `Left([[LineageMismatch]])`
+   */
+  def verifyLineage(other: Batch.Partial[?, ?]): Either[LineageMismatch, Unit]
+
+  /**
    * Every slot as an `Either`, one entry per input element.
    *
    * @return each slot as `Right(value)` or `Left(error)`, ordered by input position
@@ -54,6 +75,17 @@ trait Batch[+E, +A] {
    *         batch onto another
    */
   def partial: Batch.Partial[E, A]
+
+  /**
+   * Zip this batch with `other`, pairing each slot's value with its counterpart. Errors pass through, and
+   * positions are preserved. The two batches must share the same lineage.
+   *
+   * @param other the same-lineage batch to pair with
+   * @tparam E2 the widened error type
+   * @tparam B  the value type of `other`
+   * @return a batch of `(value, otherValue)` pairs, or a [[LineageMismatch]] if the lineages differ
+   */
+  def zip[E2 >: E, B](other: Batch[E2, B]): Either[LineageMismatch, Batch[E2, (A, B)]]
 
   /**
    * Transform the value channel, leaving errors and positions untouched.
@@ -94,7 +126,7 @@ trait Batch[+E, +A] {
   /**
    * Split the value channel into two typed, disjoint halves by `fn`: `Left`s land in the first, `Right`s in
    * the second. Error slots go to neither — they remain in this batch, the base you overlay the processed
-   * halves back onto. The halves are therefore error-free (`Partial[Nothing, _]`): each is a set of pure
+   * halves back onto. The halves are therefore error-free (`Partial.Success[_]`): each is a set of pure
    * successes to process, and carrying the batch's errors along would wrongly invite mapping over slots that
    * have already failed and belong to no branch. Useful to route a heterogeneous batch (e.g.
    * `Create | Update`) into its branches for separate processing, then recombine via
@@ -105,7 +137,7 @@ trait Batch[+E, +A] {
    * @tparam A2 the value type of the right half
    * @return `(lefts, rights)` — two error-free partials of this lineage; error slots appear in neither
    */
-  def partitionMap[A1, A2](fn: A => Either[A1, A2]): (Batch.Partial[Nothing, A1], Batch.Partial[Nothing, A2])
+  def partitionMap[A1, A2](fn: A => Either[A1, A2]): (Batch.Partial.Success[A1], Batch.Partial.Success[A2])
 
   /**
    * A same-lineage base with every slot set to `value` — a complete, error-free success base to [[overlay]]
@@ -115,7 +147,7 @@ trait Batch[+E, +A] {
    * @tparam B the value type of the base
    * @return a complete batch of this lineage with every position `Right(value)`
    */
-  def defaultValue[B](value: B): Batch[Nothing, B]
+  def defaultValue[B](value: B): Batch.Success[B]
 
   /**
    * A same-lineage base with every slot set to `error` — a complete, value-free error base to [[overlay]]
@@ -125,7 +157,7 @@ trait Batch[+E, +A] {
    * @tparam E2 the error type of the base
    * @return a complete batch of this lineage with every position `Left(error)`
    */
-  def defaultError[E2](error: E2): Batch[E2, Nothing]
+  def defaultError[E2](error: E2): Batch.Fail[E2]
 
   /**
    * Replace each value with its match in `other`, looked up by `key`; errors pass through, positions are
@@ -186,6 +218,27 @@ trait Batch[+E, +A] {
 
 
 object Batch {
+  type Success[+A] = Batch[Nothing, A]
+  type Fail[+E]    = Batch[E, Nothing]
+
+  type LineageMismatch = LineageMismatch.type
+
+  /** Overlaying pieces from different [[make]] universes — a defect in the calling code, not a domain
+   * failure, hence an [[ApplicationError.ImplementationError]]. */
+  object LineageMismatch extends ApplicationError.ImplementationError:
+    override def message: String = "Lineage mismatch between batches"
+
+  /**
+   * Build a one-element successful batch under a fresh lineage.
+   *
+   * A convenience wrapper over [[make]] for the common case where only one successful value needs to be
+   * lifted into a [[Batch]].
+   *
+   * @param value the single successful value to place in the batch
+   * @tparam A the value type
+   * @return a batch containing exactly `value`, marked successful at position `0`
+   */
+  def single[A](value: A): Batch.Success[A] = make(List(value))
 
   /**
    * A fresh, all-successful batch indexed by input position, under a new lineage.
@@ -198,13 +251,6 @@ object Batch {
     new BatchMap.Lineage,
     items.zipWithIndex.map((value, index) => index -> Right(value)).toMap,
   )
-
-  type LineageMismatch = LineageMismatch.type
-
-  /** Overlaying pieces from different [[make]] universes — a defect in the calling code, not a domain
-    * failure, hence an [[ApplicationError.ImplementationError]]. */
-  object LineageMismatch extends ApplicationError.ImplementationError:
-    override def message: String = "Lineage mismatch between batches"
 
   /**
    * A *subset* of a [[Batch]]'s slots — the result of an operation that may drop elements ([[Batch.filter]],
@@ -237,6 +283,17 @@ object Batch {
      * @return each retained slot as `Right(value)` or `Left(error)`, ordered by input position
      */
     def toList: List[Either[E, A]]
+
+    /**
+     * Check whether `other` comes from the same input universe as this partial.
+     *
+     * This guards operations that combine partials, ensuring they were both derived from the same
+     * originating [[Batch]].
+     *
+     * @param other the partial to compare against this partial's lineage
+     * @return `Right(())` when the two partials share lineage; otherwise `Left([[LineageMismatch]])`
+     */
+    def verifyLineage(other: Partial[?, ?]): Either[LineageMismatch, Unit]
 
     /**
      * Transform the value channel, leaving errors and positions untouched.
@@ -292,7 +349,7 @@ object Batch {
      * @tparam B the value type
      * @return a partial of this lineage with every retained position `Right(value)`
      */
-    def defaultValue[B](value: B): Batch.Partial[Nothing, B]
+    def defaultValue[B](value: B): Batch.Partial.Success[B]
 
     /**
      * Set every retained slot to `error`.
@@ -301,7 +358,7 @@ object Batch {
      * @tparam E2 the error type
      * @return a partial of this lineage with every retained position `Left(error)`
      */
-    def defaultError[E2](error: E2): Batch.Partial[E2, Nothing]
+    def defaultError[E2](error: E2): Batch.Partial.Fail[E2]
 
     /**
      * Replace each value with its match in `other`, looked up by `key`; errors pass through.
@@ -329,4 +386,8 @@ object Batch {
      */
     def associateWith[E2 >: E, K, B](other: Map[K, B])(key: A => K, notFound: A => E2): Batch.Partial[E2, (A, B)]
   }
+
+  object Partial:
+    type Success[+A] = Partial[Nothing, A]
+    type Fail[+E]    = Partial[E, Nothing]
 }

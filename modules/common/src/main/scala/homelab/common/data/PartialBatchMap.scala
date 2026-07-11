@@ -1,6 +1,7 @@
 package homelab.common.data
 
 
+import homelab.common.data.Batch.LineageMismatch
 import homelab.common.data.BatchMap.Lineage
 
 
@@ -16,6 +17,11 @@ private[data] case class PartialBatchMap[+E, +A](
   lineage: Lineage,
   items: Map[Int, Either[E, A]],
 ) extends Batch.Partial[E, A], BatchOps[E, A] {
+
+  override def verifyLineage(other: Batch.Partial[_, _]): Either[LineageMismatch, Unit] =
+    other match
+      case PartialBatchMap(parent, _) if parent == lineage => Right(())
+      case _                                               => Left(LineageMismatch)
 
   override def map[B](fn: A => B): Batch.Partial[E, B] =
     PartialBatchMap(lineage, mapItems(fn))

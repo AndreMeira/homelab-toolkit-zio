@@ -37,12 +37,12 @@ object PostgresSpecLayers:
    * @return a scoped layer that starts the container, applies migrations, and publishes the database; fails
    *         with the underlying `Throwable` if the container, migrations, or connection pool can't be brought up
    */
-  val database: TaskLayer[PostgresDatabase] = ZLayer.scoped:
+  val database: ZLayer[Any, ApplicationError, PostgresDatabase] = ZLayer.scoped:
     for
-      container <- startContainer
+      container <- startContainer.mapError(_ => ContainerStartError)
       source     = DatabaseSourceConfig(container.getJdbcUrl, container.getUsername, container.getPassword)
-      _         <- ZIO.scoped(PostgresMigration.make(migrationConfig, source).flatMap(_.applyMigrations)).mapError(asThrowable)
-      database  <- PostgresDatabase.make(source).mapError(asThrowable)
+      database  <- PostgresDatabase.make(source)
+      _         <- database.migrate(migrationConfig)
     yield database
 
   /**
@@ -67,10 +67,6 @@ object PostgresSpecLayers:
   private def pinDockerApiVersion(): Unit =
     val _ = java.lang.System.setProperty("api.version", "1.40")
 
-  /**
-   * Adapt a toolkit [[ApplicationError]] to the `Throwable` a `TaskLayer` fails with.
-   *
-   * @param error the migration or pool-build failure to surface
-   * @return a `Throwable` carrying the error's message
-   */
-  private def asThrowable(error: ApplicationError): Throwable = new RuntimeException(error.message)
+  /** Can not start the container */
+  case object ContainerStartError extends ApplicationError:
+    override def message: String = "could not start the Postgres test container"

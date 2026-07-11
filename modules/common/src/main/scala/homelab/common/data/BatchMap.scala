@@ -21,6 +21,22 @@ private[data] case class BatchMap[+E, +A](
   override def partial: Batch.Partial[E, A] =
     PartialBatchMap(lineage, items)
 
+  override def verifyLineage(other: Batch[_, _]): Either[LineageMismatch, Unit] =
+    other match
+      case BatchMap(parent, _) if parent == lineage => Right(())
+      case _                                        => Left(LineageMismatch)
+
+  override def verifyLineage(other: Batch.Partial[_, _]): Either[LineageMismatch, Unit] =
+    other match
+      case PartialBatchMap(parent, _) if parent == lineage => Right(())
+      case _                                               => Left(LineageMismatch)
+
+  override def zip[E2 >: E, B](other: Batch[E2, B]): Either[LineageMismatch, Batch[E2, (A, B)]] =
+    other match {
+      case BatchMap(parent, others) if parent == lineage => Right(BatchMap(lineage, zipItems(others)))
+      case _                                             => Left(LineageMismatch)
+    }
+
   override def map[B](fn: A => B): Batch[E, B] =
     BatchMap(lineage, items = mapItems(fn))
 

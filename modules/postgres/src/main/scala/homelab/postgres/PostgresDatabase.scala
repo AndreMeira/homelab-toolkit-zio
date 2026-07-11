@@ -6,7 +6,7 @@ import homelab.common.database.Database
 import homelab.common.error.ApplicationError
 import homelab.common.error.ApplicationError.AdapterError
 import homelab.common.monitor.Monitor
-import homelab.postgres.configuration.DatabaseSourceConfig
+import homelab.postgres.configuration.{ DatabaseSourceConfig, MigrationConfig }
 import zio.*
 
 import javax.sql.DataSource
@@ -44,23 +44,43 @@ final class PostgresDatabase(dataSource: DataSource, monitor: Monitor) extends D
   ): ZIO[R, PostgresTransaction.Error | E, A] =
     monitor.track("PostgresDatabase.transaction", PostgresDatabase.Tag):
       ZIO.acquireReleaseExitWith(acquire)(release): tx =>
-        effect
-          .provideSomeEnvironment[R](_.add[PostgresTransaction](tx))
-          .tap[R, PostgresTransaction.Error | E](_ => tx.commit)
+        effect.provideSomeEnvironment[R](_.add[PostgresTransaction](tx)) <* tx.commit
+
+  /**
+   * Apply all pending Flyway migrations against this database's datasource using `config`. Reuses the
+   * existing pool rather than opening a new one, so lifecycle management stays with the caller. Prefer
+   * this over [[PostgresMigration.make]] when the datasource is already in hand (e.g. inside an
+   * application that shares the pool between migrations and queries).
+   *
+   * @param config the migration configuration (locations, schemas, baseline settings, etc.)
+   * @return unit; fails with [[PostgresMigration.MigrationFailed]] if Flyway can't be loaded or a
+   *         migration script fails
+   */
+  def migrate(config: MigrationConfig): IO[PostgresMigration.MigrationFailed, Unit] =
+    migration(config).flatMap(_.applyMigrations)
+
+  /**
+   * Build a [[PostgresMigration]] instance from the given config, reusing this database's datasource and
+   * monitor. Returns the runner without applying migrations, allowing the caller to control when
+   * [[PostgresMigration.applyMigrations]] or [[PostgresMigration.cleanMigrations]] is invoked.
+   *
+   * @param config the migration configuration (locations, schemas, baseline settings, etc.)
+   * @return a migration runner; fails with [[PostgresMigration.MigrationFailed]] if Flyway can't be loaded
+   */
+  def migration(config: MigrationConfig): IO[PostgresMigration.MigrationFailed, PostgresMigration] =
+    PostgresMigration.build(config, dataSource, monitor)
 
   /**
    * Check a connection out of the datasource, switch off auto-commit, and wrap it as a transaction.
    *
    * @return the transaction; fails with [[PostgresTransaction.ConnectionError]] if a connection can't be acquired
    */
-  private def acquire: IO[PostgresTransaction.Error, PostgresTransaction] =
-    ZIO
-      .attemptBlocking {
-        val connection = dataSource.getConnection
-        connection.setAutoCommit(false)
-        PostgresTransaction(connection)
-      }
-      .mapError(PostgresTransaction.ConnectionError(_))
+  private def acquire: IO[PostgresTransaction.Error, PostgresTransaction] = ZIO
+    .attemptBlocking:
+      val connection = dataSource.getConnection
+      connection.setAutoCommit(false)
+      PostgresTransaction(connection)
+    .mapError(PostgresTransaction.ConnectionError(_))
 
   /**
    * Finalise the transaction from its run outcome: on success the body has already committed, so just
@@ -73,10 +93,9 @@ final class PostgresDatabase(dataSource: DataSource, monitor: Monitor) extends D
    * @return unit — the connection is always closed
    */
   private def release[E](tx: PostgresTransaction, exit: Exit[AdapterError | E, Any]): UIO[Unit] =
-    exit match {
+    exit match
       case Exit.Success(_) => close(tx)
       case Exit.Failure(_) => tx.rollback.ignore *> close(tx) // @todo logging? die?
-    }
 
   /**
    * Close the connection, returning it to the pool. Closing one with an open transaction rolls it back, so
@@ -97,6 +116,17 @@ object PostgresDatabase:
   /** The HikariCP pool couldn't be built from the datasource config. */
   final case class DatasourceBuildError(cause: Throwable) extends ApplicationError:
     override def message: String = "could not build a pooled datasource"
+
+  /**
+   * Construct a [[PostgresDatabase]] from an already-built datasource. Use this when datasource
+   * lifecycle is managed externally and only the database adapter wiring is needed.
+   *
+   * @param datasource the existing pooled datasource to use for transactions
+   * @param monitor    observes each transaction (defaults to [[Monitor.Noop]])
+   * @return a postgres-backed database adapter
+   */
+  def apply(datasource: HikariDataSource, monitor: Monitor = Monitor.Noop): PostgresDatabase =
+    new PostgresDatabase(datasource, monitor)
 
   /**
    * Build a [[PostgresDatabase]] over a scoped HikariCP pool from `config`. The pool is closed when the

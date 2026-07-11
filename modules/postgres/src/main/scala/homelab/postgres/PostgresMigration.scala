@@ -5,10 +5,12 @@ import com.zaxxer.hikari.HikariDataSource
 import homelab.common.error.ApplicationError.AdapterError
 import homelab.common.monitor.Monitor
 import homelab.postgres.PostgresDatabase.DatasourceBuildError
-import homelab.postgres.PostgresMigration.{ CleanFailed, MigrationFailed }
-import homelab.postgres.configuration.{ DatabaseSourceConfig, MigrationConfig }
+import homelab.postgres.PostgresMigration.{CleanFailed, MigrationFailed}
+import homelab.postgres.configuration.{DatabaseSourceConfig, MigrationConfig}
 import org.flywaydb.core.Flyway
 import zio.*
+
+import javax.sql.DataSource
 
 
 /**
@@ -26,7 +28,7 @@ final class PostgresMigration(flyway: Flyway, monitor: Monitor):
    *
    * @return unit; fails with [[MigrationFailed]] if a migration fails
    */
-  def applyMigrations: IO[AdapterError, Unit] =
+  def applyMigrations: IO[MigrationFailed, Unit] =
     monitor.track("PostgresMigration.applyMigrations", PostgresDatabase.Tag):
       ZIO.attemptBlocking(flyway.migrate()).mapError(MigrationFailed(_)).unit
 
@@ -35,7 +37,7 @@ final class PostgresMigration(flyway: Flyway, monitor: Monitor):
    *
    * @return unit; fails with [[CleanFailed]] if the clean fails or is disabled
    */
-  def cleanMigrations: IO[AdapterError, Unit] =
+  def cleanMigrations: IO[CleanFailed, Unit] =
     monitor.track("PostgresMigration.cleanMigrations", PostgresDatabase.Tag):
       ZIO.attemptBlocking(flyway.clean()).mapError(CleanFailed(_)).unit
 
@@ -71,3 +73,21 @@ object PostgresMigration:
       flywayConf  = config.toFlywayConfig.dataSource(datasource)
       flyway     <- ZIO.attemptBlocking(flywayConf.load()).mapError(MigrationFailed(_))
     yield PostgresMigration(flyway, monitor)
+
+  /**
+   * Build a [[PostgresMigration]] using an already-constructed datasource. Use this when datasource
+   * lifecycle is managed elsewhere and only Flyway wiring is needed.
+   *
+   * @param config     the migration configuration used to build Flyway
+   * @param datasource the existing datasource Flyway should run migrations against
+   * @param monitor    observes each migration (defaults to [[Monitor.Noop]])
+   * @return a migration runner; fails with [[MigrationFailed]] if Flyway can't be loaded
+   */
+  def build(
+    config: MigrationConfig,
+    datasource: DataSource,
+    monitor: Monitor = Monitor.Noop,
+  ): ZIO[Any, MigrationFailed, PostgresMigration] = ZIO
+    .attemptBlocking(config.toFlywayConfig.dataSource(datasource).load())
+    .mapError(MigrationFailed(_))
+    .map(PostgresMigration(_, monitor))
