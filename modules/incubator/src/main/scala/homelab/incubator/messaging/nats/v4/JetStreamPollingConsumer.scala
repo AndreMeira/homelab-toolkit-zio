@@ -1,0 +1,112 @@
+package homelab.incubator.messaging.nats.v4
+
+
+import homelab.common.messaging.Consumer
+import io.nats.client.api.{ AckPolicy, ConsumerConfiguration }
+import io.nats.client.{ Connection, ConsumerContext, Message }
+import zio.*
+
+
+/**
+ * A JetStream [[Consumer]] that '''polls''': a durable pull consumer drained one message at a time by a
+ * blocking `next` (interruptible, so scope close cancels it). Demand-driven and simple, but parks one
+ * thread per concurrent `consume` — prefer for few subscriptions. Each message is settled with explicit
+ * ack: `ack` on success, `nak` (redeliver) on handler failure, `term` (dead-letter) on an undecodable
+ * payload. Redelivery is real, so '''handlers must be idempotent'''.
+ *
+ * @param context     the durable pull consumer
+ * @param pollTimeout each blocking `next`'s wait before retrying
+ * @tparam A the value consumed
+ */
+private[v4] final class JetStreamPollingConsumer[A](context: ConsumerContext, pollTimeout: Duration)(using
+  serde: Serde[A]
+) extends Consumer[NatsError, A]:
+
+  override def consume[E2 >: NatsError](logic: A => IO[E2, Unit]): IO[E2, Unit] =
+    receive.flatMap(message => settle(message, logic))
+
+  /**
+   * Block for the next message, retrying across `pollTimeout` expiries.
+   *
+   * @return the next message; aborts with [[NatsError.Connect]] on receive failure
+   */
+  private def receive: IO[NatsError, Message] =
+    ZIO
+      .attemptBlockingInterrupt(Option(context.next(pollTimeout)))
+      .mapError(NatsError.Connect(_))
+      .flatMap {
+        case Some(message) => ZIO.succeed(message)
+        case None          => receive
+      }
+
+  /**
+   * Decode, run `logic`, then settle: `ack` on success, `nak` on failure, `term` on an undecodable
+   * payload. A per-message logic failure never surfaces — redelivery retries it.
+   *
+   * @param message the received message
+   * @param logic   the handler to run on the decoded value
+   * @tparam E2 the widened error of `logic`
+   * @return unit once settled; aborts with [[NatsError.Ack]] only if the ack call fails
+   */
+  private def settle[E2 >: NatsError](message: Message, logic: A => IO[E2, Unit]): IO[E2, Unit] =
+    serde.decode(message.getData) match
+      case Left(_)      => ack(message.term())
+      case Right(value) => logic(value).foldZIO(_ => ack(message.nak()), _ => ack(message.ack()))
+
+  /**
+   * Run a blocking ack/nak/term call, tagging a failure as [[NatsError.Ack]].
+   *
+   * @param acknowledge the by-name ack side effect
+   * @return unit once acknowledged; aborts with [[NatsError.Ack]] on failure
+   */
+  private def ack(acknowledge: => Unit): IO[NatsError, Unit] =
+    ZIO.attemptBlocking(acknowledge).mapError(NatsError.Ack(_))
+
+
+object JetStreamPollingConsumer:
+
+  /**
+   * Tuning for a polling consumer.
+   *
+   * @param ackWait       how long the server waits for an ack before redelivering
+   * @param maxAckPending the backpressure bound on un-acked in-flight messages
+   * @param pollTimeout   how long each blocking `next` waits before retrying
+   */
+  final case class Config(
+    ackWait: Duration = 30.seconds,
+    maxAckPending: Int = 256,
+    pollTimeout: Duration = 1.second,
+  )
+
+  /**
+   * Attach a durable pull consumer to an existing `stream` and expose it as a [[Consumer]].
+   *
+   * @param connection the live connection
+   * @param stream     the (existing) stream name
+   * @param durable    the durable consumer name (shared progress across restarts)
+   * @param subject    the subject filter
+   * @param config     ack / backpressure / poll tuning
+   * @tparam A the value consumed
+   * @return the consumer; aborts with [[NatsError.Connect]] if the consumer can't be created
+   */
+  def make[A](
+    connection: Connection,
+    stream: String,
+    durable: String,
+    subject: String,
+    config: Config = Config(),
+  )(using Serde[A]): IO[NatsError, Consumer[NatsError, A]] =
+    ZIO
+      .attemptBlocking {
+        val configuration = ConsumerConfiguration
+          .builder()
+          .durable(durable)
+          .filterSubject(subject)
+          .ackPolicy(AckPolicy.Explicit)
+          .ackWait(config.ackWait)
+          .maxAckPending(config.maxAckPending.toLong)
+          .build()
+        connection.getStreamContext(stream).createOrUpdateConsumer(configuration)
+      }
+      .mapError(NatsError.Connect(_))
+      .map(context => new JetStreamPollingConsumer(context, config.pollTimeout))
