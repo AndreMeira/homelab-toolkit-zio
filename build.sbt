@@ -74,7 +74,14 @@ lazy val postgres = project
 lazy val inmemory = project
   .in(file("modules/inmemory"))
   .dependsOn(common)
-  .settings(name := "homelab-inmemory")
+  .settings(
+    name := "homelab-inmemory",
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio-test"     % zioVersion % Test,
+      "dev.zio" %% "zio-test-sbt" % zioVersion % Test,
+    ),
+    testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
+  )
 
 
 // Telemetry adapter — OpenTelemetry implementation of the common `Monitor` port (spans + metrics), via
@@ -120,8 +127,11 @@ lazy val incubator = project
     libraryDependencies ++= Seq(
       "com.github.jwt-scala" %% "jwt-zio-json" % jwtVersion,
       "dev.zio"              %% "zio-http"     % zioHttpVersion,
-      "dev.zio"              %% "zio-test"     % zioVersion % Test,
-      "dev.zio"              %% "zio-test-sbt" % zioVersion % Test,
+      "dev.zio"              %% "zio-streams"  % zioVersion, // adapter-internal only (NATS callback bridge); never surfaced
+      "io.nats"              % "jnats"          % "2.20.5", // NATS exploration sketch (messaging/nats)
+      "dev.zio"              %% "zio-test"      % zioVersion            % Test,
+      "dev.zio"              %% "zio-test-sbt"  % zioVersion            % Test,
+      "org.testcontainers"    % "testcontainers" % testcontainersVersion % Test, // NATS via GenericContainer
     ),
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
   )
