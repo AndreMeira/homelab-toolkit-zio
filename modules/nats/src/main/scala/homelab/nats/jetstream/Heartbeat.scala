@@ -30,7 +30,8 @@ private[nats] object Heartbeat:
       case None        => effect
       case Some(every) =>
         ZIO.scoped:
-          ping(messages).repeat(Schedule.spaced(every)).forkScoped *> effect
+          // first ping after `every`, not at t=0 — the freshly-delivered message's ackWait timer is new
+          ping(messages).delay(every).forever.forkScoped *> effect
 
   /**
    * Best-effort `inProgress()` on every message.
