@@ -21,8 +21,8 @@ import zio.*
 final private[v4] class JetStreamPollingConsumer[A: Serde](
   context: ConsumerContext,
   pollTimeout: Duration,
-  onDecodeFailure: OnDecodeFailure,
-  onHandlerFailure: OnHandlerFailure,
+  onDecodeFailure: DecodeFailurePolicy,
+  onHandlerFailure: HandlerFailurePolicy,
 ) extends JetStreamConsumer[A](onDecodeFailure, onHandlerFailure):
 
   override def consume[E2 >: NatsError](logic: A => IO[E2, Unit]): IO[E2, Unit] =
@@ -58,8 +58,8 @@ object JetStreamPollingConsumer:
     ackWait: Duration = 30.seconds,
     maxAckPending: Int = 256,
     pollTimeout: Duration = 1.second,
-    onDecodeFailure: OnDecodeFailure = OnDecodeFailure.Surface,
-    onHandlerFailure: OnHandlerFailure = OnHandlerFailure.Redeliver,
+    onDecodeFailure: DecodeFailurePolicy = DecodeFailurePolicy.Surface,
+    onHandlerFailure: HandlerFailurePolicy = HandlerFailurePolicy.Redeliver,
   )
 
   /**

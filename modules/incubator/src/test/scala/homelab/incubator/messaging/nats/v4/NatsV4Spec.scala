@@ -131,7 +131,7 @@ object NatsV4Spec extends ZIOSpecDefault:
             outcome    <- consumer.consume(_ => ZIO.unit).either
           yield assertTrue(outcome match { case Left(NatsError.Decode(_)) => true; case _ => false })
       },
-      test("with OnDecodeFailure.DeadLetter a poison message is termed once and the consumer continues") {
+      test("with DecodeFailurePolicy.DeadLetter a poison message is termed once and the consumer continues") {
         val decodeCount = new java.util.concurrent.atomic.AtomicInteger(0)
         val intSerde: Serde[Int] = new Serde[Int]:
           def encode(value: Int): Array[Byte] = value.toString.getBytes(StandardCharsets.UTF_8)
@@ -149,7 +149,7 @@ object NatsV4Spec extends ZIOSpecDefault:
                             "POISON_DLQ",
                             "worker",
                             "dlq.>",
-                            JetStreamPollingConsumer.Config(onDecodeFailure = OnDecodeFailure.DeadLetter),
+                            JetStreamPollingConsumer.Config(onDecodeFailure = DecodeFailurePolicy.DeadLetter),
                           )(using intSerde)
             good       <- Promise.make[Nothing, Int]
             _          <- producer.emit("oops") // undecodable → term (dropped, not redelivered)

@@ -16,7 +16,7 @@ import zio.*
  * @param onHandlerFailure what to do when the handler fails on a decoded message
  * @tparam A the value consumed
  */
-trait JetStreamConsumer[A: Serde](onDecodeFailure: OnDecodeFailure, onHandlerFailure: OnHandlerFailure)
+trait JetStreamConsumer[A: Serde](onDecodeFailure: DecodeFailurePolicy, onHandlerFailure: HandlerFailurePolicy)
     extends Consumer[NatsError, A] {
 
   /**
@@ -33,15 +33,15 @@ trait JetStreamConsumer[A: Serde](onDecodeFailure: OnDecodeFailure, onHandlerFai
     Serde[A].decode(message.getData) match
       case Left(reason) =>
         onDecodeFailure match
-          case OnDecodeFailure.Surface    => ZIO.fail(NatsError.Decode(reason))
-          case OnDecodeFailure.DeadLetter => ack(message.term())
+          case DecodeFailurePolicy.Surface    => ZIO.fail(NatsError.Decode(reason))
+          case DecodeFailurePolicy.DeadLetter => ack(message.term())
       case Right(value) =>
         logic(value).foldZIO(
           error =>
             onHandlerFailure match
-              case OnHandlerFailure.Redeliver  => ack(message.nak())
-              case OnHandlerFailure.DeadLetter => ack(message.term())
-              case OnHandlerFailure.Surface    => ZIO.fail(error),
+              case HandlerFailurePolicy.Redeliver  => ack(message.nak())
+              case HandlerFailurePolicy.DeadLetter => ack(message.term())
+              case HandlerFailurePolicy.Surface    => ZIO.fail(error),
           _ => ack(message.ack()),
         )
 

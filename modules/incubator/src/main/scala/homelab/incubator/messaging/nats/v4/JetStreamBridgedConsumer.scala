@@ -21,8 +21,8 @@ import zio.stream.ZStream
  */
 final private[v4] class JetStreamBridgedConsumer[A: Serde](
   queue: Queue[Message],
-  onDecodeFailure: OnDecodeFailure,
-  onHandlerFailure: OnHandlerFailure,
+  onDecodeFailure: DecodeFailurePolicy,
+  onHandlerFailure: HandlerFailurePolicy,
 ) extends JetStreamConsumer[A](onDecodeFailure, onHandlerFailure):
   override def consume[E2 >: NatsError](logic: A => IO[E2, Unit]): IO[E2, Unit] =
     queue.take.flatMap(message => settle(message, logic))
@@ -41,8 +41,8 @@ object JetStreamBridgedConsumer:
   final case class Config(
     ackWait: Duration = 30.seconds,
     maxAckPending: Int = 256,
-    onDecodeFailure: OnDecodeFailure = OnDecodeFailure.Surface,
-    onHandlerFailure: OnHandlerFailure = OnHandlerFailure.Redeliver,
+    onDecodeFailure: DecodeFailurePolicy = DecodeFailurePolicy.Surface,
+    onHandlerFailure: HandlerFailurePolicy = HandlerFailurePolicy.Redeliver,
   )
 
   /**
