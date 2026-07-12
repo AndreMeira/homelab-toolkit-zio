@@ -16,11 +16,11 @@ import zio.*
  * @param inFlight  the live-call counter
  * @param inner     the wrapped batcher
  */
-private[flow] final class Adaptive[R, E, In, Out](
+private[flow] final class Adaptive[E, In, Out](
   threshold: Int,
   inFlight: Ref[Int],
-  inner: Batcher[R, E, In, Out],
-) extends Batcher[R, E, In, Out] {
+  inner: Batcher[E, In, Out],
+) extends Batcher[E, In, Out] {
 
   /**
    * Route on live concurrency: below `threshold`, `inner.direct` (no coalescing); at or above it, `inner.run`.
@@ -30,7 +30,7 @@ private[flow] final class Adaptive[R, E, In, Out](
    *
    * @return the inner's result; aborts as the inner does
    */
-  override def run(in: In): ZIO[R, E, Out] =
+  override def run(in: In): IO[E, Out] =
     ZIO.acquireReleaseWith(inFlight.updateAndGet(_ + 1))(_ => inFlight.update(_ - 1)): live =>
       if live <= threshold then inner.direct(in) else inner.run(in)
 
@@ -39,5 +39,5 @@ private[flow] final class Adaptive[R, E, In, Out](
    *
    * @return the inner's one-shot result; aborts as the inner does
    */
-  override private[flow] def direct(in: In): ZIO[R, E, Out] = inner.direct(in)
+  override private[flow] def direct(in: In): IO[E, Out] = inner.direct(in)
 }

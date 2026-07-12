@@ -20,12 +20,12 @@ import zio.*
  * @param ref           the FIFO state, `Idle` or `InFlight`
  * @param logic         the bulk operation
  */
-private[flow] final class Serial[R, E, BE, In, Out](
+private[flow] final class Serial[E, BE, In, Out](
   batchSize: Int,
   capturedScope: Scope,
   ref: Ref[Serial.State[LineageMismatch | E | BE, In, Out]],
-  logic: Batcher.Logic[R, E, BE, In, Out],
-) extends Batcher[R, LineageMismatch | E | BE, In, Out] {
+  logic: Batcher.Logic[E, BE, In, Out],
+) extends Batcher[LineageMismatch | E | BE, In, Out] {
   private type Err = LineageMismatch | E | BE
 
   private val drainSize = math.max(1, batchSize)
@@ -38,7 +38,7 @@ private[flow] final class Serial[R, E, BE, In, Out](
    * @param in the request
    * @return its result; aborts with `Err` or is interrupted on scope close
    */
-  override def run(in: In): ZIO[R, Err, Out] =
+  override def run(in: In): IO[Err, Out] =
     ZIO.uninterruptibleMask: restore =>
       for
         promise <- Promise.make[Err, Out]
@@ -54,7 +54,7 @@ private[flow] final class Serial[R, E, BE, In, Out](
    * @param in the request
    * @return its result; aborts with the `E`/`BE` of a one-item `logic` call
    */
-  override private[flow] def direct(in: In): ZIO[R, Err, Out] =
+  override private[flow] def direct(in: In): IO[Err, Out] =
     logic.run(Batch.single(in)).flatMap(result => ZIO.fromEither(result.toList.head))
 
   /**
@@ -72,7 +72,7 @@ private[flow] final class Serial[R, E, BE, In, Out](
    *
    * @return unit; carries the drain's error/interrupt in its (forked) fiber, unobserved by callers
    */
-  private def runDrain: ZIO[R, Err, Unit] =
+  private def runDrain: IO[Err, Unit] =
     ref
       .modify:
         case State.Idle()                   => Nil -> State.Idle()
@@ -95,7 +95,7 @@ private[flow] final class Serial[R, E, BE, In, Out](
    * @param batch the `(input, promise)` pairs to process
    * @return unit; never fails except by propagating an interrupt
    */
-  private def runBatch(batch: List[(In, Promise[Err, Out])]): ZIO[R, Err, Unit] =
+  private def runBatch(batch: List[(In, Promise[Err, Out])]): IO[Err, Unit] =
     val inputs   = Batch.make(batch.map((in, _) => in))
     val promises = batch.map((_, promise) => promise)
     logic

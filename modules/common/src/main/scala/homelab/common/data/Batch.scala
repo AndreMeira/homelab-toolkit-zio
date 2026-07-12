@@ -88,6 +88,36 @@ trait Batch[+E, +A] {
   def zip[E2 >: E, B](other: Batch[E2, B]): Either[LineageMismatch, Batch[E2, (A, B)]]
 
   /**
+   * Reify each slot as a success-side `Either`: failures become `Left(error)`, successes become
+   * `Right(value)`, while preserving slot positions and lineage.
+   *
+   * This is the total, lineage-preserving view of both channels as data (contrast with [[toList]], which
+   * materialises to a plain list).
+   *
+   * @return a success-only batch whose value at each position is that slot's `Either[E, A]`
+   */
+  def either: Batch.Success[Either[E, A]]
+
+  /**
+   * Split a successful batch of pairs into two successful batches, one per tuple component.
+   *
+   * Available only when this value is statically known to be [[Batch.Success]] and its value type is a
+   * tuple `(B, C)`.
+   *
+   * @tparam A2 helper supertype used to witness that `this` is a success batch
+   * @tparam B the first tuple component type
+   * @tparam C the second tuple component type
+   * @param tupEv evidence that `A` is a tuple `(B, C)`
+   * @param succEv evidence that `this` is a [[Batch.Success]]
+   * @return `(left, right)` where `left` contains all first components and `right` all second components,
+   *         with positions and lineage preserved
+   */
+  def unzip[A2 >: A, B, C](
+    using tupEv: A <:< (B, C),
+    succEv: this.type <:< Batch.Success[A2],
+  ): (Batch.Success[B], Batch.Success[C])
+
+  /**
    * Transform the value channel, leaving errors and positions untouched.
    *
    * @param fn the mapping applied to each successful value

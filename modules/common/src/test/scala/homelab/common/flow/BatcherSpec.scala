@@ -1,6 +1,7 @@
 package homelab.common.flow
 
 
+import homelab.common.data.Batch
 import homelab.common.error.ApplicationError
 import zio.*
 import zio.test.*
@@ -13,23 +14,34 @@ object BatcherSpec extends ZIOSpecDefault:
   case object Boom extends ApplicationError:
     override def message: String = "boom"
 
-  private def serial[E, BE](logic: Batcher.Logic[Any, E, BE, Int, Int]): ZIO[Scope, Batcher.InvalidBatchSize, Batcher[Any, Batcher.Failure[E, BE], Int, Int]] =
+  private def serial[E, BE](
+    logic: Batcher.Logic[E, BE, Int, Int]
+  ): ZIO[Scope, Batcher.InvalidBatchSize, Batcher[Batcher.Failure[E, BE], Int, Int]] =
     Batcher.serial(1024, logic)
 
-  private def dedup[E, BE](key: Int => Int, logic: Batcher.Logic[Any, E, BE, Int, Int]): ZIO[Scope, Batcher.InvalidBatchSize, Batcher[Any, Batcher.Failure[E, BE], Int, Int]] =
+  private def dedup[E, BE](key: Int => Int, logic: Batcher.Logic[E, BE, Int, Int])
+    : ZIO[Scope, Batcher.InvalidBatchSize, Batcher[Batcher.Failure[E, BE], Int, Int]] =
     Batcher.deduplicated(1024, key, logic)
 
-  private def gatedLogic(entered: Promise[Nothing, Unit], gate: Promise[Nothing, Unit]): Batcher.Logic[Any, Nothing, Nothing, Int, Int] =
+  private def gatedLogic(
+    entered: Promise[Nothing, Unit],
+    gate: Promise[Nothing, Unit],
+  ): Batcher.Logic[Nothing, Nothing, Int, Int] =
     in => entered.succeed(()) *> gate.await.as(in.map(_ * 10))
 
-  private val mapped: Batcher.Logic[Any, Nothing, Nothing, Int, Int]      = in => ZIO.succeed(in.map(_ * 10))
-  private val failsBatch: Batcher.Logic[Any, Boom.type, Nothing, Int, Int] = _ => ZIO.fail(Boom)
+  private val mapped: Batcher.Logic[Nothing, Nothing, Int, Int] =
+    in => ZIO.succeed(in.map(_ * 10))
+
+  private val failsBatch: Batcher.Logic[Boom.type, Nothing, Int, Int] =
+    _ => ZIO.fail(Boom)
 
   // Counts logic invocations and the largest batch it saw, then sleeps so concurrent callers overlap in flight.
-  private def countingSleepLogic(calls: Ref[Int], maxSize: Ref[Int]): Batcher.Logic[Any, Nothing, Nothing, Int, Int] =
-    in =>
-      val size = in.values.size
-      calls.update(_ + 1) *> maxSize.update(_ max size) *> ZIO.sleep(50.millis).as(in.map(_ * 10))
+  private def countingSleepLogic(
+    calls: Ref[Int],
+    maxSize: Ref[Int],
+  ): Batcher.Logic[Nothing, Nothing, Int, Int] = in =>
+    val size = in.values.size
+    calls.update(_ + 1) *> maxSize.update(_ max size) *> ZIO.sleep(50.millis).as(in.map(_ * 10))
 
   def spec = suite("Batcher correctness")(
     suite("serial")(
@@ -48,8 +60,9 @@ object BatcherSpec extends ZIOSpecDefault:
           yield assertTrue(out.forall(_ == Left(Boom)))
       },
       test("a per-item failure completes only that caller with the error") {
-        val perItem: Batcher.Logic[Any, Nothing, Boom.type, Int, Int] =
-          in => ZIO.succeed(in.mapEither(i => if i % 2 == 0 then Right(i * 10) else Left(Boom)))
+        val perItem = Batcher.Logic.fromFunction: (in: Batch.Success[Int]) =>
+          ZIO.succeed(in.mapEither(i => if i % 2 == 0 then Right(i * 10) else Left(Boom)))
+
         ZIO.scoped:
           for
             b   <- serial(perItem)
@@ -79,7 +92,7 @@ object BatcherSpec extends ZIOSpecDefault:
         yield assertTrue(out == 20)
       },
       test("a defect in one batch does not strand later callers") {
-        val dying: Batcher.Logic[Any, Nothing, Nothing, Int, Int] = _ => ZIO.dieMessage("boom")
+        val dying: Batcher.Logic[Nothing, Nothing, Int, Int] = _ => ZIO.dieMessage("boom")
         ZIO.scoped:
           for
             b     <- Batcher.serial(1, dying) // batchSize 1 → each request is its own batch
@@ -116,8 +129,8 @@ object BatcherSpec extends ZIOSpecDefault:
           yield assertTrue(out.forall(_ == Left(Boom)))
       },
       test("a per-key failure is shared by that key's callers only") {
-        val keys = 10
-        val perKey: Batcher.Logic[Any, Nothing, Boom.type, Int, Int] =
+        val keys                                                = 10
+        val perKey: Batcher.Logic[Nothing, Boom.type, Int, Int] =
           in => ZIO.succeed(in.mapEither(i => if i % keys < 5 then Right(i % keys) else Left(Boom)))
         ZIO.scoped:
           for
@@ -135,8 +148,8 @@ object BatcherSpec extends ZIOSpecDefault:
           yield assertTrue(out == (1 to 200).map(_ * 10).toList)
       },
       test("over a deduplicating inner, keeps correct per-key results") {
-        val keys                                                  = 10
-        val logic: Batcher.Logic[Any, Nothing, Nothing, Int, Int] = in => ZIO.succeed(in.map(_ % keys))
+        val keys                                             = 10
+        val logic: Batcher.Logic[Nothing, Nothing, Int, Int] = in => ZIO.succeed(in.map(_ % keys))
         ZIO.scoped:
           for
             b   <- Batcher.distributed(1024, 4, (i: Int) => i % keys, logic)
@@ -144,7 +157,9 @@ object BatcherSpec extends ZIOSpecDefault:
           yield assertTrue(out.forall((i, r) => r == i % keys))
       },
       test("rejects parallelism < 1") {
-        ZIO.scoped(Batcher.distributed(1024, 0, mapped)).either
+        ZIO
+          .scoped(Batcher.distributed(1024, 0, mapped))
+          .either
           .map(e => assertTrue(e == Left(Batcher.InvalidParallelism(0))))
       },
     ),
@@ -154,7 +169,8 @@ object BatcherSpec extends ZIOSpecDefault:
           calls   <- Ref.make(0)
           maxSize <- Ref.make(0)
           out     <- ZIO.scoped:
-                       Batcher.adaptive(100, Batcher.serial(1024, countingSleepLogic(calls, maxSize)))
+                       Batcher
+                         .adaptive(100, Batcher.serial(1024, countingSleepLogic(calls, maxSize)))
                          .flatMap(b => ZIO.foreachPar((1 to 10).toList)(b.run))
           c       <- calls.get
           m       <- maxSize.get
@@ -165,16 +181,27 @@ object BatcherSpec extends ZIOSpecDefault:
           calls   <- Ref.make(0)
           maxSize <- Ref.make(0)
           out     <- ZIO.scoped:
-                       Batcher.adaptive(2, Batcher.serial(1024, countingSleepLogic(calls, maxSize)))
+                       Batcher
+                         .adaptive(2, Batcher.serial(1024, countingSleepLogic(calls, maxSize)))
                          .flatMap(b => ZIO.foreachPar((1 to 50).toList)(b.run))
           c       <- calls.get
           m       <- maxSize.get
         yield assertTrue(out == (1 to 50).map(_ * 10).toList, c < 50, m > 1)
       },
     ),
+    test("keyed loader: fetched keys resolve, missing keys become notFound") {
+      val store                                              = Map(1 -> "one", 2 -> "two", 3 -> "three")
+      val fetch: NonEmptyChunk[Int] => UIO[Map[Int, String]] =
+        keys => ZIO.succeed(keys.toChunk.flatMap(k => store.get(k).map(k -> _)).toMap)
+      ZIO.scoped:
+        for
+          b   <- Batcher.keyed(1024, fetch, (_: Int) => Boom)
+          out <- ZIO.foreachPar((1 to 5).toList)(i => b.run(i).either.map(i -> _))
+        yield assertTrue(out.forall((i, r) => r == store.get(i).toRight(Boom)))
+    },
     test("the layers compose: adaptive over distributed over deduplicated") {
-      val keys                                                  = 10
-      val logic: Batcher.Logic[Any, Nothing, Nothing, Int, Int] = in => ZIO.succeed(in.map(_ % keys))
+      val keys                                             = 10
+      val logic: Batcher.Logic[Nothing, Nothing, Int, Int] = in => ZIO.succeed(in.map(_ % keys))
       ZIO.scoped:
         for
           b   <- Batcher.adaptive(4, Batcher.distributed(1024, 4, (i: Int) => i % keys, logic))

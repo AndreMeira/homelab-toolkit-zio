@@ -13,29 +13,29 @@ import zio.*
  * @param shards  the independent per-shard batchers
  * @param shardOf picks a shard for an input (floor-modded into range)
  */
-private[flow] final class Distributed[R, E, In, Out](
-  shards: Vector[Batcher[R, E, In, Out]],
+private[flow] final class Distributed[E, In, Out](
+  shards: Vector[Batcher[E, In, Out]],
   shardOf: In => Int,
-) extends Batcher[R, E, In, Out] {
+) extends Batcher[E, In, Out] {
 
   /**
    * The shard owning `in`.
    *
    * @return the batcher for `in`'s shard
    */
-  private def shard(in: In): Batcher[R, E, In, Out] = shards(Math.floorMod(shardOf(in), shards.size))
+  private def shard(in: In): Batcher[E, In, Out] = shards(Math.floorMod(shardOf(in), shards.size))
 
   /**
    * Route the request to its shard's [[Batcher.run]].
    *
    * @return the shard's result; aborts as the shard does
    */
-  override def run(in: In): ZIO[R, E, Out] = shard(in).run(in)
+  override def run(in: In): IO[E, Out] = shard(in).run(in)
 
   /**
    * Route the request to its shard's `direct`.
    *
    * @return the shard's one-shot result; aborts as the shard does
    */
-  override private[flow] def direct(in: In): ZIO[R, E, Out] = shard(in).direct(in)
+  override private[flow] def direct(in: In): IO[E, Out] = shard(in).direct(in)
 }

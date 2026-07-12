@@ -21,13 +21,13 @@ import zio.*
  * @param requestKey    the coalescing key of a request
  * @param logic         the bulk operation
  */
-private[flow] final class DeduplicatedSerial[R, E, BE, Key, In, Out](
+final private[flow] class DeduplicatedSerial[E, BE, Key, In, Out](
   batchSize: Int,
   capturedScope: Scope,
   ref: Ref[DeduplicatedSerial.State[Key, LineageMismatch | E | BE, In, Out]],
   requestKey: In => Key,
-  logic: Batcher.Logic[R, E, BE, In, Out],
-) extends Batcher[R, LineageMismatch | E | BE, In, Out] {
+  logic: Batcher.Logic[E, BE, In, Out],
+) extends Batcher[LineageMismatch | E | BE, In, Out] {
   private type Err = LineageMismatch | E | BE
 
   private val drainSize = math.max(1, batchSize)
@@ -40,7 +40,7 @@ private[flow] final class DeduplicatedSerial[R, E, BE, Key, In, Out](
    * @param in the request
    * @return its result; aborts with `Err` or is interrupted on scope close
    */
-  def run(in: In): ZIO[R, Err, Out] = {
+  def run(in: In): IO[Err, Out] = {
     val key = requestKey(in)
     ZIO.uninterruptibleMask: restore =>
       ref.get.flatMap: state =>
@@ -56,15 +56,20 @@ private[flow] final class DeduplicatedSerial[R, E, BE, Key, In, Out](
    * @param in the request
    * @return its result; aborts with the `E`/`BE` of a one-item `logic` call
    */
-  override private[flow] def direct(in: In): ZIO[R, Err, Out] =
-    logic.run(Batch.single(in)).flatMap(result => ZIO.fromEither(result.toList.head))
+  override private[flow] def direct(in: In): IO[Err, Out] = {
+    val batch = Batch.single(in)
+    logic
+      .run(batch)
+      .tap(result => ZIO.fromEither(batch.verifyLineage(result)))
+      .flatMap(result => ZIO.fromEither(result.toList.head))
+  }
 
   /**
    * Allocate a fresh promise, install it for `key` (or reuse a racing fiber's), and fork the drain if leader.
    *
    * @return the promise the caller should await (ours, or the one already pending for `key`)
    */
-  private def createAndStorePromise(in: In, key: Key): ZIO[R, Nothing, Promise[Err, Out]] =
+  private def createAndStorePromise(in: In, key: Key): UIO[Promise[Err, Out]] =
     for
       fresh            <- Promise.make[Err, Out]
       sharedAndStarted <- store(key, in, fresh)
@@ -83,11 +88,11 @@ private[flow] final class DeduplicatedSerial[R, E, BE, Key, In, Out](
     case current                => current.add(key, in, fresh).pipe((promise, state) => (promise, false) -> state)
 
   /**
-   * Drain one FIFO batch of distinct keys at a time until empty, then return to idle.
+   * Drain one FIFO requests of distinct keys at a time until empty, then return to idle.
    *
    * @return unit; carries the drain's error/interrupt in its (forked) fiber, unobserved by callers
    */
-  private def runDrain: ZIO[R, Err, Unit] =
+  private def runDrain: IO[Err, Unit] =
     ref
       .modify:
         case State.Idle()                              => Nil -> State.Idle()
@@ -106,15 +111,15 @@ private[flow] final class DeduplicatedSerial[R, E, BE, Key, In, Out](
    * mismatch / defect / interrupt reaches all of a key's awaiters. An interrupt then propagates to stop the
    * drain, but a typed failure or defect is swallowed so the remaining queue is still drained.
    *
-   * @param batch the `(representative input, shared promise)` pairs to process
+   * @param requests the `(representative input, shared promise)` pairs to process
    * @return unit; never fails except by propagating an interrupt
    */
-  private def runBatch(batch: List[(In, Promise[Err, Out])]): ZIO[R, Err, Unit] =
-    val inputs   = Batch.make(batch.map((in, _) => in))
-    val promises = batch.map((_, promise) => promise)
+  private def runBatch(requests: List[(In, Promise[Err, Out])]): IO[Err, Unit] =
+    val batch              = Batch.make(requests)
+    val (inputs, promises) = batch.unzip
     logic
       .run(inputs)
-      .tap(result => ZIO.fromEither(inputs.verifyLineage(result)))
+      .tap(result => ZIO.fromEither(batch.verifyLineage(result)))
       .onExit:
         case Exit.Success(result) => fulfil(promises, result)
         case Exit.Failure(cause)  => failAll(promises, cause)
@@ -122,12 +127,12 @@ private[flow] final class DeduplicatedSerial[R, E, BE, Key, In, Out](
       .unit
 
   /**
-   * Fail every key's shared promise with `cause` (a whole-batch failure, defect, or interrupt).
+   * Fail every key's shared promise with `cause` (a whole-requests failure, defect, or interrupt).
    *
    * @return unit
    */
-  private def failAll(promises: List[Promise[Err, Out]], cause: Cause[Err]): UIO[Unit] =
-    ZIO.foreachDiscard(promises)(_.failCause(cause).unit)
+  private def failAll(promises: Batch.Success[Promise[Err, Out]], cause: Cause[Err]): UIO[Unit] =
+    ZIO.foreachDiscard(promises.values)(_.failCause(cause).unit)
 
   /**
    * Complete each key's shared promise from its result slot — same lineage (verified) ⇒ slot `i` is key `i`'s
@@ -135,14 +140,14 @@ private[flow] final class DeduplicatedSerial[R, E, BE, Key, In, Out](
    *
    * @return unit
    */
-  private def fulfil(promises: List[Promise[Err, Out]], result: Batch[BE, Out]): UIO[Unit] =
-    ZIO.foreachDiscard(result.toList.zip(promises)):
+  private def fulfil(promises: Batch.Success[Promise[Err, Out]], result: Batch[BE, Out]): UIO[Unit] =
+    ZIO.foreachDiscard(result.toList.zip(promises.values)):
       case (Left(err), promise)  => promise.fail(err).unit
       case (Right(out), promise) => promise.succeed(out).unit
 
   /**
    * Scope finalizer: interrupt every queued key's shared promise so close drops pending work without
-   * stranding anyone (the in-flight batch is handled by [[runBatch]]'s `onExit`).
+   * stranding anyone (the in-flight requests is handled by [[runBatch]]'s `onExit`).
    *
    * @return unit
    */
@@ -180,9 +185,9 @@ object DeduplicatedSerial:
      * @return the promise to await (existing or `promise`) and the new state
      */
     def add(key: Key, in: In, promise: Promise[Err, Out]): (Promise[Err, Out], State[Key, Err, In, Out]) =
-      this match
-        case State.InFlight(order, byKey) if byKey.contains(key) => byKey(key)._2 -> this
-        case _                                                   => promise       -> forceAdd(key, in, promise)
+      getPromise(key) match
+        case Some(existing) => existing -> this
+        case None           => promise  -> forceAdd(key, in, promise)
 
     /**
      * Append `key` (new to the state) with its input and promise.

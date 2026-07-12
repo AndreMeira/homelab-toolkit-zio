@@ -1,7 +1,7 @@
 package homelab.common.data
 
 
-import homelab.common.data.Batch.LineageMismatch
+import homelab.common.data.Batch.{ LineageMismatch, Success }
 import homelab.common.data.BatchMap.Lineage
 
 
@@ -31,11 +31,27 @@ private[data] case class BatchMap[+E, +A](
       case PartialBatchMap(parent, _) if parent == lineage => Right(())
       case _                                               => Left(LineageMismatch)
 
+  override def either: Success[Either[E, A]] = BatchMap(
+    lineage,
+    items.map { case (k, v) => k -> Right(v) },
+  )
+
   override def zip[E2 >: E, B](other: Batch[E2, B]): Either[LineageMismatch, Batch[E2, (A, B)]] =
     other match {
       case BatchMap(parent, others) if parent == lineage => Right(BatchMap(lineage, zipItems(others)))
       case _                                             => Left(LineageMismatch)
     }
+
+  override def unzip[A2 >: A, B, C](
+    using
+    tupEv: A <:< (B, C),
+    succEv: BatchMap.this.type <:< Success[A2],
+  ): (Success[B], Success[C]) = {
+    val (first, second) = values.unzip
+    val firstBatch      = BatchMap(lineage, first.zipWithIndex.map((v, k) => k -> Right(v)).toMap)
+    val secondBatch     = BatchMap(lineage, second.zipWithIndex.map((v, k) => k -> Right(v)).toMap)
+    firstBatch -> secondBatch
+  }
 
   override def map[B](fn: A => B): Batch[E, B] =
     BatchMap(lineage, items = mapItems(fn))

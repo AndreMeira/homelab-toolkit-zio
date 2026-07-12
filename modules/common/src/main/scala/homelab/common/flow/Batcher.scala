@@ -10,19 +10,20 @@ import zio.*
 /**
  * Coalesces many single-item [[run]] calls into fewer bulk [[Batcher.Logic]] calls — the DataLoader /
  * request-batching pattern. Build one with the [[Batcher.serial]], [[Batcher.deduplicated]],
- * [[Batcher.distributed]], or [[Batcher.adaptive]] factories; they compose freely (e.g. adaptive over
- * distributed over deduplicated). Every factory is scoped — closing the scope drops pending work and
- * interrupts in-flight callers, so no caller ever hangs.
+ * [[Batcher.keyed]], [[Batcher.distributed]], or [[Batcher.adaptive]] factories; they compose freely (e.g.
+ * adaptive over distributed over deduplicated). Every factory is scoped — closing the scope drops pending work
+ * and interrupts in-flight callers, so no caller ever hangs.
  *
- * `E` is covariant, so the error widens freely — e.g. to a common `ApplicationError` — wherever a caller does
- * not need to distinguish the pieces of [[Batcher.Failure]].
+ * There is deliberately no environment type: a batcher's drain is shared across many callers, so a per-call
+ * environment would be captured from whichever caller happened to fork the drain and reused for everyone. The
+ * `Logic`'s dependencies belong to *construction* — provide them when you build the batcher (a closure, or
+ * `ZIO.serviceWith`). `E` is covariant, so the error widens freely — e.g. to a common `ApplicationError`.
  *
- * @tparam R   the environment a call needs
  * @tparam E   the caller-facing error (typically a [[Batcher.Failure]])
  * @tparam In  a single request
  * @tparam Out its result
  */
-trait Batcher[R, +E, In, Out]:
+trait Batcher[+E, In, Out]:
 
   /**
    * Submit one request; it is coalesced with concurrent submissions into a bulk [[Batcher.Logic]] call.
@@ -31,7 +32,7 @@ trait Batcher[R, +E, In, Out]:
    * @return its result; aborts with `E` (a whole-batch failure, a per-item failure, or a [[LineageMismatch]]),
    *         or is interrupted if the batcher's scope closes while it is waiting
    */
-  def run(in: In): ZIO[R, E, Out]
+  def run(in: In): IO[E, Out]
 
   /**
    * Run one request immediately, *without* coalescing — the low-load path [[Batcher.adaptive]] routes to.
@@ -42,7 +43,7 @@ trait Batcher[R, +E, In, Out]:
    * @param in the request
    * @return its result, computed on its own; aborts as [[run]] does
    */
-  private[flow] def direct(in: In): ZIO[R, E, Out] = run(in)
+  private[flow] def direct(in: In): IO[E, Out] = run(in)
 
 
 object Batcher:
@@ -68,12 +69,13 @@ object Batcher:
     override def message: String = s"Batcher parallelism must be >= 1, got $parallelism"
 
   /**
-   * The bulk operation a batcher coalesces onto.
+   * The bulk operation a batcher coalesces onto. It carries no environment — bake dependencies in when
+   * building the batcher (see [[Batcher]]).
    *
    * @tparam E  a whole-batch failure (the bulk call itself failed)
    * @tparam BE a per-item failure (routed to just that item's caller)
    */
-  trait Logic[R, E, BE, In, Out]:
+  trait Logic[E, BE, In, Out]:
     /**
      * Run the bulk operation over `input`, producing a result **derived from that batch** — via
      * `map`/`mapEither`/`replaceWith`/… — so results line up with inputs by lineage. Returning a fresh
@@ -82,7 +84,19 @@ object Batcher:
      * @param input the batch of distinct inputs
      * @return a lineage-derived result batch; aborts with `E` on a whole-batch failure
      */
-    def run(input: Batch.Success[In]): ZIO[R, E, Batch[BE, Out]]
+    def run(input: Batch.Success[In]): IO[E, Batch[BE, Out]]
+
+  object Logic:
+    /**
+     * Wrap a function as [[Logic]], preserving the same lineage contract as [[Logic.run]] (the returned
+     * batch must be derived from the provided `input`).
+     *
+     * @param fn the bulk function to adapt into [[Logic]]
+     * @return a [[Logic]] that delegates to `in`
+     */
+    def fromFunction[E, BE, In, Out](
+      fn: Batch.Success[In] => IO[E, Batch[BE, Out]]
+    ): Logic[E, BE, In, Out] = fn(_)
 
   /**
    * A FIFO batcher: concurrent [[Batcher.run]] calls coalesce into bulk `logic` calls, one batch in flight at
@@ -94,15 +108,15 @@ object Batcher:
    * @tparam BE a per-item failure from `logic`
    * @return a scoped batcher; aborts with [[InvalidBatchSize]] if `batchSize < 1`
    */
-  def serial[R, E, BE, In, Out](
+  def serial[E, BE, In, Out](
     batchSize: Int,
-    logic: Logic[R, E, BE, In, Out],
-  ): ZIO[Scope, InvalidBatchSize, Batcher[R, Failure[E, BE], In, Out]] =
+    logic: Logic[E, BE, In, Out],
+  ): ZIO[Scope, InvalidBatchSize, Batcher[Failure[E, BE], In, Out]] =
     for
       _      <- guard(batchSize)
       scope  <- ZIO.scope
       ref    <- Ref.make[Serial.State[Failure[E, BE], In, Out]](Serial.State.Idle())
-      batcher = Serial[R, E, BE, In, Out](batchSize, scope, ref, logic)
+      batcher = Serial[E, BE, In, Out](batchSize, scope, ref, logic)
       _      <- ZIO.addFinalizer(batcher.abandon)
     yield batcher
 
@@ -116,18 +130,70 @@ object Batcher:
    * @param logic     the bulk operation
    * @return a scoped batcher; aborts with [[InvalidBatchSize]] if `batchSize < 1`
    */
-  def deduplicated[R, E, BE, Key, In, Out](
+  def deduplicated[E, BE, Key, In, Out](
     batchSize: Int,
     key: In => Key,
-    logic: Logic[R, E, BE, In, Out],
-  ): ZIO[Scope, InvalidBatchSize, Batcher[R, Failure[E, BE], In, Out]] =
+    logic: Logic[E, BE, In, Out],
+  ): ZIO[Scope, InvalidBatchSize, Batcher[Failure[E, BE], In, Out]] =
     for
       _     <- guard(batchSize)
       scope <- ZIO.scope
       ref   <- Ref.make[DeduplicatedSerial.State[Key, Failure[E, BE], In, Out]](DeduplicatedSerial.State.Idle())
-      b      = DeduplicatedSerial[R, E, BE, Key, In, Out](batchSize, scope, ref, key, logic)
+      b      = DeduplicatedSerial[E, BE, Key, In, Out](batchSize, scope, ref, key, logic)
       _     <- ZIO.addFinalizer(b.abandon)
     yield b
+
+  /**
+   * A keyed loader: a batcher whose input *is* the key, [[deduplicated]] by that key. Concurrent requests
+   * coalesce into one bulk `fetch` over the distinct keys; its result `Map` is re-associated back to each
+   * caller, and a key absent from the map becomes `notFound`. This is the shape you wrap behind a named domain
+   * port (a `*Loader`/`*Lookup`).
+   *
+   * @param batchSize the maximum distinct keys per `fetch` (must be `>= 1`)
+   * @param fetch     the bulk lookup — always given a non-empty set of distinct keys
+   * @param notFound  the per-item error for a key `fetch` did not return
+   * @return a scoped batcher; aborts with [[InvalidBatchSize]] if `batchSize < 1`
+   */
+  def keyed[E, BE, Key, Out](
+    batchSize: Int,
+    fetch: NonEmptyChunk[Key] => IO[E, Map[Key, Out]],
+    notFound: Key => BE,
+  ): ZIO[Scope, InvalidBatchSize, Batcher[Failure[E, BE], Key, Out]] =
+    deduplicated(batchSize, identity, keyedLogic(fetch, notFound))
+
+  /**
+   * The [[Logic]] behind [[keyed]]: run `fetch` over the batch's keys and re-associate its result `Map` by key
+   * via `Batch.replaceWith` (lineage-preserving), turning a missing key into `notFound`. Exposed so a keyed
+   * loader can compose with any strategy — e.g. `distributed(bs, n, identity, Batcher.keyedLogic(fetch, nf))`.
+   *
+   * @param fetch    the bulk lookup
+   * @param notFound the per-item error for a key `fetch` did not return
+   * @return a bulk operation over a batch of distinct keys
+   */
+  def keyedLogic[E, BE, Key, Out](
+    fetch: NonEmptyChunk[Key] => IO[E, Map[Key, Out]],
+    notFound: Key => BE,
+  ): Logic[E, BE, Key, Out] = input =>
+    NonEmptyChunk.fromIterableOption(input.values) match
+      case Some(keys) => fetch(keys).map(found => input.replaceWith(found)(identity, notFound))
+      case None       => ZIO.succeed(input.replaceWith(Map.empty[Key, Out])(identity, notFound)) // never empty
+
+  /**
+   * Build [[Logic]] from a bulk `fetch` that may miss keys, re-associating by key and returning
+   * `Option[Out]` per item (`Some` when found, `None` when missing).
+   *
+   * Uses `Map.get` over the fetched map and maps each input slot to its optional match, preserving lineage.
+   * Exposed so callers can compose this keyed-optional behavior with any batching strategy.
+   *
+   * @param fetch the bulk lookup — always given a non-empty set of distinct keys
+   * @return a bulk operation over keys that yields optional per-key results
+   */
+  def fetchLogic[E, Key, Out](
+    fetch: NonEmptyChunk[Key] => IO[E, Map[Key, Out]]
+  ): Logic[E, Nothing, Key, Option[Out]] = input =>
+    NonEmptyChunk.fromIterableOption(input.values) match
+      case Some(keys) => fetch(keys).map(found => input.map(found.get))
+      case None       => ZIO.succeed(input.defaultValue(None)) // never empty
 
   /**
    * `parallelism` independent [[serial]] shards, so up to that many bulk calls run at once. Inputs are
@@ -138,11 +204,11 @@ object Batcher:
    * @param logic       the bulk operation
    * @return a scoped batcher; aborts with [[InvalidBatchSize]] or [[InvalidParallelism]] if either is `< 1`
    */
-  def distributed[R, E, BE, In, Out](
+  def distributed[E, BE, In, Out](
     batchSize: Int,
     parallelism: Int,
-    logic: Logic[R, E, BE, In, Out],
-  ): ZIO[Scope, InvalidBatchSize | InvalidParallelism, Batcher[R, Failure[E, BE], In, Out]] =
+    logic: Logic[E, BE, In, Out],
+  ): ZIO[Scope, InvalidBatchSize | InvalidParallelism, Batcher[Failure[E, BE], In, Out]] =
     distribute(parallelism, _.hashCode, serial(batchSize, logic))
 
   /**
@@ -151,12 +217,12 @@ object Batcher:
    *
    * @param key the coalescing *and* sharding key
    */
-  def distributed[R, E, BE, Key, In, Out](
+  def distributed[E, BE, Key, In, Out](
     batchSize: Int,
     parallelism: Int,
     key: In => Key,
-    logic: Logic[R, E, BE, In, Out],
-  ): ZIO[Scope, InvalidBatchSize | InvalidParallelism, Batcher[R, Failure[E, BE], In, Out]] =
+    logic: Logic[E, BE, In, Out],
+  ): ZIO[Scope, InvalidBatchSize | InvalidParallelism, Batcher[Failure[E, BE], In, Out]] =
     distribute(parallelism, key(_).hashCode, deduplicated(batchSize, key, logic))
 
   /**
@@ -172,14 +238,14 @@ object Batcher:
    * @tparam CErr the inner's construction error, propagated unchanged
    * @return a scoped batcher; aborts with `CErr` if the inner does
    */
-  def adaptive[R, E, CErr, In, Out](
+  def adaptive[E, CErr, In, Out](
     threshold: Int,
-    inner: ZIO[Scope, CErr, Batcher[R, E, In, Out]],
-  ): ZIO[Scope, CErr, Batcher[R, E, In, Out]] =
+    inner: ZIO[Scope, CErr, Batcher[E, In, Out]],
+  ): ZIO[Scope, CErr, Batcher[E, In, Out]] =
     for
       batcher  <- inner
       inFlight <- Ref.make(0)
-    yield Adaptive[R, E, In, Out](threshold, inFlight, batcher)
+    yield Adaptive[E, In, Out](threshold, inFlight, batcher)
 
   /**
    * Build `parallelism` shards from `shard` and wrap them in a [[Distributed]] routed by `shardOf`.
@@ -190,15 +256,15 @@ object Batcher:
    * @tparam CErr the shard's construction error, propagated unchanged
    * @return a scoped distributed batcher; aborts with [[InvalidParallelism]] (if `< 1`) or the shard's `CErr`
    */
-  private def distribute[R, E, CErr, In, Out](
+  private def distribute[E, CErr, In, Out](
     parallelism: Int,
     shardOf: In => Int,
-    shard: ZIO[Scope, CErr, Batcher[R, E, In, Out]],
-  ): ZIO[Scope, InvalidParallelism | CErr, Batcher[R, E, In, Out]] =
+    shard: ZIO[Scope, CErr, Batcher[E, In, Out]],
+  ): ZIO[Scope, InvalidParallelism | CErr, Batcher[E, In, Out]] =
     for
       _      <- ZIO.fail(InvalidParallelism(parallelism)).when(parallelism < 1)
       shards <- ZIO.foreach(Chunk.fill(parallelism)(()))(_ => shard)
-    yield Distributed[R, E, In, Out](shards.toVector, shardOf)
+    yield Distributed[E, In, Out](shards.toVector, shardOf)
 
   /**
    * Reject a non-positive `batchSize` at construction.
