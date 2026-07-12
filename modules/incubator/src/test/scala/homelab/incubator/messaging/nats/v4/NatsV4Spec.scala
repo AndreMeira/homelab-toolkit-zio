@@ -115,7 +115,23 @@ object NatsV4Spec extends ZIOSpecDefault:
             _          <- fiber.interrupt
           yield assertTrue(count >= 2)
       },
-      test("an undecodable payload is termed once (not redelivered) and doesn't wedge the consumer") {
+      test("an undecodable payload fails the consumer by default (Surface — non-destructive)") {
+        val intSerde: Serde[Int] = new Serde[Int]:
+          def encode(value: Int): Array[Byte] = value.toString.getBytes(StandardCharsets.UTF_8)
+          def decode(bytes: Array[Byte]): Either[String, Int] =
+            new String(bytes, StandardCharsets.UTF_8).toIntOption.toRight("not an int")
+
+        ZIO.scoped:
+          for
+            connection <- ZIO.service[Connection]
+            _          <- NatsConnection.stream(connection, "POISON_SURFACE", "surface.>")
+            producer   <- JetStreamProducer.make[String](connection)(_ => "surface.in")(using Serde.utf8)
+            consumer   <- JetStreamPollingConsumer.make[Int](connection, "POISON_SURFACE", "worker", "surface.>")(using intSerde)
+            _          <- producer.emit("oops")
+            outcome    <- consumer.consume(_ => ZIO.unit).either
+          yield assertTrue(outcome match { case Left(NatsError.Decode(_)) => true; case _ => false })
+      },
+      test("with OnDecodeFailure.DeadLetter a poison message is termed once and the consumer continues") {
         val decodeCount = new java.util.concurrent.atomic.AtomicInteger(0)
         val intSerde: Serde[Int] = new Serde[Int]:
           def encode(value: Int): Array[Byte] = value.toString.getBytes(StandardCharsets.UTF_8)
@@ -126,11 +142,17 @@ object NatsV4Spec extends ZIOSpecDefault:
         ZIO.scoped:
           for
             connection <- ZIO.service[Connection]
-            _          <- NatsConnection.stream(connection, "POISON", "poison.>")
-            producer   <- JetStreamProducer.make[String](connection)(_ => "poison.in")(using Serde.utf8)
-            consumer   <- JetStreamPollingConsumer.make[Int](connection, "POISON", "worker", "poison.>")(using intSerde)
+            _          <- NatsConnection.stream(connection, "POISON_DLQ", "dlq.>")
+            producer   <- JetStreamProducer.make[String](connection)(_ => "dlq.in")(using Serde.utf8)
+            consumer   <- JetStreamPollingConsumer.make[Int](
+                            connection,
+                            "POISON_DLQ",
+                            "worker",
+                            "dlq.>",
+                            JetStreamPollingConsumer.Config(onDecodeFailure = OnDecodeFailure.DeadLetter),
+                          )(using intSerde)
             good       <- Promise.make[Nothing, Int]
-            _          <- producer.emit("oops") // undecodable → term
+            _          <- producer.emit("oops") // undecodable → term (dropped, not redelivered)
             _          <- producer.emit("42")   // decodable → delivered next
             fiber      <- consumer.consume(value => good.succeed(value).unit).forever.fork
             value      <- good.await

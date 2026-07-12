@@ -19,34 +19,13 @@ import zio.stream.ZStream
  * @param queue the bridge queue the async delivery offers received messages into
  * @tparam A the value consumed
  */
-private[v4] final class JetStreamBridgedConsumer[A](queue: Queue[Message])(using serde: Serde[A])
-    extends Consumer[NatsError, A]:
-
+final private[v4] class JetStreamBridgedConsumer[A: Serde](
+  queue: Queue[Message],
+  onDecodeFailure: OnDecodeFailure,
+  onHandlerFailure: OnHandlerFailure,
+) extends JetStreamConsumer[A](onDecodeFailure, onHandlerFailure):
   override def consume[E2 >: NatsError](logic: A => IO[E2, Unit]): IO[E2, Unit] =
     queue.take.flatMap(message => settle(message, logic))
-
-  /**
-   * Decode, run `logic`, then settle: `ack` on success, `nak` on failure, `term` on an undecodable
-   * payload. A per-message logic failure never surfaces — redelivery retries it.
-   *
-   * @param message the received message
-   * @param logic   the handler to run on the decoded value
-   * @tparam E2 the widened error of `logic`
-   * @return unit once settled; aborts with [[NatsError.Ack]] only if the ack call fails
-   */
-  private def settle[E2 >: NatsError](message: Message, logic: A => IO[E2, Unit]): IO[E2, Unit] =
-    serde.decode(message.getData) match
-      case Left(_)      => ack(message.term())
-      case Right(value) => logic(value).foldZIO(_ => ack(message.nak()), _ => ack(message.ack()))
-
-  /**
-   * Run a blocking ack/nak/term call, tagging a failure as [[NatsError.Ack]].
-   *
-   * @param acknowledge the by-name ack side effect
-   * @return unit once acknowledged; aborts with [[NatsError.Ack]] on failure
-   */
-  private def ack(acknowledge: => Unit): IO[NatsError, Unit] =
-    ZIO.attemptBlocking(acknowledge).mapError(NatsError.Ack(_))
 
 
 object JetStreamBridgedConsumer:
@@ -54,12 +33,16 @@ object JetStreamBridgedConsumer:
   /**
    * Tuning for a bridged consumer.
    *
-   * @param ackWait       how long the server waits for an ack before redelivering
-   * @param maxAckPending the backpressure bound on un-acked in-flight messages
+   * @param ackWait          how long the server waits for an ack before redelivering
+   * @param maxAckPending    the backpressure bound on un-acked in-flight messages
+   * @param onDecodeFailure  what to do when a payload can't be decoded
+   * @param onHandlerFailure what to do when the handler fails on a decoded message
    */
   final case class Config(
     ackWait: Duration = 30.seconds,
     maxAckPending: Int = 256,
+    onDecodeFailure: OnDecodeFailure = OnDecodeFailure.Surface,
+    onHandlerFailure: OnHandlerFailure = OnHandlerFailure.Redeliver,
   )
 
   /**
@@ -80,14 +63,15 @@ object JetStreamBridgedConsumer:
     durable: String,
     subject: String,
     config: Config = Config(),
-  )(using Serde[A]): ZIO[Scope, NatsError, Consumer[NatsError, A]] =
+  )(using Serde[A]
+  ): ZIO[Scope, NatsError, Consumer[NatsError, A]] =
     for
       context <- consumerContext(connection, stream, durable, subject, config)
       queue   <- Queue.unbounded[Message]
       started <- Promise.make[NatsError, Unit]
       _       <- deliveries(context, started).runForeach(queue.offer).forkScoped
       _       <- started.await // don't return until delivery is wired up
-    yield new JetStreamBridgedConsumer(queue)
+    yield new JetStreamBridgedConsumer(queue, config.onDecodeFailure, config.onHandlerFailure)
 
   /**
    * Create (or attach to) the explicit-ack durable consumer.
