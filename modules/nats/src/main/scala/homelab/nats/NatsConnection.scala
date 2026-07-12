@@ -1,4 +1,4 @@
-package homelab.incubator.messaging.nats.v4
+package homelab.nats
 
 
 import io.nats.client.api.{ AckPolicy, ConsumerConfiguration, StorageType, StreamConfiguration }
@@ -52,7 +52,7 @@ object NatsConnection:
       .attemptBlocking {
         val management = connection.jetStreamManagement()
         if !management.getStreamNames().contains(name) then
-          management.addStream(
+          val _ = management.addStream(
             StreamConfiguration.builder().name(name).subjects(subjects).storageType(StorageType.Memory).build()
           )
         connection.getStreamContext(name)

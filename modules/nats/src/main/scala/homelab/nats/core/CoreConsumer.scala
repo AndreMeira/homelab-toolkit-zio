@@ -1,6 +1,7 @@
-package homelab.incubator.messaging.nats.v4
+package homelab.nats.core
 
 
+import homelab.nats.*
 import homelab.common.messaging.Consumer
 import io.nats.client.{ Connection, Message }
 import zio.*
@@ -20,7 +21,7 @@ import zio.*
  * @param onDecodeFailure what to do when a payload can't be decoded
  * @tparam A the value consumed
  */
-private[v4] final class CoreConsumer[A](queue: Queue[Message], onDecodeFailure: DecodeFailurePolicy)(using
+private[nats] final class CoreConsumer[A](queue: Queue[Message], onDecodeFailure: DecodeFailurePolicy)(using
   serde: Serde[A]
 ) extends Consumer[NatsError, A]:
 

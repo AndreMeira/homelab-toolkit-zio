@@ -1,6 +1,7 @@
-package homelab.incubator.messaging.nats.v4
+package homelab.nats.jetstream
 
 
+import homelab.nats.*
 import homelab.common.messaging.Consumer
 import io.nats.client.{ Connection, ConsumerContext, Message }
 import zio.*
@@ -17,7 +18,7 @@ import zio.*
  * @param pollTimeout each blocking `next`'s wait before retrying
  * @tparam A the value consumed
  */
-final private[v4] class JetStreamPollingConsumer[A: Serde](
+final private[nats] class JetStreamPollingConsumer[A: Serde](
   context: ConsumerContext,
   pollTimeout: Duration,
   onDecodeFailure: DecodeFailurePolicy,

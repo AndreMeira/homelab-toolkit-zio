@@ -1,6 +1,8 @@
-package homelab.incubator.messaging.nats.v4
+package homelab.nats
 
 
+import homelab.nats.core.*
+import homelab.nats.jetstream.*
 import io.nats.client.Connection
 import zio.*
 import zio.test.*
@@ -15,7 +17,7 @@ import java.nio.charset.StandardCharsets
  * subscribe before publishing (fire-and-forget); JetStream tests rely on durability. Each test uses its
  * own subject/stream so they don't interfere. Requires a running Docker daemon.
  */
-object NatsV4Spec extends ZIOSpecDefault:
+object NatsSpec extends ZIOSpecDefault:
 
   def spec = suite("NATS v4 — Core + JetStream (integration)")(
     suite("core (ephemeral)")(

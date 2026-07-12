@@ -1,6 +1,7 @@
-package homelab.incubator.messaging.nats.v4
+package homelab.nats.core
 
 
+import homelab.nats.*
 import homelab.common.messaging.Consumer
 import io.nats.client.{ Connection, Dispatcher, Message, MessageHandler }
 import zio.*

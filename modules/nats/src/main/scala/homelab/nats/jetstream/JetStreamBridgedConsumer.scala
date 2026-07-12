@@ -1,6 +1,7 @@
-package homelab.incubator.messaging.nats.v4
+package homelab.nats.jetstream
 
 
+import homelab.nats.*
 import homelab.common.messaging.Consumer
 import io.nats.client.{ Connection, Message }
 import zio.*
@@ -17,7 +18,7 @@ import zio.*
  * @param queue the bridge queue the async delivery offers received messages into
  * @tparam A the value consumed
  */
-final private[v4] class JetStreamBridgedConsumer[A: Serde](
+final private[nats] class JetStreamBridgedConsumer[A: Serde](
   queue: Queue[Message],
   onDecodeFailure: DecodeFailurePolicy,
   onHandlerFailure: HandlerFailurePolicy,

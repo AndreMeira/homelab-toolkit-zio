@@ -116,6 +116,25 @@ lazy val auth = project
   )
 
 
+// Messaging adapter — NATS (Core NATS ephemeral pub/sub + JetStream durable delivery), promoted from the
+// incubator's messaging/nats sketches. Implements the common `messaging` ports; ZStream is an internal
+// bridge detail (never surfaced). Integration tests via Testcontainers (a JetStream-enabled nats server).
+lazy val nats = project
+  .in(file("modules/nats"))
+  .dependsOn(common)
+  .settings(
+    name := "homelab-nats",
+    libraryDependencies ++= Seq(
+      "dev.zio"           %% "zio-streams"    % zioVersion,
+      "io.nats"            % "jnats"          % "2.20.5",
+      "dev.zio"           %% "zio-test"       % zioVersion            % Test,
+      "dev.zio"           %% "zio-test-sbt"   % zioVersion            % Test,
+      "org.testcontainers" % "testcontainers" % testcontainersVersion % Test,
+    ),
+    testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
+  )
+
+
 // Incubator — throwaway sketches / experiments (the ZIO answer to Kyo's playground). Not published.
 lazy val incubator = project
   .in(file("modules/incubator"))
@@ -139,7 +158,7 @@ lazy val incubator = project
 
 lazy val root = project
   .in(file("."))
-  .aggregate(common, postgres, inmemory, telemetry, auth, incubator)
+  .aggregate(common, postgres, inmemory, telemetry, auth, incubator, nats)
   .settings(
     name           := "homelab-toolkit-zio",
     publish / skip := true,

@@ -1,4 +1,4 @@
-package homelab.incubator.messaging.nats.v4
+package homelab.nats
 
 
 /**
