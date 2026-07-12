@@ -24,6 +24,7 @@ final private[nats] class JetStreamBridgedConsumer[A: Serde](
   onHandlerFailure: HandlerFailurePolicy,
   heartbeat: Option[Duration],
 ) extends JetStreamConsumer[A](onDecodeFailure, onHandlerFailure, heartbeat):
+
   override def consume[E2 >: NatsError](logic: A => IO[E2, Unit]): IO[E2, Unit] =
     queue.take.flatMap(message => settle(message, logic))
 
