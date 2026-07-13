@@ -19,7 +19,7 @@ object SerialBenchSpec extends ZIOSpecDefault:
   private val slowLogic: Batcher.Logic[Any, Nothing, Nothing, Int, Int] =
     input => ZIO.sleep(1.millis).as(input.map(i => i))
 
-  // A downstream that handles one call at a time (rate-limited API / single connection): each `logic.run`
+  // A downstream that handles one call at a time (rate-limited API / single make): each `logic.run`
   // takes ~1ms under the gate, and `calls` counts how many physical downstream calls actually happen.
   private def serialisedLogic(gate: Semaphore, calls: Ref[Int]): Batcher.Logic[Any, Nothing, Nothing, Int, Int] =
     input =>

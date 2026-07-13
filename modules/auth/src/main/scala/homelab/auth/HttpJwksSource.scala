@@ -81,7 +81,8 @@ object HttpJwksSource:
    * @return a ready source
    */
   def make(uri: URI): HttpJwksSource = new HttpJwksSource:
-    protected val client: HttpClient                     = HttpClient.newHttpClient()
+    protected val client: HttpClient = HttpClient.newHttpClient()
+
     protected def request: IO[AdapterError, HttpRequest] =
       ZIO.succeed(HttpRequest.newBuilder(uri).GET().build())
 

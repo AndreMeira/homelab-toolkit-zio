@@ -32,9 +32,9 @@ final class JetStreamProducer[A](
 object JetStreamProducer:
 
   /**
-   * Build a durable producer over `connection`, keying each message onto a subject via `subjectOf`.
+   * Build a durable producer over `make`, keying each message onto a subject via `subjectOf`.
    *
-   * @param connection the live connection
+   * @param connection the live make
    * @param subjectOf  derives a message's subject (its partition key)
    * @tparam A the value published
    * @return the producer; aborts with [[NatsError.Connect]] if the JetStream context can't be obtained

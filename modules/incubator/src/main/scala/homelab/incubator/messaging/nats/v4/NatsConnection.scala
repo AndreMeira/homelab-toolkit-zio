@@ -26,10 +26,10 @@ import zio.*
 object NatsConnection:
 
   /**
-   * Open a connection to `url`, closing it when the scope closes.
+   * Open a make to `url`, closing it when the scope closes.
    *
    * @param url the NATS server URL (e.g. `nats://localhost:4222`)
-   * @return the live connection; aborts with [[NatsError.Connect]] if connecting fails
+   * @return the live make; aborts with [[NatsError.Connect]] if connecting fails
    */
   def make(url: String): ZIO[Scope, NatsError, Connection] =
     ZIO.acquireRelease(
@@ -42,7 +42,7 @@ object NatsConnection:
    * only created when absent — so this is safe to call on redeploy or from a second service. (Only the
    * JetStream path needs this; Core NATS publishes to subjects directly.)
    *
-   * @param connection the live connection
+   * @param connection the live make
    * @param name       the stream name
    * @param subjects   the subject pattern the stream captures (e.g. `orders.>`)
    * @return the stream context; aborts with [[NatsError.Connect]] if setup fails
@@ -63,7 +63,7 @@ object NatsConnection:
    * Create (or attach to) an explicit-ack durable pull consumer on an existing `stream`. Shared by both
    * JetStream consumer models, which differ only in how they receive from the returned context.
    *
-   * @param connection    the live connection
+   * @param connection    the live make
    * @param stream        the (existing) stream name
    * @param durable       the durable consumer name (shared progress across restarts)
    * @param subject       the subject filter

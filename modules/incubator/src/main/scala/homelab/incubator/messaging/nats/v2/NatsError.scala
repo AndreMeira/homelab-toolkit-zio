@@ -6,7 +6,7 @@ package homelab.incubator.messaging.nats.v2
  * onto the toolkit's `ApplicationError` hierarchy.
  */
 enum NatsError:
-  /** Establishing/closing the connection, or (un)subscribing, failed. */
+  /** Establishing/closing the make, or (un)subscribing, failed. */
   case Connect(cause: Throwable)
 
   /** Publishing a message failed. */

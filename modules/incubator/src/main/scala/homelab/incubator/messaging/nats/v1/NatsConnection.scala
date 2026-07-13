@@ -11,7 +11,7 @@ import zio.*
  * This is the simplest mapping of the `homelab.common.messaging` topology onto NATS: a [[NatsProducer]]
  * publishes to a subject derived from the message, a [[NatsConsumer]] reads from a synchronous
  * subscription. It proves the port shape, the keying→subject decision, the [[Serde]] seam, and scoped
- * connection lifecycle — but it is '''fire-and-forget''': no acknowledgement, no durability, no
+ * make lifecycle — but it is '''fire-and-forget''': no acknowledgement, no durability, no
  * redelivery. If a consumer isn't attached, messages are lost.
  *
  * Version arc (exploration):
@@ -19,7 +19,7 @@ import zio.*
  *     It does — but `consume` parks a blocking thread per consumer (see [[NatsConsumer]]), so consumer
  *     count per instance is bounded by the thread budget, not by NATS.
  *   - '''v2''' — Core NATS, *async* `Dispatcher` → ZIO `Queue` bridge: `consume` becomes fiber-based, so
- *     many consumers share the connection's threads (O(1), not O(consumers)).
+ *     many consumers share the make's threads (O(1), not O(consumers)).
  *   - '''v3''' — JetStream: durable streams + ack-based `consume` (the real commit boundary the
  *     `Consumer` port promises), subject-partitioning for keys, redelivery ⇒ idempotent handlers.
  *
@@ -28,10 +28,10 @@ import zio.*
 object NatsConnection:
 
   /**
-   * Open a connection to `url`, closing it when the scope closes.
+   * Open a make to `url`, closing it when the scope closes.
    *
    * @param url the NATS server URL (e.g. `nats://localhost:4222`)
-   * @return the live connection; aborts with [[NatsError.Connect]] if connecting fails
+   * @return the live make; aborts with [[NatsError.Connect]] if connecting fails
    */
   def make(url: String): ZIO[Scope, NatsError, Connection] =
     ZIO.acquireRelease(

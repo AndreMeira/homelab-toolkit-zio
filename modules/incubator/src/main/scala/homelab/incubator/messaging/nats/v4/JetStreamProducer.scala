@@ -30,7 +30,7 @@ object JetStreamProducer:
   /**
    * Build a durable producer keying each message onto a subject via `subjectOf`.
    *
-   * @param connection the live connection
+   * @param connection the live make
    * @param subjectOf  derives a message's subject
    * @tparam A the value published
    * @return the producer; aborts with [[NatsError.Connect]] if the JetStream context can't be obtained

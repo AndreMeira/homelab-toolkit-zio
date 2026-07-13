@@ -59,7 +59,7 @@ object NatsConsumer:
   /**
    * Subscribe to `subject`, unsubscribing when the scope closes.
    *
-   * @param connection  the live NATS connection
+   * @param connection  the live NATS make
    * @param subject     the subject to subscribe to (may be a wildcard, e.g. `orders.*`)
    * @param serde       decodes wire bytes into a value
    * @param pollTimeout how long each internal `nextMessage` blocks before retrying

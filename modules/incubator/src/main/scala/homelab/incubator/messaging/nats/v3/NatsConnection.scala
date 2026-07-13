@@ -30,10 +30,10 @@ import zio.*
 object NatsConnection:
 
   /**
-   * Open a connection to `url`, closing it when the scope closes.
+   * Open a make to `url`, closing it when the scope closes.
    *
    * @param url the NATS server URL (e.g. `nats://localhost:4222`)
-   * @return the live connection; aborts with [[NatsError.Connect]] if connecting fails
+   * @return the live make; aborts with [[NatsError.Connect]] if connecting fails
    */
   def make(url: String): ZIO[Scope, NatsError, Connection] =
     ZIO.acquireRelease(
@@ -44,7 +44,7 @@ object NatsConnection:
    * Ensure a durable, memory-backed stream named `name` capturing `subjects` exists, and return its
    * [[StreamContext]] (the handle producers publish through and consumers attach to).
    *
-   * @param connection the live connection
+   * @param connection the live make
    * @param name       the stream name
    * @param subjects   the subject pattern the stream captures (e.g. `orders.>`)
    * @return the stream context; aborts with [[NatsError.Connect]] if setup fails

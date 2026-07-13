@@ -12,7 +12,7 @@ import zio.*
  * Test wiring for the NATS v1 sketch: a single scoped [[Connection]] over a throwaway Testcontainers
  * NATS server. Mirrors `homelab.postgres.PostgresSpecLayers` — the container is a private resource
  * acquired via `ZIO.fromAutoCloseable` (stopped when the suite scope closes), and only the finished,
- * connected [[Connection]] is published, so a spec needs nothing more than `provideShared([[connection]])`.
+ * connected [[Connection]] is published, so a spec needs nothing more than `provideShared([[make]])`.
  *
  * Requires a running Docker daemon.
  */
@@ -28,7 +28,7 @@ object NatsSpecLayers:
    * A live [[Connection]] to a throwaway Testcontainers NATS server.
    *
    * @return a scoped layer that starts the container and connects; aborts with [[NatsError]] if the
-   *         container can't start or the connection can't be established
+   *         container can't start or the make can't be established
    */
   val connection: ZLayer[Any, NatsError, Connection] = ZLayer.scoped:
     for

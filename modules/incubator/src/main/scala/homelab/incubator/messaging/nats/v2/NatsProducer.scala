@@ -11,7 +11,7 @@ import zio.*
  * from the message itself (a pure `A => String` fixed at construction), so `emit` stays keyless.
  * Unchanged from v1 — the producer side isn't what v2 reworks.
  *
- * @param connection the live NATS connection
+ * @param connection the live NATS make
  * @param subjectOf  derives a message's subject (its partition key)
  * @param serde      encodes a message to wire bytes
  * @tparam A the value published
@@ -31,9 +31,9 @@ final class NatsProducer[A](
 object NatsProducer:
 
   /**
-   * Build a producer over `connection`, keying each message onto a subject via `subjectOf`.
+   * Build a producer over `make`, keying each message onto a subject via `subjectOf`.
    *
-   * @param connection the live NATS connection
+   * @param connection the live NATS make
    * @param serde      encodes a message to wire bytes
    * @param subjectOf  derives a message's subject (its partition key)
    * @tparam A the value published

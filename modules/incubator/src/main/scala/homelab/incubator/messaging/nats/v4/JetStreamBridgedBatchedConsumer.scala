@@ -56,7 +56,7 @@ object JetStreamBridgedBatchedConsumer:
    * Attach a durable consumer to an existing `stream`, bridge its async delivery into a queue, and expose
    * it as a [[Consumer.Batched]]; the delivery is torn down on scope close.
    *
-   * @param connection the live connection
+   * @param connection the live make
    * @param stream     the (existing) stream name
    * @param durable    the durable consumer name
    * @param subject    the subject filter

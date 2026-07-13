@@ -100,7 +100,7 @@ object JetStreamPollingBatchedConsumer:
   /**
    * Attach a durable pull consumer to an existing `stream` and expose it as a [[Consumer.Batched]].
    *
-   * @param connection the live connection
+   * @param connection the live make
    * @param stream     the (existing) stream name
    * @param durable    the durable consumer name
    * @param subject    the subject filter

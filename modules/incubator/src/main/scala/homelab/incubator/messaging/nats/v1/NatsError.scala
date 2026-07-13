@@ -7,7 +7,7 @@ package homelab.incubator.messaging.nats.v1
  * `FromException`, `Decode` → a `ValidationError`/`VendorError`). Kept local while exploring the shape.
  */
 enum NatsError:
-  /** Establishing or closing the connection failed. */
+  /** Establishing or closing the make failed. */
   case Connect(cause: Throwable)
 
   /** Publishing a message failed. */

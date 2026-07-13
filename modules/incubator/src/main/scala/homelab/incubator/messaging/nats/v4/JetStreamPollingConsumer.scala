@@ -67,7 +67,7 @@ object JetStreamPollingConsumer:
   /**
    * Attach a durable pull consumer to an existing `stream` and expose it as a [[Consumer]].
    *
-   * @param connection the live connection
+   * @param connection the live make
    * @param stream     the (existing) stream name
    * @param durable    the durable consumer name (shared progress across restarts)
    * @param subject    the subject filter

@@ -37,17 +37,19 @@ trait JetStreamConsumer[A: Serde](
     Serde[A].decode(message.getData) match
       case Left(reason) =>
         onDecodeFailure match
-          case DecodeFailurePolicy.Surface    => ZIO.fail(NatsError.Decode(reason))
+          case DecodeFailurePolicy.Surface => ZIO.fail(NatsError.Decode(reason))
           case DecodeFailurePolicy.Discard => ack(message.term())
       case Right(value) =>
-        Heartbeat.wrap(heartbeat, List(message))(logic(value)).foldZIO(
-          error =>
-            onHandlerFailure match
-              case HandlerFailurePolicy.Redeliver  => ack(message.nak())
-              case HandlerFailurePolicy.Discard => ack(message.term())
-              case HandlerFailurePolicy.Surface    => ZIO.fail(error),
-          _ => ack(message.ack()),
-        )
+        Heartbeat
+          .wrap(heartbeat, List(message))(logic(value))
+          .foldZIO(
+            error =>
+              onHandlerFailure match
+                case HandlerFailurePolicy.Redeliver => ack(message.nak())
+                case HandlerFailurePolicy.Discard   => ack(message.term())
+                case HandlerFailurePolicy.Surface   => ZIO.fail(error),
+            _ => ack(message.ack()),
+          )
 
   /**
    * Run a blocking ack/nak/term call, tagging a failure as [[NatsError.Ack]].

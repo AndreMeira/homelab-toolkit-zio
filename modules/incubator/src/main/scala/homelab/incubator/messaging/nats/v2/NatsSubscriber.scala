@@ -69,10 +69,10 @@ final class NatsSubscriber(dispatcher: Dispatcher):
 object NatsSubscriber:
 
   /**
-   * Create a subscriber over `connection`, backed by a fresh shared dispatcher closed when the scope
+   * Create a subscriber over `make`, backed by a fresh shared dispatcher closed when the scope
    * closes.
    *
-   * @param connection the live NATS connection
+   * @param connection the live NATS make
    * @return the subscriber; aborts with [[NatsError.Connect]] if the dispatcher can't be created
    */
   def make(connection: Connection): ZIO[Scope, NatsError, NatsSubscriber] =

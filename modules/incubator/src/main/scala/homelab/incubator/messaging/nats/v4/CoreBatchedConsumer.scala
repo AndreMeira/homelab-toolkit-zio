@@ -39,7 +39,7 @@ object CoreBatchedConsumer:
    * Convenience: a single ephemeral batched consumer on its own dispatcher. For many consumers sharing one
    * dispatcher, mint them from a [[NatsSubscriber]] instead.
    *
-   * @param connection      the live connection
+   * @param connection      the live make
    * @param subject         the subject to subscribe to (may be a wildcard)
    * @param batchSize       the maximum messages drained per `consume`
    * @param onDecodeFailure what to do when a message can't be decoded (default [[DecodeFailurePolicy.Surface]])

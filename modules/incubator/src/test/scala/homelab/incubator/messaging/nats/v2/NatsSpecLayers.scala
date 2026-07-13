@@ -24,7 +24,7 @@ object NatsSpecLayers:
    * A live [[Connection]] to a throwaway Testcontainers NATS server.
    *
    * @return a scoped layer that starts the container and connects; aborts with [[NatsError]] if the
-   *         container can't start or the connection can't be established
+   *         container can't start or the make can't be established
    */
   val connection: ZLayer[Any, NatsError, Connection] = ZLayer.scoped:
     for

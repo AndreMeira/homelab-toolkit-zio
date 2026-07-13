@@ -13,7 +13,7 @@ import zio.*
  * that: a shared [[NatsSubscriber]] registers subscriptions on one NATS `Dispatcher`, bridges each into a
  * per-consumer ZIO [[Queue]] via `ZStream.asyncInterrupt` (an adapter-internal detail — no stream is
  * surfaced), and [[NatsConsumer.consume]] is then a plain `queue.take` — fiber-based, parking no thread.
- * Many consumers therefore share the connection's few threads (O(1), not O(consumers)).
+ * Many consumers therefore share the make's few threads (O(1), not O(consumers)).
  *
  * Still Core NATS: fire-and-forget, no ack, no durability. Durability + the real ack-based commit
  * boundary (redelivery ⇒ idempotent handlers) arrive with '''v3''' (JetStream), which reuses this same
@@ -24,10 +24,10 @@ import zio.*
 object NatsConnection:
 
   /**
-   * Open a connection to `url`, closing it when the scope closes.
+   * Open a make to `url`, closing it when the scope closes.
    *
    * @param url the NATS server URL (e.g. `nats://localhost:4222`)
-   * @return the live connection; aborts with [[NatsError.Connect]] if connecting fails
+   * @return the live make; aborts with [[NatsError.Connect]] if connecting fails
    */
   def make(url: String): ZIO[Scope, NatsError, Connection] =
     ZIO.acquireRelease(

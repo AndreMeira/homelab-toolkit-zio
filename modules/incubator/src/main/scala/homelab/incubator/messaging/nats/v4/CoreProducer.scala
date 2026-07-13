@@ -11,7 +11,7 @@ import zio.*
  * no delivery guarantee (a message with no live subscriber is lost). The subject is the partition key,
  * derived from the message by `subjectOf`.
  *
- * @param connection the live connection
+ * @param connection the live make
  * @param subjectOf  derives a message's subject (its partition key)
  * @tparam A the value published
  */
@@ -29,7 +29,7 @@ object CoreProducer:
   /**
    * Build a Core NATS producer keying each message onto a subject via `subjectOf`.
    *
-   * @param connection the live connection
+   * @param connection the live make
    * @param subjectOf  derives a message's subject
    * @tparam A the value published
    * @return the producer

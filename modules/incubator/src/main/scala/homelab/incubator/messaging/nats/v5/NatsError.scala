@@ -1,5 +1,4 @@
-package homelab.incubator.messaging.nats.v4
-
+package homelab.incubator.messaging.nats.v5
 
 import homelab.common.error.ApplicationError.{ AdapterError, DecodingError, TransientError }
 

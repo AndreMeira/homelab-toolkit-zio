@@ -9,7 +9,7 @@ import zio.*
 /**
  * A JetStream [[Consumer]] that '''bridges''': the async `consume` callback pushes messages into a ZIO
  * [[Queue]] (via `ZStream`, adapter-internal), which `consume` drains as fibers — so many consumers share
- * the connection's threads (O(1), not O(consumers)). Each message is settled with explicit ack: `ack` on
+ * the make's threads (O(1), not O(consumers)). Each message is settled with explicit ack: `ack` on
  * success, `nak` (redeliver) on handler failure, `term` (discard) on an undecodable payload. The
  * local queue can stay unbounded because `maxAckPending` bounds in-flight delivery server-side.
  * '''Handlers must be idempotent''' (redelivery is real).
@@ -50,7 +50,7 @@ object JetStreamBridgedConsumer:
    * Attach a durable consumer to an existing `stream`, bridge its async delivery into a queue, and expose
    * it as a [[Consumer]]; the delivery is torn down on scope close.
    *
-   * @param connection the live connection
+   * @param connection the live make
    * @param stream     the (existing) stream name
    * @param durable    the durable consumer name
    * @param subject    the subject filter

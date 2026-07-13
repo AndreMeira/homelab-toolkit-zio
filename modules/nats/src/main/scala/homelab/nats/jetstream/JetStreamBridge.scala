@@ -42,7 +42,7 @@ private[nats] object JetStreamBridge:
     context: ConsumerContext,
     started: Promise[NatsError, Unit],
   ): ZStream[Any, NatsError, Message] =
-    ZStream.asyncScoped[Any, NatsError, Message] { emit =>
+    ZStream.asyncScoped[Any, NatsError, Message]: emit =>
       ZIO
         .acquireRelease(
           ZIO
@@ -51,4 +51,3 @@ private[nats] object JetStreamBridge:
         )(consumer => ZIO.attemptBlocking(consumer.stop()).ignore)
         .tapError(started.fail(_))
         .zipRight(started.succeed(()))
-    }
