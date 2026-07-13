@@ -38,3 +38,23 @@ class CorePoll(
             case true  => ZIO.unit
             case false => subscriber.subscribe(subject, queue, capturedScope) *> started.set(true)
 }
+
+
+object CorePoll:
+
+  /**
+   * Build a core poll over `subscriber`, capturing the current scope so the lazy subscription (established
+   * on the first `one`/`many`) forks into the consumer's lifetime rather than the caller's. Subscription is
+   * deferred, so this step itself cannot fail.
+   *
+   * @param subscriber the shared dispatcher-backed subscriber to subscribe through on first demand
+   * @param subject    the subject to subscribe to (may be a wildcard, e.g. `orders.*`)
+   * @return the poll, not yet subscribed
+   */
+  def make(subscriber: CoreSubscriber, subject: String): ZIO[Scope, Nothing, CorePoll] =
+    for
+      scope   <- ZIO.scope
+      queue   <- Queue.unbounded[Message]
+      started <- Ref.make(false)
+      lock    <- Semaphore.make(1)
+    yield new CorePoll(subject, queue, subscriber, started, lock, scope)

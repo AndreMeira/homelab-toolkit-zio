@@ -1,8 +1,9 @@
-package homelab.nats
+package homelab.incubator.messaging.nats.v5
 
 
-import homelab.nats.core.{ BatchConsumer as CoreBatchConsumer, Consumer as CoreConsumer, CoreSubscriber, Producer as CoreProducer }
-import homelab.nats.stream.{ BatchConsumer as StreamBatchConsumer, Consumer as StreamConsumer, Producer as StreamProducer }
+import homelab.incubator.messaging.nats.v5.FailurePolicy.{ DecodeFailurePolicy, HandlerFailurePolicy }
+import homelab.incubator.messaging.nats.v5.core.{ BatchConsumer as CoreBatchConsumer, Consumer as CoreConsumer, CoreSubscriber, Producer as CoreProducer }
+import homelab.incubator.messaging.nats.v5.stream.{ BatchConsumer as StreamBatchConsumer, Consumer as StreamConsumer, Producer as StreamProducer }
 import io.nats.client.Connection
 import zio.*
 import zio.test.*
@@ -11,21 +12,21 @@ import java.nio.charset.StandardCharsets
 
 
 /**
- * Integration tests for the NATS adapter against a real broker (Testcontainers). Covers both substrates —
- * Core NATS (ephemeral) and JetStream (durable) — through the per-item and batched consumers plus
+ * Integration tests for the NATS v5 sketch against a real broker (Testcontainers). Covers both substrates:
+ * Core NATS (ephemeral) and JetStream (durable), through the per-item and batched consumers plus
  * redelivery, poison/term, backpressure, resumption, and heartbeat.
  *
- * Two adapter-shape notes:
+ * Two v5-specific shapes to note:
  *   - '''Core subscribes lazily''' (on the first `consume`), so Core tests fork the consumer first and keep
  *     republishing until it's seen — never relying on a fire-and-forget publish landing before the SUB is
  *     live. JetStream is durable, so publish-before-consume is fine.
- *   - There is '''one JetStream consumer model''' (the async `consume`→queue bridge), so "resume across
- *     instances" is tested across restarts (sequential scopes) rather than two concurrent consumers, and the
- *     batched consumer drains opportunistically (whatever is buffered, not wait-to-fill).
+ *   - v5 has '''one JetStream consumer model''' (the async `consume`→queue bridge), so the v4 polling/bridged
+ *     pairs collapse to a single consumer, and "resume across instances" is tested across restarts
+ *     (sequential scopes) rather than two concurrent consumers.
  *
  * Each test uses its own subject/stream so they don't interfere. Requires a running Docker daemon.
  */
-object NatsSpec extends ZIOSpecDefault:
+object NatsV5Spec extends ZIOSpecDefault:
 
   /** A `Serde[Int]` over decimal text — decoding fails on non-numeric payloads (the poison-message probe). */
   private val intSerde: Serde[Int] = new Serde[Int]:
@@ -33,7 +34,7 @@ object NatsSpec extends ZIOSpecDefault:
     def decode(bytes: Array[Byte]): Either[String, Int] =
       new String(bytes, StandardCharsets.UTF_8).toIntOption.toRight("not an int")
 
-  def spec = suite("NATS — Core + JetStream (integration)")(
+  def spec = suite("NATS v5 — Core + JetStream (integration)")(
     suite("core (ephemeral)")(
       test("round-trips a message: fork the consumer, publish until seen") {
         ZIO.scoped:
@@ -179,7 +180,7 @@ object NatsSpec extends ZIOSpecDefault:
         val countingSerde: Serde[Int] = new Serde[Int]:
           def encode(value: Int): Array[Byte] = value.toString.getBytes(StandardCharsets.UTF_8)
           def decode(bytes: Array[Byte]): Either[String, Int] =
-            val _ = decodeCount.incrementAndGet()
+            decodeCount.incrementAndGet()
             new String(bytes, StandardCharsets.UTF_8).toIntOption.toRight("not an int")
 
         ZIO.scoped:
@@ -363,9 +364,9 @@ object NatsSpec extends ZIOSpecDefault:
             _          <- producer.emit("1")
             _          <- producer.emit("oops")
             _          <- producer.emit("3")
-            // the bridged batched drains opportunistically, so we can't force a mixed batch; instead drain
-            // until a batch containing the poison surfaces (good messages before it are acked; any sharing its
-            // batch are sacrificed — the blast radius).
+            // v5's bridged batched drains opportunistically, so we can't force a mixed batch; instead drain
+            // until a batch containing the poison surfaces (good messages before it are acked; any sharing
+            // its batch are sacrificed — the blast radius).
             outcome    <- consumer.consume(_ => ZIO.unit).either.repeatUntil(_.isLeft)
           yield assertTrue(outcome match { case Left(NatsError.Decode(_)) => true; case _ => false })
       },

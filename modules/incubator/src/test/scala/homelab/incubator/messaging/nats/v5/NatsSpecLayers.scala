@@ -1,4 +1,4 @@
-package homelab.nats
+package homelab.incubator.messaging.nats.v5
 
 
 import io.nats.client.Connection
@@ -10,8 +10,8 @@ import zio.*
 
 
 /**
- * Test wiring for the NATS module: a single scoped [[Connection]] over a throwaway Testcontainers NATS server
- * with JetStream enabled (`-js`; Core NATS tests use the same server). Mirrors
+ * Test wiring for the NATS v5 sketch: a single scoped [[Connection]] over a throwaway Testcontainers NATS
+ * server with JetStream enabled (`-js`; Core NATS tests use the same server). Mirrors
  * `homelab.postgres.PostgresSpecLayers`. Requires a running Docker daemon.
  */
 object NatsSpecLayers:
@@ -25,8 +25,8 @@ object NatsSpecLayers:
   /**
    * A live [[Connection]] to a throwaway JetStream-enabled NATS server.
    *
-   * @return a scoped layer that starts the container and connects; aborts with [[NatsError]] if the container
-   *         can't start or the connection can't be established
+   * @return a scoped layer that starts the container and connects; aborts with [[NatsError]] if the
+   *         container can't start or the connection can't be established
    */
   val connection: ZLayer[Any, NatsError, Connection] = ZLayer.scoped:
     for
@@ -37,9 +37,9 @@ object NatsSpecLayers:
 
   /**
    * Provision a memory-backed JetStream stream named `name` capturing `subjects`. Idempotent (create-if-
-   * absent). '''Test/dev only''': in a real deployment a stream is provisioned out-of-band by an operator (the
-   * `nats` CLI, the NACK k8s operator, Terraform) and the app only attaches its consumer — so this helper
-   * lives here, not on the main-module `NatsConnection`.
+   * absent). '''Test/dev only''': in a real deployment a stream is provisioned out-of-band by an operator
+   * (the `nats` CLI, the NACK k8s operator, Terraform) and the app only attaches its consumer — so this
+   * helper lives here, not on the main-module `NatsConnection`.
    *
    * @param connection the live connection
    * @param name       the stream name
@@ -73,8 +73,8 @@ object NatsSpecLayers:
         container
 
   /**
-   * Pin the Docker Remote API version before the first Testcontainers call (Engine ≥ 25 rejects older API
-   * versions with HTTP 400). 1.40 is the widest floor across daemons.
+   * Pin the Docker Remote API version before the first Testcontainers call (Engine ≥ 25 rejects older
+   * API versions with HTTP 400). 1.40 is the widest floor across daemons.
    */
   private def pinDockerApiVersion(): Unit =
     val _ = java.lang.System.setProperty("api.version", "1.40")

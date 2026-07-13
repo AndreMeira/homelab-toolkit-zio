@@ -43,6 +43,24 @@ class StreamPoll(
 
 
 object StreamPoll:
+
+  /**
+   * Build a JetStream poll over `subscriber`, capturing the current scope so the lazy subscription
+   * (established on the first `one`/`many`) forks into the consumer's lifetime rather than the caller's.
+   * Subscription is deferred, so this step itself cannot fail.
+   *
+   * @param subscriber the subscriber to attach the durable consumer through on first demand
+   * @param config     the stream / durable / subject identity and ack tuning
+   * @return the poll, not yet subscribed
+   */
+  def make(subscriber: JetStreamSubscriber, config: ContextConfig): ZIO[Scope, Nothing, StreamPoll] =
+    for
+      scope   <- ZIO.scope
+      queue   <- Queue.unbounded[Message]
+      started <- Ref.make(false)
+      lock    <- Semaphore.make(1)
+    yield new StreamPoll(config, queue, subscriber, started, lock, scope)
+
   /**
    * Run `effect`, pinging `inProgress()` on `messages` every `interval` for as long as it runs.
    *
