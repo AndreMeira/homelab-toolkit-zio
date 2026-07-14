@@ -44,7 +44,10 @@ final class JetStreamSubscriber(connection: Connection):
    */
   private def consumerContext(config: ContextConfig): IO[NatsError, ConsumerContext] =
     ZIO
-      .attemptBlocking(connection.getStreamContext(config.stream).createOrUpdateConsumer(config.toConsumerConfiguration))
+      .attemptBlocking:
+        connection
+          .getStreamContext(config.stream)
+          .createOrUpdateConsumer(config.toConsumerConfiguration)
       .mapError(NatsError.Connect(_))
 
   /**

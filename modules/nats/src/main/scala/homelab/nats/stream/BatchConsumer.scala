@@ -59,7 +59,7 @@ final class BatchConsumer[A: Serde](
    * @return the decodable message/value pairs (empty if none decode); aborts with [[NatsError.Decode]] under
    *         Surface when any message is undecodable, or [[NatsError.Ack]] if a `term` fails
    */
-  private def decode(messages: List[Message]): IO[NatsError, List[(Message, A)]] =
+  private def decode(messages: List[Message]): IO[NatsError, List[(Message, A)]] = {
     val (failed, valid) = messages.partitionMap: message =>
       Serde[A].decode(message.getData) match
         case Right(value) => Right(message -> value)
@@ -72,6 +72,7 @@ final class BatchConsumer[A: Serde](
       case DecodeFailurePolicy.Discard if invalid.nonEmpty => dismissAll(invalid) *> ZIO.succeed(valid)
       case DecodeFailurePolicy.Surface if invalid.nonEmpty => ZIO.fail(NatsError.Decode(errors))
       case _                                               => ZIO.succeed(valid)
+  }
 
   /**
    * Settle the decodable messages by the handler outcome: `ackAll` on success, else `onHandlerFailure`.

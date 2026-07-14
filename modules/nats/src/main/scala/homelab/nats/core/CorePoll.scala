@@ -26,42 +26,11 @@ final class CorePoll(
   started: Ref[Boolean],
   subscribeLock: Semaphore,
   capturedScope: Scope,
-) extends Poll:
+) extends Poll.WithQueue(queue) with Poll.WithInit(subscribeLock, started):
 
-  /**
-   * Take the next delivered message, subscribing on first demand.
-   *
-   * @return the next message; aborts with [[NatsError.Connect]] if the lazy subscription can't be set up
-   */
-  override def one: IO[NatsError, Message] =
-    start *> queue.take
-
-  /**
-   * Take up to `maxMessages` currently-buffered messages (at least one), subscribing on first demand.
-   *
-   * @param maxMessages the batch ceiling
-   * @return the drained messages; aborts with [[NatsError.Connect]] if the lazy subscription can't be set up
-   */
-  override def many(maxMessages: Int): IO[NatsError, List[Message]] =
-    start *> queue.takeBetween(1, maxMessages).map(_.toList)
-
-  /**
-   * Establish the subscription exactly once, on first demand. Double-checked: the hot path is a lock-free
-   * `started.get`; only the cold first call takes `subscribeLock`, and `started` flips to `true` only after
-   * `subscribe` succeeds — so a failed subscribe leaves the gate open for the next caller to retry, and
-   * concurrent first-callers serialise on the permit instead of racing.
-   *
-   * @return unit once the subscription is (or already was) live; aborts with [[NatsError.Connect]] if
-   *         subscribing fails
-   */
-  private def start: IO[NatsError, Unit] =
-    started.get.flatMap:
-      case true  => ZIO.unit
-      case false =>
-        subscribeLock.withPermit:
-          started.get.flatMap:
-            case true  => ZIO.unit
-            case false => subscriber.subscribe(subject, queue, capturedScope) *> started.set(true)
+  /** Establish the shared-dispatcher subscription — the one-time [[Poll.WithInit.init]] effect for this poll. */
+  override def init: IO[NatsError, Unit] =
+    subscriber.subscribe(subject, queue, capturedScope)
 
 
 object CorePoll:
@@ -78,7 +47,7 @@ object CorePoll:
   def make(subscriber: CoreSubscriber, subject: String): ZIO[Scope, Nothing, CorePoll] =
     for
       scope   <- ZIO.scope
-      queue   <- Queue.unbounded[Message]
+      queue   <- Queue.sliding[Message](256) // bounded, drop-oldest under overload — Core is lossy by nature; @todo config the size
       started <- Ref.make(false)
       lock    <- Semaphore.make(1)
     yield new CorePoll(subject, queue, subscriber, started, lock, scope)
