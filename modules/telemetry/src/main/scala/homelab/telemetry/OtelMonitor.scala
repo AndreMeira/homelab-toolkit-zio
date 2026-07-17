@@ -57,7 +57,8 @@ final class OtelMonitor private (
     val attributes = attributesOf(name, tags)
     for
       _       <- hits.inc(attributes)
-      outcome <- (effect.onError(recordError(name, attributes, _)) @@ span(name, spanKind = SpanKind.SERVER, attributes = attributes)).timed
+      outcome <- (effect.onError(recordError(name, attributes, _))
+                   @@ span(name, spanKind = SpanKind.SERVER, attributes = attributes)).timed
       _       <- latency.record(outcome._1.toMillis.toDouble, attributes)
     yield outcome._2
 
