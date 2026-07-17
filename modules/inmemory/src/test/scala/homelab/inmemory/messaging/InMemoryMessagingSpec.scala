@@ -56,14 +56,14 @@ object InMemoryMessagingSpec extends ZIOSpecDefault:
     suite("distributer")(
       test("processes one element per key per round, keeping per-key FIFO order") {
         for
-          d   <- Distributer.make[Int, Int](parallelism = None)(_ % 3)
-          _   <- ZIO.foreachDiscard(1 to 9)(d.emit) // keys 1,2,0 repeating
-          ref <- Ref.make(List.empty[Int])
-          _   <- ZIO.foreachDiscard(1 to 3)(_ => d.consume(a => ref.update(_ :+ a)))
-          all <- ref.get
+          d     <- Distributer.make[Int, Int](parallelism = None, maxBuffer = None)(_ % 3)
+          _     <- ZIO.foreachDiscard(1 to 9)(d.emit) // keys 1,2,0 repeating
+          ref   <- Ref.make(List.empty[Int])
+          _     <- ZIO.foreachDiscard(1 to 3)(_ => d.consume(a => ref.update(_ :+ a)))
+          all   <- ref.get
           round1 = all.take(3)
         yield assertTrue(
-          round1.toSet == Set(1, 2, 3),            // one head per key in the first round
+          round1.toSet == Set(1, 2, 3), // one head per key in the first round
           all.filter(_ % 3 == 1) == List(1, 4, 7), // per-key FIFO preserved across rounds
           all.filter(_ % 3 == 2) == List(2, 5, 8),
           all.filter(_ % 3 == 0) == List(3, 6, 9),
@@ -71,7 +71,7 @@ object InMemoryMessagingSpec extends ZIOSpecDefault:
       },
       test("consume blocks until an emit wakes it, then processes — no lost wake-up") {
         for
-          d     <- Distributer.make[Int, Int](None)(identity)
+          d     <- Distributer.make[Int, Int](None, None)(identity)
           ref   <- Ref.make(Option.empty[Int])
           fiber <- d.consume(a => ref.set(Some(a))).fork // parks: nothing pending
           _     <- d.emit(42)
@@ -81,23 +81,59 @@ object InMemoryMessagingSpec extends ZIOSpecDefault:
       },
       test("bounded parallelism still processes every element of a round") {
         for
-          d   <- Distributer.make[Int, Int](parallelism = Some(2))(_ % 4)
+          d   <- Distributer.make[Int, Int](parallelism = Some(2), maxBuffer = None)(_ % 4)
           _   <- ZIO.foreachDiscard(1 to 8)(d.emit)
           ref <- Ref.make(Set.empty[Int])
           _   <- ZIO.foreachDiscard(1 to 2)(_ => d.consume(a => ref.update(_ + a)))
           out <- ref.get
         yield assertTrue(out == (1 to 8).toSet)
       },
+      test("stress: a parking consumer never loses a concurrent emit's wake-up") {
+        val n = 5000
+        for
+          d        <- Distributer.make[Int, Int](None, None)(identity)
+          received <- Ref.make(Set.empty[Int])
+          allIn    <- Promise.make[Nothing, Unit]
+          consumer <- d.consume(a => received.updateAndGet(_ + a).flatMap(s => allIn.succeed(()).when(s.size == n)).unit).forever.fork
+          _        <- ZIO.foreachDiscard(1 to n)(d.emit) // races the parking/waking consumer
+          _        <- allIn.await                        // completes only if every value arrived
+          _        <- consumer.interrupt
+          out      <- received.get
+        yield assertTrue(out == (1 to n).toSet)
+      },
+      test("stress: maxBuffer=1 — permit-gated emits never lose a wake-up or deadlock") {
+        val n = 5000
+        for
+          d        <- Distributer.make[Int, Int](None, maxBuffer = Some(1))(identity)
+          received <- Ref.make(Set.empty[Int])
+          allIn    <- Promise.make[Nothing, Unit]
+          consumer <- d.consume(a => received.updateAndGet(_ + a).flatMap(s => allIn.succeed(()).when(s.size == n)).unit).forever.fork
+          _        <- ZIO.foreachDiscard(1 to n)(d.emit) // each emit blocks on the lone permit until a poll frees it
+          _        <- allIn.await
+          _        <- consumer.interrupt
+          out      <- received.get
+        yield assertTrue(out == (1 to n).toSet)
+      },
+      test("never deadlocks on the emit-after-permit-release timeline") {
+        for {
+          promise     <- Promise.make[Nothing, Int]
+          distributer <- Distributer.make[Int, Int](None, maxBuffer = Some(1))(identity)
+          _           <- distributer.consume(i => ZIO.sleep(1.seconds) *> promise.succeed(i).when(i == 2).unit).forever.fork
+          _           <- distributer.emit(1)
+          _           <- distributer.emit(2)
+          total       <- promise.await.timeout(3.seconds)
+        } yield assertTrue(total.contains(2))
+      },
     ),
     suite("topology run loops")(
       test("Pipe.PerItem consumes, transforms, and emits in a loop") {
         for
-          in  <- Wire.make[Int]
-          out <- Wire.make[Int]
-          pipe = new Pipe.PerItem[Nothing, Int, Int]:
-                   def input: Consumer[Nothing, Int]  = in
-                   def output: Producer[Nothing, Int] = out
-                   def process(value: Int): IO[Nothing, Int] = ZIO.succeed(value * 10)
+          in    <- Wire.make[Int]
+          out   <- Wire.make[Int]
+          pipe   = new Pipe.PerItem[Nothing, Int, Int]:
+                     def input: Consumer[Nothing, Int]         = in
+                     def output: Producer[Nothing, Int]        = out
+                     def process(value: Int): IO[Nothing, Int] = ZIO.succeed(value * 10)
           fiber <- pipe.run.fork
           _     <- ZIO.foreachDiscard(1 to 20)(in.emit)
           res   <- ZIO.foreach((1 to 20).toList)(_ => out.consumer.source.take)
@@ -106,29 +142,29 @@ object InMemoryMessagingSpec extends ZIOSpecDefault:
       },
       test("Pipe.Batched consumes batches, transforms, and emits") {
         for
-          queue   <- Queue.unbounded[Int]
-          out     <- Wire.make[Int]
-          batched  = new QueueConsumer.Batched(QueueSource.Pure(queue), 5)
-          pipe     = new Pipe.Batched[Nothing, Int, Int]:
-                       def input: Consumer.Batched[Nothing, Int] = batched
-                       def output: Producer[Nothing, Int]        = out
-                       def process(values: List[Int]): IO[Nothing, List[Int]] = ZIO.succeed(values.map(_ * 10))
-          fiber   <- pipe.run.fork
-          _       <- queue.offerAll((1 to 20).toList)
-          res     <- ZIO.foreach((1 to 20).toList)(_ => out.consumer.source.take)
-          _       <- fiber.interrupt
+          queue  <- Queue.unbounded[Int]
+          out    <- Wire.make[Int]
+          batched = new QueueConsumer.Batched(QueueSource.Pure(queue), 5)
+          pipe    = new Pipe.Batched[Nothing, Int, Int]:
+                      def input: Consumer.Batched[Nothing, Int]              = batched
+                      def output: Producer[Nothing, Int]                     = out
+                      def process(values: List[Int]): IO[Nothing, List[Int]] = ZIO.succeed(values.map(_ * 10))
+          fiber  <- pipe.run.fork
+          _      <- queue.offerAll((1 to 20).toList)
+          res    <- ZIO.foreach((1 to 20).toList)(_ => out.consumer.source.take)
+          _      <- fiber.interrupt
         yield assertTrue(res == (1 to 20).map(_ * 10).toList)
       },
       test("Source.Repeat generates and emits until interrupted") {
         for
-          out    <- Wire.make[Int]
+          out     <- Wire.make[Int]
           counter <- Ref.make(0)
-          source  = new Source.Repeat[Nothing, Int]:
-                      def output: Producer[Nothing, Int] = out
-                      def generate: IO[Nothing, Int]     = counter.updateAndGet(_ + 1)
-          fiber  <- source.run.fork
-          res    <- ZIO.foreach((1 to 10).toList)(_ => out.consumer.source.take)
-          _      <- fiber.interrupt
+          source   = new Source.Repeat[Nothing, Int]:
+                       def output: Producer[Nothing, Int] = out
+                       def generate: IO[Nothing, Int]     = counter.updateAndGet(_ + 1)
+          fiber   <- source.run.fork
+          res     <- ZIO.foreach((1 to 10).toList)(_ => out.consumer.source.take)
+          _       <- fiber.interrupt
         yield assertTrue(res == (1 to 10).toList)
       },
     ),
@@ -150,6 +186,6 @@ object InMemoryMessagingSpec extends ZIOSpecDefault:
           e3      <- out.consumer.source.take
           _       <- fiber.interrupt
         yield assertTrue(delayed, e1 == 1, e2 == 2, e3 == 3)
-      },
+      }
     ),
   ) @@ TestAspect.withLiveClock @@ TestAspect.timeout(60.seconds)

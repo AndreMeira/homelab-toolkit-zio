@@ -1,13 +1,15 @@
-package homelab.common.flow
+package homelab.common.flow.batching
 
-
-import scala.collection.immutable.Queue
-import scala.util.chaining.scalaUtilChainingOps
 
 import homelab.common.data.Batch
 import homelab.common.data.Batch.LineageMismatch
-import homelab.common.flow.DeduplicatedSerial.State
+import homelab.common.flow.Batcher
+import homelab.common.flow.batching.DeduplicatedSerial.State
+import homelab.common.flow.batching.{ DeduplicatedSerial, Serial }
 import zio.*
+
+import scala.collection.immutable.Queue
+import scala.util.chaining.scalaUtilChainingOps
 
 
 /**

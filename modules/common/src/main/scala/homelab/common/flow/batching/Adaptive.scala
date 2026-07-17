@@ -1,6 +1,6 @@
-package homelab.common.flow
+package homelab.common.flow.batching
 
-
+import homelab.common.flow.Batcher
 import zio.*
 
 

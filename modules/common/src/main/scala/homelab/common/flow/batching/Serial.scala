@@ -1,12 +1,13 @@
-package homelab.common.flow
+package homelab.common.flow.batching
 
-
-import scala.collection.immutable.Queue
 
 import homelab.common.data.Batch
 import homelab.common.data.Batch.LineageMismatch
-import homelab.common.flow.Serial.State
+import homelab.common.flow.Batcher
+import homelab.common.flow.batching.Serial.State
 import zio.*
+
+import scala.collection.immutable.Queue
 
 
 /**
@@ -20,7 +21,7 @@ import zio.*
  * @param ref           the FIFO state, `Idle` or `InFlight`
  * @param logic         the bulk operation
  */
-private[flow] final class Serial[E, BE, In, Out](
+final private[flow] class Serial[E, BE, In, Out](
   batchSize: Int,
   capturedScope: Scope,
   ref: Ref[Serial.State[LineageMismatch | E | BE, In, Out]],

@@ -76,11 +76,12 @@ final class OtelMonitor private (
   def track[R, E, A](name: String, tags: (String, String)*)(effect: => ZIO[R, E, A]): ZIO[R, E, A] =
     val attributes = attributesOf(name, tags)
     for
-      _       <- hits.inc(attributes)
-      outcome <- (effect.onError(recordError(name, attributes, _))
-                   @@ span(name, spanKind = SpanKind.INTERNAL, attributes = attributes)).timed
-      _       <- latency.record(outcome._1.toMillis.toDouble, attributes)
-    yield outcome._2
+      _          <- hits.inc(attributes)
+      outcome    <- (effect.onError(recordError(name, attributes, _))
+                      @@ span(name, spanKind = SpanKind.INTERNAL, attributes = attributes)).timed
+      (time, res) = outcome
+      _          <- latency.record(time.toMillis.toDouble, attributes)
+    yield res
 
   /**
    * Report a failure — unless it was a pure interruption (a cancelled fiber isn't an error). Uses the
@@ -93,8 +94,7 @@ final class OtelMonitor private (
    * @return unit
    */
   private def recordError[E](name: String, attributes: Attributes, cause: Cause[E]): UIO[Unit] =
-    val failure: Option[Any] = cause.failureOption.orElse(cause.dieOption)
-    failure match
+    cause.failureOption.orElse(cause.dieOption) match
       case Some(error) => report(name, attributes, error)
       case None        => ZIO.unit
 
@@ -107,7 +107,7 @@ final class OtelMonitor private (
    * @param error the failure value (or defect) to classify and record
    * @return unit
    */
-  private def report(name: String, attributes: Attributes, error: Any): UIO[Unit] =
+  private def report(name: String, attributes: Attributes, error: Any): UIO[Unit] = {
     val errorType       = classify(error)
     val errorAttributes = attributes.toBuilder.put("error.kind", errorType.kind).build()
     for
@@ -116,6 +116,7 @@ final class OtelMonitor private (
       _ <- tracing.addEvent(s"$name failed [${errorType.kind}]: $error")
       _ <- errors.inc(errorAttributes)
     yield ()
+  }
 
   /**
    * Build the attributes for an operation — the caller's `tags` plus `operation = name`.

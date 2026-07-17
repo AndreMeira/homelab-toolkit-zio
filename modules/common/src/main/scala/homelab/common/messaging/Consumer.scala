@@ -1,6 +1,5 @@
 package homelab.common.messaging
 
-
 import zio.*
 
 
@@ -28,13 +27,43 @@ trait Consumer[+E, +A] { self =>
   /**
    * Adapt this consumer to deliver `B` by mapping each consumed `A`.
    *
-   * @param f maps a consumed `A` to the delivered `B`
+   * @param fn maps a consumed `A` to the delivered `B`
    * @tparam B the adapted output type
    * @return a consumer that delivers `f(a)` to its logic
    */
-  def map[B](f: A => B): Consumer[E, B] = new Consumer[E, B] {
-    def consume[E2 >: E](logic: B => IO[E2, Unit]): IO[E2, Unit] = self.consume(a => logic(f(a)))
-  }
+  def map[B](fn: A => B): Consumer[E, B] = new Consumer[E, B]:
+    def consume[E2 >: E](logic: B => IO[E2, Unit]): IO[E2, Unit] =
+      self.consume(a => logic(fn(a)))
+
+  /**
+   * Adapt this consumer to deliver `B` by effectfully mapping each consumed `A`.
+   *
+   * @param fn maps a consumed `A` to `B` inside `IO`
+   * @tparam B the adapted output type
+   * @tparam E1 the widened error type, admitting failures from `fn`
+   * @return a consumer that runs `fn` for each consumed value before passing it to its logic
+   */
+  def mapZIO[B, E1 >: E](fn: A => IO[E1, B]): Consumer[E1, B] = new Consumer[E1, B]:
+    def consume[E2 >: E1](logic: B => IO[E2, Unit]): IO[E2, Unit] =
+      self.consume(a => fn(a).flatMap(logic))
+
+  /**
+   * Wraps this consumer so that concurrent calls to `consume` are serialised behind a
+   * [[zio.Semaphore]]. Useful when the underlying adapter is not thread-safe or when downstream
+   * `logic` must never overlap with itself.
+   *
+   * The permit is held for the whole `consume` call, including any blocking inside it — over a
+   * parking source (one that suspends until data arrives) a parked call holds the lock and blocks
+   * every other `consume` until it completes. This serialises, it does not fan out: it is not a way
+   * to run several consumers concurrently.
+   *
+   * @return a new consumer that processes one `consume` call at a time
+   */
+  def serial: UIO[Consumer[E, A]] =
+    for lock <- Semaphore.make(1)
+    yield new Consumer[E, A]:
+      def consume[E2 >: E](logic: A => IO[E2, Unit]): IO[E2, Unit] =
+        lock.withPermit(self.consume(logic))
 }
 
 

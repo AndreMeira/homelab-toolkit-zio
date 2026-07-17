@@ -1,6 +1,6 @@
-package homelab.common.flow
+package homelab.common.flow.batching
 
-
+import homelab.common.flow.Batcher
 import zio.*
 
 
@@ -23,7 +23,8 @@ private[flow] final class Distributed[E, In, Out](
    *
    * @return the batcher for `in`'s shard
    */
-  private def shard(in: In): Batcher[E, In, Out] = shards(Math.floorMod(shardOf(in), shards.size))
+  private def shard(in: In): Batcher[E, In, Out] = 
+    shards(Math.floorMod(shardOf(in), shards.size))
 
   /**
    * Route the request to its shard's [[Batcher.run]].

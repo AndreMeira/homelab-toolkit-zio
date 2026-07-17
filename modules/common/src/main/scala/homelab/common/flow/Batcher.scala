@@ -4,6 +4,7 @@ package homelab.common.flow
 import homelab.common.data.Batch
 import homelab.common.data.Batch.LineageMismatch
 import homelab.common.error.ApplicationError
+import homelab.common.flow.batching.{Adaptive, DeduplicatedSerial, Distributed, Serial}
 import zio.*
 
 
@@ -263,7 +264,7 @@ object Batcher:
   ): ZIO[Scope, InvalidParallelism | CErr, Batcher[E, In, Out]] =
     for
       _      <- ZIO.fail(InvalidParallelism(parallelism)).when(parallelism < 1)
-      shards <- ZIO.foreach(Chunk.fill(parallelism)(()))(_ => shard)
+      shards <- ZIO.foreach(1 to parallelism)(_ => shard)
     yield Distributed[E, In, Out](shards.toVector, shardOf)
 
   /**
