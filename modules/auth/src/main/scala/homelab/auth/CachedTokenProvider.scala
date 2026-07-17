@@ -1,10 +1,10 @@
 package homelab.auth
 
 
-import homelab.common.error.ApplicationError.{AdapterError, DecodingError}
+import homelab.common.error.ApplicationError.{ AdapterError, DecodingError }
 import homelab.common.types.SignedToken
-import homelab.auth.CachedTokenProvider.{TokenClaimsUnreadable, TokenExpiryUnreadable}
-import pdi.jwt.{Jwt, JwtClaim, JwtOptions}
+import homelab.auth.CachedTokenProvider.{ TokenClaimsUnreadable, TokenExpiryUnreadable }
+import pdi.jwt.{ Jwt, JwtClaim, JwtOptions }
 import zio.*
 
 import java.time.Instant
@@ -118,7 +118,6 @@ object CachedTokenProvider:
      * @return `true` while `now` is before the refresh instant
      */
     def isFresh(now: Instant): Boolean = now.isBefore(refreshAt)
-
 
   /** A refetched token couldn't be decoded, or had malformed claims. */
   final case class TokenClaimsUnreadable(reason: String) extends DecodingError, AdapterError:

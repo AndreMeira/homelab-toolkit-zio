@@ -6,7 +6,7 @@ import homelab.common.error.ApplicationError.AdapterError
 import homelab.common.types.SignedToken
 import zio.*
 
-import java.nio.file.{Files, Path}
+import java.nio.file.{ Files, Path }
 
 
 /**

@@ -19,7 +19,7 @@ import zio.*
  * @param batchSize the maximum messages drained per `consume`
  * @tparam A the value consumed
  */
-private[v4] final class JetStreamBridgedBatchedConsumer[A: Serde](
+final private[v4] class JetStreamBridgedBatchedConsumer[A: Serde](
   queue: Queue[Message],
   batchSize: Int,
   onDecodeFailure: DecodeFailurePolicy,
@@ -70,7 +70,8 @@ object JetStreamBridgedBatchedConsumer:
     durable: String,
     subject: String,
     config: Config = Config(),
-  )(using Serde[A]): ZIO[Scope, NatsError, Consumer.Batched[NatsError, A]] =
+  )(using Serde[A]
+  ): ZIO[Scope, NatsError, Consumer.Batched[NatsError, A]] =
     for
       context <- NatsConnection.durableConsumer(connection, stream, durable, subject, config.ackWait, config.maxAckPending)
       queue   <- JetStreamBridge.deliveryQueue(context)

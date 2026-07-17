@@ -11,7 +11,7 @@ import zio.*
 class BatchConsumer[A: Serde](
   batchSize: Int,
   poll: CorePoll,
-  onDecodeFailure: DecodeFailurePolicy
+  onDecodeFailure: DecodeFailurePolicy,
 ) extends ConsumerContract.Batched[NatsError, A] {
 
   /**

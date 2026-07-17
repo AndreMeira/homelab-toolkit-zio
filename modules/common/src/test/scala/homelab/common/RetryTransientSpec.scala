@@ -44,14 +44,14 @@ object RetryTransientSpec extends ZIOSpecDefault:
       // 3 retries, each 1s apart. Fork it, then advance virtual time — no real waiting.
       val schedule = Schedule.recurs(3) && Schedule.spaced(1.second)
       for
-        attempts  <- Ref.make(0)
-        effect     = attempts.update(_ + 1) *> ZIO.fail(Blip)
-        fiber     <- retryTransient(schedule)(effect).either.fork
-        _         <- TestClock.adjust(1.second) // wakes retry #1
-        afterOne  <- attempts.get
-        _         <- TestClock.adjust(2.seconds) // wakes retries #2 and #3, exhausting the schedule
-        exit      <- fiber.join
-        total     <- attempts.get
+        attempts <- Ref.make(0)
+        effect    = attempts.update(_ + 1) *> ZIO.fail(Blip)
+        fiber    <- retryTransient(schedule)(effect).either.fork
+        _        <- TestClock.adjust(1.second)  // wakes retry #1
+        afterOne <- attempts.get
+        _        <- TestClock.adjust(2.seconds) // wakes retries #2 and #3, exhausting the schedule
+        exit     <- fiber.join
+        total    <- attempts.get
       yield assertTrue(afterOne == 2, exit == Left(Blip), total == 4)
     },
   )

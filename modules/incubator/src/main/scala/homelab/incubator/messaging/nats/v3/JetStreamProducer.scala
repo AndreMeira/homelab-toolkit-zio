@@ -19,8 +19,8 @@ import zio.*
 final class JetStreamProducer[A](
   jetStream: JetStream,
   subjectOf: A => String,
-)(using serde: Serde[A])
-    extends Producer[NatsError, A]:
+)(using serde: Serde[A]
+) extends Producer[NatsError, A]:
 
   override def emit(value: A): IO[NatsError, Unit] =
     ZIO

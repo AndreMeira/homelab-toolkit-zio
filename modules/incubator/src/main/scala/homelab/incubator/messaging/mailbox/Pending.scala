@@ -1,8 +1,6 @@
 package homelab.incubator.messaging.mailbox
 
-
 import zio.Promise
-
 
 /**
  * An outstanding expectation held by a map-based mailbox backend: the promise a reply completes, plus the
@@ -14,4 +12,4 @@ import zio.Promise
  * @param deadline the absolute expiry (epoch millis) computed at `expect` time
  * @tparam E the error the promise (and thus `await`) aborts with
  */
-private[mailbox] final case class Pending[E](promise: Promise[E, Array[Byte]], deadline: Long)
+final private[mailbox] case class Pending[E](promise: Promise[E, Array[Byte]], deadline: Long)

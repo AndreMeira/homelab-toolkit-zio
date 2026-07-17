@@ -59,9 +59,9 @@ object MailboxSpec extends ZIOSpecDefault:
         mailbox  = new InMemoryMailbox(pending, counter, sweepEvery = 1) // sweep on every expect, for the test
         _       <- mailbox.expect[String](50.millis)(using Serde.utf8)   // expected, never awaited
         _       <- mailbox.expect[String](50.millis)(using Serde.utf8)   // expected, never awaited
-        before  <- pending.get.map(_.size)                              // both still registered
-        _       <- ZIO.sleep(80.millis)                                 // both past their deadline
-        _       <- mailbox.expect[String](5.seconds)(using Serde.utf8)  // sweeps the two, registers this one
+        before  <- pending.get.map(_.size)                               // both still registered
+        _       <- ZIO.sleep(80.millis)                                  // both past their deadline
+        _       <- mailbox.expect[String](5.seconds)(using Serde.utf8)   // sweeps the two, registers this one
         after   <- pending.get.map(_.size)
       yield assertTrue(before == 2, after == 1)
     },

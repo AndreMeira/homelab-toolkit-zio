@@ -33,20 +33,20 @@ class SerialDeduplicated[R, E, BE, Key, In, Out](
           restore(byKey(key)._2.await)
         // Slow path — first for this key (or the batcher is idle): allocate, install (or reuse on a race),
         // fork the drain iff we were the leader, then await the shared promise.
-        case _ =>
+        case _                                               =>
           for
-            promise           <- Promise.make[Error, Out]
-            installed         <- install(key, in, promise)
-            (shared, started)  = installed
-            _                 <- runDrain.forkIn(capturedScope).when(started)
-            out               <- restore(shared.await)
+            promise          <- Promise.make[Error, Out]
+            installed        <- install(key, in, promise)
+            (shared, started) = installed
+            _                <- runDrain.forkIn(capturedScope).when(started)
+            out              <- restore(shared.await)
           yield out
 
   // One `modify` that decides leadership and installs the key's shared promise. Re-checks `byKey` because a
   // racing first-of-key fiber may have installed it since our `ref.get` — then we reuse theirs and drop ours.
   private def install(key: Key, in: In, promise: Promise[Error, Out]): UIO[(Promise[Error, Out], Boolean)] =
     ref.modify:
-      case State.Idle() =>
+      case State.Idle()                 =>
         (promise, true) -> State.InFlight(Queue(key), Map(key -> (in, promise)))
       case State.InFlight(order, byKey) =>
         byKey.get(key) match

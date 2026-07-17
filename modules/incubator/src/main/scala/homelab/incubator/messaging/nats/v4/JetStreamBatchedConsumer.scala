@@ -70,14 +70,16 @@ trait JetStreamBatchedConsumer[A: Serde](
    */
   private def runBatch[E2 >: NatsError](decodable: List[(Message, A)], logic: List[A] => IO[E2, Unit]): IO[E2, Unit] =
     val (messages, decoded) = decodable.unzip
-    Heartbeat.wrap(heartbeat, messages)(logic(decoded)).foldZIO(
-      error =>
-        onHandlerFailure match
-          case HandlerFailurePolicy.Redeliver => settleAll(messages)(_.nak())
-          case HandlerFailurePolicy.Discard   => settleAll(messages)(_.term())
-          case HandlerFailurePolicy.Surface   => ZIO.fail(error),
-      _ => settleAll(messages)(_.ack()),
-    )
+    Heartbeat
+      .wrap(heartbeat, messages)(logic(decoded))
+      .foldZIO(
+        error =>
+          onHandlerFailure match
+            case HandlerFailurePolicy.Redeliver => settleAll(messages)(_.nak())
+            case HandlerFailurePolicy.Discard   => settleAll(messages)(_.term())
+            case HandlerFailurePolicy.Surface   => ZIO.fail(error),
+        _ => settleAll(messages)(_.ack()),
+      )
 
   /**
    * Apply a blocking ack/nak/term to every message, tagging a failure as [[NatsError.Ack]].

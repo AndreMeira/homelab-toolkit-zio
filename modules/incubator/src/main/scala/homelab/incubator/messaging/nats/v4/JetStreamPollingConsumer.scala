@@ -85,6 +85,4 @@ object JetStreamPollingConsumer:
   ): IO[NatsError, Consumer[NatsError, A]] =
     NatsConnection
       .durableConsumer(connection, stream, durable, subject, config.ackWait, config.maxAckPending)
-      .map(context =>
-        new JetStreamPollingConsumer(context, config.pollTimeout, config.onDecodeFailure, config.onHandlerFailure, config.heartbeat)
-      )
+      .map(context => new JetStreamPollingConsumer(context, config.pollTimeout, config.onDecodeFailure, config.onHandlerFailure, config.heartbeat))

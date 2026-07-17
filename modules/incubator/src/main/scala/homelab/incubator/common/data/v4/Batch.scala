@@ -89,8 +89,8 @@ object Batch:
       others: (Error[E2] | Success[A2] | Batch[E2, A2])*
     ): Either[LineageMismatch, Default[E2, A2]] =
       others.foldLeft(Right(this): Either[LineageMismatch, Default[E2, A2]]):
-        case (Right(default), other @ Success[A2](_, this.lineage))  => default.overlay(other)
-        case (Right(default), other @ Error[E2](_, this.lineage))    => default.overlay(other)
+        case (Right(default), other @ Success[A2](_, this.lineage))   => default.overlay(other)
+        case (Right(default), other @ Error[E2](_, this.lineage))     => default.overlay(other)
         case (Right(default), other @ Batch[E2, A2](_, this.lineage)) => default.overlay(other)
         case _                                                        => Left(LineageMismatch)
 

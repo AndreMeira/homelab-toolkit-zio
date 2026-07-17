@@ -46,25 +46,29 @@ final class SharedInboxNatsMailbox(
 
   override def expect[B: Serde](timeout: Duration): UIO[Mailbox.Receipt[NatsError, B]] =
     for
-      now      <- Clock.currentTime(TimeUnit.MILLISECONDS)
-      replyId  <- Random.nextUUID
-      promise  <- Promise.make[NatsError, Array[Byte]]
-      count    <- sweepCounter.updateAndGet(_ + 1)
-      deadline  = now + timeout.toMillis
-      _        <- pending.update: map =>
-                    val kept = if count % sweepEvery == 0 then map.filter { case (_, entry) => entry.deadline > now } else map
-                    kept + (replyId -> Pending(promise, deadline))
+      now     <- Clock.currentTime(TimeUnit.MILLISECONDS)
+      replyId <- Random.nextUUID
+      promise <- Promise.make[NatsError, Array[Byte]]
+      count   <- sweepCounter.updateAndGet(_ + 1)
+      deadline = now + timeout.toMillis
+      _       <- pending.update: map =>
+                   val kept = if count % sweepEvery == 0 then map.filter { case (_, entry) => entry.deadline > now } else map
+                   kept + (replyId -> Pending(promise, deadline))
     yield new Mailbox.Receipt[NatsError, B]:
       def address: Address = Address(s"$prefix.$replyId")
 
       def await: IO[NatsError, Option[B]] =
-        Clock.currentTime(TimeUnit.MILLISECONDS).flatMap: awaitNow =>
-          promise.await.timeout(Duration.fromMillis((deadline - awaitNow).max(0L))).flatMap:
-            case None        => pending.update(_ - replyId).as(None) // timed out — reap the expectation
-            case Some(bytes) =>
-              Serde[B].decode(bytes) match
-                case Right(value) => ZIO.succeed(Some(value))
-                case Left(reason) => ZIO.fail(NatsError.Decode(reason))
+        Clock
+          .currentTime(TimeUnit.MILLISECONDS)
+          .flatMap: awaitNow =>
+            promise.await
+              .timeout(Duration.fromMillis((deadline - awaitNow).max(0L)))
+              .flatMap:
+                case None        => pending.update(_ - replyId).as(None) // timed out — reap the expectation
+                case Some(bytes) =>
+                  Serde[B].decode(bytes) match
+                    case Right(value) => ZIO.succeed(Some(value))
+                    case Left(reason) => ZIO.fail(NatsError.Decode(reason))
 
   override def deliver[B: Serde](address: Address, message: B): IO[NatsError, Unit] =
     ZIO
@@ -82,9 +86,11 @@ final class SharedInboxNatsMailbox(
     replyIdOf(message.getSubject) match
       case None     => ZIO.unit
       case Some(id) =>
-        pending.modify(map => (map.get(id), map - id)).flatMap:
-          case Some(entry) => entry.promise.succeed(message.getData).unit
-          case None        => ZIO.unit
+        pending
+          .modify(map => (map.get(id), map - id))
+          .flatMap:
+            case Some(entry) => entry.promise.succeed(message.getData).unit
+            case None        => ZIO.unit
 
   /**
    * Extract the reply UUID from a reply subject (`prefix.<uuid>`).
@@ -121,6 +127,6 @@ object SharedInboxNatsMailbox:
       queue      <- Queue.unbounded[Message]
       subscriber <- CoreSubscriber.make(connection)
       scope      <- ZIO.scope
-      _          <- subscriber.subscribe(s"$prefix.*", queue, scope)          // one wildcard SUB, awaited live
+      _          <- subscriber.subscribe(s"$prefix.*", queue, scope)           // one wildcard SUB, awaited live
       _          <- queue.take.flatMap(mailbox.dispatch).forever.forkIn(scope) // the reply Processor
     yield mailbox

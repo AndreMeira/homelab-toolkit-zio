@@ -16,7 +16,7 @@ import zio.Duration
  * @param ackWait       how long the server waits for an ack before redelivering
  * @param maxAckPending the backpressure bound on un-acked in-flight messages
  */
-private[nats] final case class ContextConfig(
+final private[nats] case class ContextConfig(
   stream: String,
   durable: String,
   subject: String,

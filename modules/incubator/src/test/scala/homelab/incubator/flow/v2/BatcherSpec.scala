@@ -42,7 +42,7 @@ object BatcherSpec extends ZIOSpecDefault:
   private def gatedLogic(entered: Promise[Nothing, Unit], gate: Promise[Nothing, Unit]): Batcher.Logic[Any, Nothing, Nothing, Int, Int] =
     in => entered.succeed(()) *> gate.await.as(in.map(_ * 10))
 
-  private val mapped: Batcher.Logic[Any, Nothing, Nothing, Int, Int]      = in => ZIO.succeed(in.map(_ * 10))
+  private val mapped: Batcher.Logic[Any, Nothing, Nothing, Int, Int]       = in => ZIO.succeed(in.map(_ * 10))
   private val failsBatch: Batcher.Logic[Any, Boom.type, Nothing, Int, Int] = _ => ZIO.fail(Boom)
 
   def spec = suite("Batcher correctness")(
@@ -110,7 +110,7 @@ object BatcherSpec extends ZIOSpecDefault:
           yield assertTrue(out.forall(_ == Left(Boom)))
       },
       test("a per-key failure is shared by that key's callers only") {
-        val keys = 10
+        val keys                                                     = 10
         val perKey: Batcher.Logic[Any, Nothing, Boom.type, Int, Int] =
           in => ZIO.succeed(in.mapEither(i => if i % keys < 5 then Right(i % keys) else Left(Boom)))
         ZIO.scoped:

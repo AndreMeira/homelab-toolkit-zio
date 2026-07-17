@@ -5,8 +5,8 @@ import com.zaxxer.hikari.HikariDataSource
 import homelab.common.error.ApplicationError.AdapterError
 import homelab.common.monitor.Monitor
 import homelab.postgres.PostgresDatabase.DatasourceBuildError
-import homelab.postgres.PostgresMigration.{CleanFailed, MigrationFailed}
-import homelab.postgres.configuration.{DatabaseSourceConfig, MigrationConfig}
+import homelab.postgres.PostgresMigration.{ CleanFailed, MigrationFailed }
+import homelab.postgres.configuration.{ DatabaseSourceConfig, MigrationConfig }
 import org.flywaydb.core.Flyway
 import zio.*
 

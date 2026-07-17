@@ -34,25 +34,29 @@ final class InMemoryMailbox(
 
   override def expect[B: Serde](timeout: Duration): UIO[Mailbox.Receipt[MailboxError, B]] =
     for
-      now      <- Clock.currentTime(TimeUnit.MILLISECONDS)
-      id       <- Random.nextUUID
-      promise  <- Promise.make[MailboxError, Array[Byte]]
-      count    <- sweepCounter.updateAndGet(_ + 1)
-      deadline  = now + timeout.toMillis
-      _        <- pending.update: map =>
-                    val kept = if count % sweepEvery == 0 then map.filter { case (_, entry) => entry.deadline > now } else map
-                    kept + (id -> Pending(promise, deadline))
+      now     <- Clock.currentTime(TimeUnit.MILLISECONDS)
+      id      <- Random.nextUUID
+      promise <- Promise.make[MailboxError, Array[Byte]]
+      count   <- sweepCounter.updateAndGet(_ + 1)
+      deadline = now + timeout.toMillis
+      _       <- pending.update: map =>
+                   val kept = if count % sweepEvery == 0 then map.filter { case (_, entry) => entry.deadline > now } else map
+                   kept + (id -> Pending(promise, deadline))
     yield new Mailbox.Receipt[MailboxError, B]:
       def address: Address = Address(id.toString)
 
       def await: IO[MailboxError, Option[B]] =
-        Clock.currentTime(TimeUnit.MILLISECONDS).flatMap: awaitNow =>
-          promise.await.timeout(Duration.fromMillis((deadline - awaitNow).max(0L))).flatMap:
-            case None        => pending.update(_ - id).as(None) // timed out — reap the expectation
-            case Some(bytes) =>
-              Serde[B].decode(bytes) match
-                case Right(value) => ZIO.succeed(Some(value))
-                case Left(reason) => ZIO.fail(MailboxError.Decode(reason))
+        Clock
+          .currentTime(TimeUnit.MILLISECONDS)
+          .flatMap: awaitNow =>
+            promise.await
+              .timeout(Duration.fromMillis((deadline - awaitNow).max(0L)))
+              .flatMap:
+                case None        => pending.update(_ - id).as(None) // timed out — reap the expectation
+                case Some(bytes) =>
+                  Serde[B].decode(bytes) match
+                    case Right(value) => ZIO.succeed(Some(value))
+                    case Left(reason) => ZIO.fail(MailboxError.Decode(reason))
 
   override def deliver[B: Serde](address: Address, message: B): UIO[Unit] =
     Try(UUID.fromString(address)).toOption match

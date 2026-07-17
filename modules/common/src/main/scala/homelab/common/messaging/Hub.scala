@@ -1,6 +1,5 @@
 package homelab.common.messaging
 
-
 import zio.*
 
 
@@ -44,5 +43,5 @@ object Hub {
   def collect[E, A](producers: Set[Producer[E, A]]): Hub[E, A] = Simple(producers)
 
   /** A hub holding a fixed producer set. */
-  private final case class Simple[E, A](producers: Set[Producer[E, A]]) extends Hub[E, A]
+  final private case class Simple[E, A](producers: Set[Producer[E, A]]) extends Hub[E, A]
 }

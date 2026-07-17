@@ -21,5 +21,5 @@ final class NatsConsumer[A](queue: Queue[Array[Byte]], serde: Serde[A]) extends 
   override def consume[E2 >: NatsError](logic: A => IO[E2, Unit]): IO[E2, Unit] =
     queue.take.flatMap: bytes =>
       serde.decode(bytes) match
-        case Right(value)  => logic(value)
-        case Left(reason)  => ZIO.fail(NatsError.Decode(reason))
+        case Right(value) => logic(value)
+        case Left(reason) => ZIO.fail(NatsError.Decode(reason))

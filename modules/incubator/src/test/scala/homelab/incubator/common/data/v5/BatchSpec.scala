@@ -1,6 +1,5 @@
 package homelab.incubator.common.data.v5
 
-
 import zio.test.*
 
 
@@ -8,9 +7,9 @@ object BatchSpec extends ZIOSpecDefault:
 
   def spec = suite("Batch v5")(
     test("overlay fold: default fallback filled by a partial, complete and in order") {
-      val base    = Batch.make(List("a", "b", "c"))
-      val found   = base.success.mapEither(v => if v == "b" then Left("missing") else Right(v.toUpperCase))
-      val result  = base.defaultError("nf").overlays(found).map(_.toList)
+      val base   = Batch.make(List("a", "b", "c"))
+      val found  = base.success.mapEither(v => if v == "b" then Left("missing") else Right(v.toUpperCase))
+      val result = base.defaultError("nf").overlays(found).map(_.toList)
       assertTrue(result == Right(List(Right("A"), Left("missing"), Right("C"))))
     },
     test("collect keeps errors, drops non-matching successes, maps matches") {
@@ -22,9 +21,9 @@ object BatchSpec extends ZIOSpecDefault:
       assertTrue(out == Right(List(Left("bad"), Right(30))))
     },
     test("Success.collect narrows to a Partial") {
-      val base     = Batch.make(List(1, 2, 3, 4))
-      val narrowed = base.success.collect { case v if v % 2 == 0 => v * 10 } // slots 1,3 -> 20,40
-      val _: Batch.Partial[Nothing, Int] = narrowed                          // it is a Partial (compile check)
+      val base                           = Batch.make(List(1, 2, 3, 4))
+      val narrowed                       = base.success.collect { case v if v % 2 == 0 => v * 10 } // slots 1,3 -> 20,40
+      val _: Batch.Partial[Nothing, Int] = narrowed                                                // it is a Partial (compile check)
       assertTrue(narrowed.toList == List(Right(20), Right(40)))
     },
     test("overlaying a piece from another lineage fails with LineageMismatch") {
@@ -40,8 +39,8 @@ object BatchSpec extends ZIOSpecDefault:
       val out  = base.defaultError("none").overlays(p1, p2, p3).map(_.toList)
       assertTrue(
         out == Right(
-          List(Right("ten"), Left("none"), Right("thirty"), Left("none"), Right("fifty")),
-        ),
+          List(Right("ten"), Left("none"), Right("thirty"), Left("none"), Right("fifty"))
+        )
       )
     },
     test("overlapping overlays: the later one wins") {
@@ -66,13 +65,13 @@ object BatchSpec extends ZIOSpecDefault:
       val (evens, odds) = base.success.partitionMap(v => if v % 2 == 0 then Left(s"even-$v") else Right(v * 100))
       assertTrue(
         evens.toList == List("even-2", "even-4"), // slots 1, 3 — type String
-        odds.toList == List(100, 300, 500),        // slots 0, 2, 4 — type Int
+        odds.toList == List(100, 300, 500), // slots 0, 2, 4 — type Int
       )
     },
     test("Indexed.replaceWith(orError) left-joins: unmatched originals become errors") {
       val base    = Batch.make(List("a", "b", "c"))
       val indexed = base.success.indexBy(identity) // keyed by the id itself
-      val rows    = List("a" -> 1, "c" -> 3)        // "b" absent from the returned rows
+      val rows    = List("a" -> 1, "c" -> 3)       // "b" absent from the returned rows
       val out     = indexed.replaceWith(rows, "not found")(_._1)
       assertTrue(out.toList == List(Right("a" -> 1), Left("not found"), Right("c" -> 3)))
     },

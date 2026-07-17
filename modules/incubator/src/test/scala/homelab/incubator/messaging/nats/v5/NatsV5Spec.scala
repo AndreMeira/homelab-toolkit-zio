@@ -2,7 +2,12 @@ package homelab.incubator.messaging.nats.v5
 
 
 import homelab.incubator.messaging.nats.v5.FailurePolicy.{ DecodeFailurePolicy, HandlerFailurePolicy }
-import homelab.incubator.messaging.nats.v5.core.{ BatchConsumer as CoreBatchConsumer, Consumer as CoreConsumer, CoreSubscriber, Producer as CoreProducer }
+import homelab.incubator.messaging.nats.v5.core.{
+  BatchConsumer as CoreBatchConsumer,
+  Consumer as CoreConsumer,
+  CoreSubscriber,
+  Producer as CoreProducer,
+}
 import homelab.incubator.messaging.nats.v5.stream.{ BatchConsumer as StreamBatchConsumer, Consumer as StreamConsumer, Producer as StreamProducer }
 import io.nats.client.Connection
 import zio.*
@@ -30,7 +35,7 @@ object NatsV5Spec extends ZIOSpecDefault:
 
   /** A `Serde[Int]` over decimal text — decoding fails on non-numeric payloads (the poison-message probe). */
   private val intSerde: Serde[Int] = new Serde[Int]:
-    def encode(value: Int): Array[Byte] = value.toString.getBytes(StandardCharsets.UTF_8)
+    def encode(value: Int): Array[Byte]                 = value.toString.getBytes(StandardCharsets.UTF_8)
     def decode(bytes: Array[Byte]): Either[String, Int] =
       new String(bytes, StandardCharsets.UTF_8).toIntOption.toRight("not an int")
 
@@ -70,7 +75,8 @@ object NatsV5Spec extends ZIOSpecDefault:
         ZIO.scoped:
           for
             connection <- ZIO.service[Connection]
-            consumer   <- CoreConsumer.make[Int](connection, "core.skip.*", CoreConsumer.Config(onDecodeFailure = DecodeFailurePolicy.Discard))(using intSerde)
+            consumer   <-
+              CoreConsumer.make[Int](connection, "core.skip.*", CoreConsumer.Config(onDecodeFailure = DecodeFailurePolicy.Discard))(using intSerde)
             producer    = CoreProducer.make[String](connection)(_ => "core.skip.in")(using Serde.utf8)
             got        <- Promise.make[Nothing, Int]
             _          <- consumer.consume(value => got.succeed(value).unit).forever.forkScoped
@@ -100,7 +106,11 @@ object NatsV5Spec extends ZIOSpecDefault:
         ZIO.scoped:
           for
             connection <- ZIO.service[Connection]
-            consumer   <- CoreBatchConsumer.make[Int](connection, "core.skipbatch.*", CoreBatchConsumer.Config(batchSize = 10, onDecodeFailure = DecodeFailurePolicy.Discard))(using intSerde)
+            consumer   <- CoreBatchConsumer.make[Int](
+                            connection,
+                            "core.skipbatch.*",
+                            CoreBatchConsumer.Config(batchSize = 10, onDecodeFailure = DecodeFailurePolicy.Discard),
+                          )(using intSerde)
             producer    = CoreProducer.make[String](connection)(payload => s"core.skipbatch.$payload")(using Serde.utf8)
             received   <- Ref.make(Set.empty[Int])
             done       <- Promise.make[Nothing, Unit]
@@ -151,13 +161,17 @@ object NatsV5Spec extends ZIOSpecDefault:
             connection <- ZIO.service[Connection]
             _          <- NatsSpecLayers.stream(connection, "REDELIVER", "redeliver.>")
             producer   <- StreamProducer.make[String](connection)(value => s"redeliver.$value")(using Serde.utf8)
-            consumer   <- StreamConsumer.make[String](connection, "REDELIVER", "worker", "redeliver.>", StreamConsumer.Config(ackWait = 2.seconds))(using Serde.utf8)
+            consumer   <- StreamConsumer.make[String](connection, "REDELIVER", "worker", "redeliver.>", StreamConsumer.Config(ackWait = 2.seconds))(
+                            using Serde.utf8
+                          )
             attempts   <- Ref.make(0)
             done       <- Promise.make[Nothing, Unit]
             logic       = (_: String) =>
-                            attempts.updateAndGet(_ + 1).flatMap: attempt =>
-                              if attempt == 1 then ZIO.fail(NatsError.Decode("forced first-attempt failure"))
-                              else done.succeed(()).unit
+                            attempts
+                              .updateAndGet(_ + 1)
+                              .flatMap: attempt =>
+                                if attempt == 1 then ZIO.fail(NatsError.Decode("forced first-attempt failure"))
+                                else done.succeed(()).unit
             _          <- producer.emit("x")
             _          <- consumer.consume(logic).forever.forkScoped
             _          <- done.await
@@ -176,9 +190,9 @@ object NatsV5Spec extends ZIOSpecDefault:
           yield assertTrue(outcome match { case Left(NatsError.Decode(_)) => true; case _ => false })
       },
       test("with DecodeFailurePolicy.Discard a poison message is termed once and the consumer continues") {
-        val decodeCount = new java.util.concurrent.atomic.AtomicInteger(0)
+        val decodeCount               = new java.util.concurrent.atomic.AtomicInteger(0)
         val countingSerde: Serde[Int] = new Serde[Int]:
-          def encode(value: Int): Array[Byte] = value.toString.getBytes(StandardCharsets.UTF_8)
+          def encode(value: Int): Array[Byte]                 = value.toString.getBytes(StandardCharsets.UTF_8)
           def decode(bytes: Array[Byte]): Either[String, Int] =
             decodeCount.incrementAndGet()
             new String(bytes, StandardCharsets.UTF_8).toIntOption.toRight("not an int")
@@ -188,7 +202,13 @@ object NatsV5Spec extends ZIOSpecDefault:
             connection <- ZIO.service[Connection]
             _          <- NatsSpecLayers.stream(connection, "POISON_DLQ", "dlq.>")
             producer   <- StreamProducer.make[String](connection)(_ => "dlq.in")(using Serde.utf8)
-            consumer   <- StreamConsumer.make[Int](connection, "POISON_DLQ", "worker", "dlq.>", StreamConsumer.Config(onDecodeFailure = DecodeFailurePolicy.Discard))(using countingSerde)
+            consumer   <- StreamConsumer.make[Int](
+                            connection,
+                            "POISON_DLQ",
+                            "worker",
+                            "dlq.>",
+                            StreamConsumer.Config(onDecodeFailure = DecodeFailurePolicy.Discard),
+                          )(using countingSerde)
             good       <- Promise.make[Nothing, Int]
             _          <- producer.emit("oops") // undecodable → term (dropped, not redelivered)
             _          <- producer.emit("42")   // decodable → delivered next
@@ -202,7 +222,13 @@ object NatsV5Spec extends ZIOSpecDefault:
             connection <- ZIO.service[Connection]
             _          <- NatsSpecLayers.stream(connection, "HANDLER_SURFACE", "hsurface.>")
             producer   <- StreamProducer.make[String](connection)(_ => "hsurface.in")(using Serde.utf8)
-            consumer   <- StreamConsumer.make[String](connection, "HANDLER_SURFACE", "worker", "hsurface.>", StreamConsumer.Config(onHandlerFailure = HandlerFailurePolicy.Surface))(using Serde.utf8)
+            consumer   <- StreamConsumer.make[String](
+                            connection,
+                            "HANDLER_SURFACE",
+                            "worker",
+                            "hsurface.>",
+                            StreamConsumer.Config(onHandlerFailure = HandlerFailurePolicy.Surface),
+                          )(using Serde.utf8)
             _          <- producer.emit("x")
             outcome    <- consumer.consume(_ => ZIO.fail(NatsError.Decode("handler boom"))).either
           yield assertTrue(outcome match { case Left(NatsError.Decode("handler boom")) => true; case _ => false })
@@ -213,7 +239,13 @@ object NatsV5Spec extends ZIOSpecDefault:
             connection <- ZIO.service[Connection]
             _          <- NatsSpecLayers.stream(connection, "HANDLER_DLQ", "hdlq.>")
             producer   <- StreamProducer.make[String](connection)(payload => s"hdlq.$payload")(using Serde.utf8)
-            consumer   <- StreamConsumer.make[String](connection, "HANDLER_DLQ", "worker", "hdlq.>", StreamConsumer.Config(ackWait = 2.seconds, onHandlerFailure = HandlerFailurePolicy.Discard))(using Serde.utf8)
+            consumer   <- StreamConsumer.make[String](
+                            connection,
+                            "HANDLER_DLQ",
+                            "worker",
+                            "hdlq.>",
+                            StreamConsumer.Config(ackWait = 2.seconds, onHandlerFailure = HandlerFailurePolicy.Discard),
+                          )(using Serde.utf8)
             attempts   <- Ref.make(0)
             good       <- Promise.make[Nothing, String]
             logic       = (message: String) =>
@@ -251,7 +283,13 @@ object NatsV5Spec extends ZIOSpecDefault:
             connection <- ZIO.service[Connection]
             _          <- NatsSpecLayers.stream(connection, "HEARTBEAT", "heartbeat.>")
             producer   <- StreamProducer.make[String](connection)(_ => "heartbeat.in")(using Serde.utf8)
-            consumer   <- StreamConsumer.make[String](connection, "HEARTBEAT", "worker", "heartbeat.>", StreamConsumer.Config(ackWait = 2.seconds, heartbeat = Some(500.millis)))(using Serde.utf8)
+            consumer   <- StreamConsumer.make[String](
+                            connection,
+                            "HEARTBEAT",
+                            "worker",
+                            "heartbeat.>",
+                            StreamConsumer.Config(ackWait = 2.seconds, heartbeat = Some(500.millis)),
+                          )(using Serde.utf8)
             attempts   <- Ref.make(0)
             done       <- Promise.make[Nothing, Unit]
             // the handler runs longer than ackWait; the heartbeat should keep it from redelivering
@@ -303,8 +341,10 @@ object NatsV5Spec extends ZIOSpecDefault:
             _          <- NatsSpecLayers.stream(connection, "BACKPRESSURE", "backpressure.>")
             producer   <- StreamProducer.make[String](connection)(value => s"backpressure.$value")(using Serde.utf8)
             _          <- ZIO.foreachDiscard(1 to 10)(i => producer.emit(i.toString))
-            consumer   <- StreamConsumer.make[String](connection, "BACKPRESSURE", "worker", "backpressure.>", StreamConsumer.Config(maxAckPending = 2))(using Serde.utf8)
-            gate       <- Promise.make[Nothing, Unit] // never completed → handlers never ack
+            consumer   <- StreamConsumer.make[String](connection, "BACKPRESSURE", "worker", "backpressure.>", StreamConsumer.Config(maxAckPending = 2))(
+                            using Serde.utf8
+                          )
+            gate       <- Promise.make[Nothing, Unit]       // never completed → handlers never ack
             delivered  <- Ref.make(0)
             // many concurrent consumes; each takes a message and blocks it unacked
             _          <- ZIO.foreachParDiscard(1 to 10)(_ => consumer.consume(_ => delivered.update(_ + 1) *> gate.await)).forkScoped
@@ -322,7 +362,8 @@ object NatsV5Spec extends ZIOSpecDefault:
             connection <- ZIO.service[Connection]
             _          <- NatsSpecLayers.stream(connection, "BATCH", "batch.>")
             producer   <- StreamProducer.make[String](connection)(value => s"batch.$value")(using Serde.utf8)
-            consumer   <- StreamBatchConsumer.make[String](connection, "BATCH", "worker", "batch.>", StreamBatchConsumer.Config(batchSize = 10))(using Serde.utf8)
+            consumer   <-
+              StreamBatchConsumer.make[String](connection, "BATCH", "worker", "batch.>", StreamBatchConsumer.Config(batchSize = 10))(using Serde.utf8)
             _          <- ZIO.foreachDiscard(1 to 10)(i => producer.emit(i.toString))
             received   <- Ref.make(Set.empty[String])
             done       <- Promise.make[Nothing, Unit]
@@ -340,7 +381,13 @@ object NatsV5Spec extends ZIOSpecDefault:
             connection <- ZIO.service[Connection]
             _          <- NatsSpecLayers.stream(connection, "BATCH_DLQ", "batchdlq.>")
             producer   <- StreamProducer.make[String](connection)(_ => "batchdlq.in")(using Serde.utf8)
-            consumer   <- StreamBatchConsumer.make[Int](connection, "BATCH_DLQ", "worker", "batchdlq.>", StreamBatchConsumer.Config(batchSize = 10, onDecodeFailure = DecodeFailurePolicy.Discard))(using intSerde)
+            consumer   <- StreamBatchConsumer.make[Int](
+                            connection,
+                            "BATCH_DLQ",
+                            "worker",
+                            "batchdlq.>",
+                            StreamBatchConsumer.Config(batchSize = 10, onDecodeFailure = DecodeFailurePolicy.Discard),
+                          )(using intSerde)
             received   <- Ref.make(Set.empty[Int])
             done       <- Promise.make[Nothing, Unit]
             _          <- consumer
@@ -360,7 +407,10 @@ object NatsV5Spec extends ZIOSpecDefault:
             connection <- ZIO.service[Connection]
             _          <- NatsSpecLayers.stream(connection, "BATCH_SURFACE", "batchsurface.>")
             producer   <- StreamProducer.make[String](connection)(_ => "batchsurface.in")(using Serde.utf8)
-            consumer   <- StreamBatchConsumer.make[Int](connection, "BATCH_SURFACE", "worker", "batchsurface.>", StreamBatchConsumer.Config(batchSize = 3))(using intSerde)
+            consumer   <-
+              StreamBatchConsumer.make[Int](connection, "BATCH_SURFACE", "worker", "batchsurface.>", StreamBatchConsumer.Config(batchSize = 3))(
+                using intSerde
+              )
             _          <- producer.emit("1")
             _          <- producer.emit("oops")
             _          <- producer.emit("3")

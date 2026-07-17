@@ -1,6 +1,5 @@
 package homelab.nats
 
-
 import homelab.common.error.ApplicationError.{ AdapterError, DecodingError, TransientError }
 
 

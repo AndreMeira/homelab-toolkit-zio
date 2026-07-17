@@ -1,6 +1,5 @@
 package homelab.incubator.messaging.nats.v1
 
-
 import java.nio.charset.StandardCharsets
 
 
@@ -40,5 +39,5 @@ object Serde:
    * @return a `Serde` for `String`
    */
   val utf8: Serde[String] = new Serde[String]:
-    def encode(value: String): Array[Byte]              = value.getBytes(StandardCharsets.UTF_8)
+    def encode(value: String): Array[Byte]                 = value.getBytes(StandardCharsets.UTF_8)
     def decode(bytes: Array[Byte]): Either[String, String] = Right(new String(bytes, StandardCharsets.UTF_8))

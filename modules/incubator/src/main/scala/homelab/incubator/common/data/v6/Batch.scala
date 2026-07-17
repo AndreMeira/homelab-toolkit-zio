@@ -93,7 +93,7 @@ object Batch:
       Batch.Partial(
         lineage,
         elements.collect:
-          case index -> Left(err) => index -> Left(err)
+          case index -> Left(err)    => index -> Left(err)
           case index -> Right(value) => index -> indexedB.get(keyA(value)).toRight(defaultError),
       )
     }
@@ -103,7 +103,7 @@ object Batch:
       Batch.Partial(
         lineage,
         elements.collect:
-          case index -> Left(err) => index -> Left(err)
+          case index -> Left(err)    => index -> Left(err)
           case index -> Right(value) => index -> indexedB.get(keyA(value)).map(b => (value, b)).toRight(defaultError),
       )
     }

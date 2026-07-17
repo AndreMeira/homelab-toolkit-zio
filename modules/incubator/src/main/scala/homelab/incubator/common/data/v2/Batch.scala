@@ -1,13 +1,11 @@
 package homelab.incubator.common.data.v2
 
-
 /**
  * The identity of one [[Batch.make]] call. Every batch derived from that `make` — through any chain of
  * transforms and any fork/join — shares this `Lineage`. Because indices are positional, they are only
  * comparable within a single lineage, so overlays require a matching one.
  */
 final class Lineage
-
 
 /** Raised by an overlay when the two batches come from different [[Batch.make]] lineages. */
 final class LineageMismatch extends RuntimeException("cannot overlay batches from different `make` lineages")

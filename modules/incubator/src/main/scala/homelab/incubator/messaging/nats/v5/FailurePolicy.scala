@@ -18,7 +18,6 @@ object FailurePolicy:
     /** Drop the message and keep consuming — `term` (stop redelivery) on JetStream, skip it on Core. */
     case Discard
 
-
   /**
    * What a JetStream consumer does when the handler fails on a decoded message. The default is [[Redeliver]]
    * (`nak`) — the idiomatic at-least-once retry, also non-destructive. [[Discard]] gives up on the
@@ -34,4 +33,3 @@ object FailurePolicy:
     /** Fail `consume` with the handler's error, without settling — the message is redelivered (like
      * [[DecodeFailurePolicy.Surface]], it survives for reprocessing). */
     case Surface
-

@@ -24,12 +24,11 @@ private[nats] object Heartbeat:
    * @tparam R  the effect's result
    * @return the effect's result; ping failures are ignored (redelivery covers a missed keepalive)
    */
-  def wrap[E2, R](interval: Option[Duration], messages: List[Message])(effect: IO[E2, R]): IO[E2, R] = {
+  def wrap[E2, R](interval: Option[Duration], messages: List[Message])(effect: IO[E2, R]): IO[E2, R] =
     interval.fold(effect): interval =>
       ZIO.scoped:
         // first ping after `every`, not at t=0 — the freshly-delivered message's ackWait timer is new
         ping(messages).delay(interval).forever.forkScoped *> effect
-  }
 
   /**
    * Best-effort `inProgress()` on every message.

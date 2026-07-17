@@ -1,5 +1,6 @@
 package homelab.common.flow.batching
 
+
 import homelab.common.flow.Batcher
 import zio.*
 
@@ -13,7 +14,7 @@ import zio.*
  * @param shards  the independent per-shard batchers
  * @param shardOf picks a shard for an input (floor-modded into range)
  */
-private[flow] final class Distributed[E, In, Out](
+final private[flow] class Distributed[E, In, Out](
   shards: Vector[Batcher[E, In, Out]],
   shardOf: In => Int,
 ) extends Batcher[E, In, Out] {
@@ -23,7 +24,7 @@ private[flow] final class Distributed[E, In, Out](
    *
    * @return the batcher for `in`'s shard
    */
-  private def shard(in: In): Batcher[E, In, Out] = 
+  private def shard(in: In): Batcher[E, In, Out] =
     shards(Math.floorMod(shardOf(in), shards.size))
 
   /**

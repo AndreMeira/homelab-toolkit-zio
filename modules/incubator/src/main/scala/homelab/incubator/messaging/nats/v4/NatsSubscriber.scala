@@ -28,9 +28,8 @@ final class NatsSubscriber(dispatcher: Dispatcher):
    * @tparam A the value consumed
    * @return the consumer; aborts with [[NatsError.Connect]] if subscribing fails
    */
-  def consumer[A](subject: String, onDecodeFailure: DecodeFailurePolicy = DecodeFailurePolicy.Surface)(using
-    Serde[A]
-  ): ZIO[Scope, NatsError, Consumer[NatsError, A]] =
+  def consumer[A](subject: String, onDecodeFailure: DecodeFailurePolicy = DecodeFailurePolicy.Surface)(using Serde[A])
+    : ZIO[Scope, NatsError, Consumer[NatsError, A]] =
     deliveryQueue(subject).map(queue => new CoreConsumer(queue, onDecodeFailure))
 
   /**
@@ -47,7 +46,8 @@ final class NatsSubscriber(dispatcher: Dispatcher):
     subject: String,
     batchSize: Int,
     onDecodeFailure: DecodeFailurePolicy = DecodeFailurePolicy.Surface,
-  )(using Serde[A]): ZIO[Scope, NatsError, Consumer.Batched[NatsError, A]] =
+  )(using Serde[A]
+  ): ZIO[Scope, NatsError, Consumer.Batched[NatsError, A]] =
     deliveryQueue(subject).map(queue => new CoreBatchedConsumer(queue, batchSize, onDecodeFailure))
 
   /**

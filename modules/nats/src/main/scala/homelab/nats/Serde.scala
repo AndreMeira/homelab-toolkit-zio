@@ -1,6 +1,5 @@
 package homelab.nats
 
-
 import java.nio.charset.StandardCharsets
 
 

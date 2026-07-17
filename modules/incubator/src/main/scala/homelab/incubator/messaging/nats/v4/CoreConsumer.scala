@@ -20,7 +20,10 @@ import zio.*
  * @param onDecodeFailure what to do when a payload can't be decoded
  * @tparam A the value consumed
  */
-private[v4] final class CoreConsumer[A](queue: Queue[Message], onDecodeFailure: DecodeFailurePolicy)(using
+final private[v4] class CoreConsumer[A](
+  queue: Queue[Message],
+  onDecodeFailure: DecodeFailurePolicy,
+)(using
   serde: Serde[A]
 ) extends Consumer[NatsError, A]:
 
@@ -50,5 +53,6 @@ object CoreConsumer:
     connection: Connection,
     subject: String,
     onDecodeFailure: DecodeFailurePolicy = DecodeFailurePolicy.Surface,
-  )(using Serde[A]): ZIO[Scope, NatsError, Consumer[NatsError, A]] =
+  )(using Serde[A]
+  ): ZIO[Scope, NatsError, Consumer[NatsError, A]] =
     NatsSubscriber.make(connection).flatMap(_.consumer(subject, onDecodeFailure))

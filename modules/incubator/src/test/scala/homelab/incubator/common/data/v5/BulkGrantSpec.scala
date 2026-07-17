@@ -33,7 +33,7 @@ object BulkGrantSpec extends ZIOSpecDefault:
       found   <- repo.findAll(batch.success.toList.map(_.accountId))
       accounts = batch.success.indexBy(_.accountId).associateWith(found, "no such account")(_.id)
       // 2. credit the accounts that exist, and bulk-write them (the store returns the persisted rows)
-      toSave = accounts.map((grant, account) => account.copy(balance = account.balance + grant.amount))
+      toSave   = accounts.map((grant, account) => account.copy(balance = account.balance + grant.amount))
       saved   <- repo.saveAll(toSave.success.toList)
     // 3. left-join the persisted rows back onto the grants by account id — a grant with no saved row is an error
     yield batch.success.indexBy(_.accountId).replaceWith(saved, "no such account")(_.id).toList

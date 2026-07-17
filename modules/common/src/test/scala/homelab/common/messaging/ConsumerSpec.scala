@@ -17,8 +17,8 @@ object ConsumerSpec extends ZIOSpecDefault:
         serial   <- base.serial
         logic     = (_: Int) =>
                       inFlight.updateAndGet(_ + 1).flatMap(n => peak.update(_ max n)) *>
-                      ZIO.sleep(20.millis) *>
-                      inFlight.update(_ - 1)
+                        ZIO.sleep(20.millis) *>
+                        inFlight.update(_ - 1)
         _        <- ZIO.foreachParDiscard(1 to 20)(_ => serial.consume(logic)) // without `serial`, peak ≈ 20
         seen     <- peak.get
       yield assertTrue(seen == 1)

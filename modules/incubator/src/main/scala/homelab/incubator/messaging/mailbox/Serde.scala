@@ -1,6 +1,5 @@
 package homelab.incubator.messaging.mailbox
 
-
 import java.nio.charset.StandardCharsets
 
 

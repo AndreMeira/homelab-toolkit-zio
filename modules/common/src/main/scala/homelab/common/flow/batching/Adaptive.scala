@@ -1,5 +1,6 @@
 package homelab.common.flow.batching
 
+
 import homelab.common.flow.Batcher
 import zio.*
 
@@ -16,7 +17,7 @@ import zio.*
  * @param inFlight  the live-call counter
  * @param inner     the wrapped batcher
  */
-private[flow] final class Adaptive[E, In, Out](
+final private[flow] class Adaptive[E, In, Out](
   threshold: Int,
   inFlight: Ref[Int],
   inner: Batcher[E, In, Out],

@@ -69,7 +69,8 @@ object NatsConsumer:
     durable: String,
     subject: String,
     config: PollingConfig,
-  )(using Serde[A]): IO[NatsError, Consumer[NatsError, A]] =
+  )(using Serde[A]
+  ): IO[NatsError, Consumer[NatsError, A]] =
     consumerContext(streamContext, durable, subject, config.ackWait, config.maxAckPending)
       .map(context => new Polling(context, config.pollTimeout))
 
@@ -93,7 +94,8 @@ object NatsConsumer:
     durable: String,
     subject: String,
     config: PollingConfig = PollingConfig(),
-  )(using Serde[A]): IO[NatsError, Consumer[NatsError, A]] =
+  )(using Serde[A]
+  ): IO[NatsError, Consumer[NatsError, A]] =
     streamContextOf(connection, stream).flatMap(context => polling(context, durable, subject, config))
 
   /**
@@ -113,13 +115,14 @@ object NatsConsumer:
     durable: String,
     subject: String,
     config: BridgedConfig,
-  )(using Serde[A]): ZIO[Scope, NatsError, Consumer[NatsError, A]] =
+  )(using Serde[A]
+  ): ZIO[Scope, NatsError, Consumer[NatsError, A]] =
     for
       context <- consumerContext(streamContext, durable, subject, config.ackWait, config.maxAckPending)
       queue   <- Queue.unbounded[Message] // bounded overall by config.maxAckPending
       started <- Promise.make[NatsError, Unit]
       _       <- deliveries(context, started).runForeach(queue.offer).forkScoped
-      _       <- started.await // don't return until delivery is wired up
+      _       <- started.await            // don't return until delivery is wired up
     yield new Bridged(queue)
 
   /**
@@ -142,7 +145,8 @@ object NatsConsumer:
     durable: String,
     subject: String,
     config: BridgedConfig = BridgedConfig(),
-  )(using Serde[A]): ZIO[Scope, NatsError, Consumer[NatsError, A]] =
+  )(using Serde[A]
+  ): ZIO[Scope, NatsError, Consumer[NatsError, A]] =
     streamContextOf(connection, stream).flatMap(context => bridged(context, durable, subject, config))
 
   /**
@@ -243,8 +247,7 @@ object NatsConsumer:
    * @param serde       decodes wire bytes into a value
    * @tparam A the value consumed
    */
-  private final class Polling[A](context: ConsumerContext, pollTimeout: Duration)(using Serde[A])
-      extends Consumer[NatsError, A]:
+  final private class Polling[A](context: ConsumerContext, pollTimeout: Duration)(using Serde[A]) extends Consumer[NatsError, A]:
 
     override def consume[E2 >: NatsError](logic: A => IO[E2, Unit]): IO[E2, Unit] =
       receive.flatMap(message => settle(message, logic))
@@ -270,7 +273,7 @@ object NatsConsumer:
    * @param serde decodes wire bytes into a value
    * @tparam A the value consumed
    */
-  private final class Bridged[A](queue: Queue[Message])(using Serde[A]) extends Consumer[NatsError, A]:
+  final private class Bridged[A](queue: Queue[Message])(using Serde[A]) extends Consumer[NatsError, A]:
 
     override def consume[E2 >: NatsError](logic: A => IO[E2, Unit]): IO[E2, Unit] =
       queue.take.flatMap(message => settle(message, logic))

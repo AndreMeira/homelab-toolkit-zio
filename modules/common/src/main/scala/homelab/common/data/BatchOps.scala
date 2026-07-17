@@ -14,7 +14,7 @@ private[data] trait BatchOps[+E, +A] {
 
   /** The backing slots, keyed by input position. */
   def items: Map[Int, Either[E, A]]
-  
+
   def zipItems[E2 >: E, B](other: Map[Int, Either[E2, B]]): Map[Int, Either[E2, (A, B)]] =
     items.flatMap:
       case (index, Left(err))    => Some(index -> Left(err))

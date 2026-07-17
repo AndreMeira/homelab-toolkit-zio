@@ -18,19 +18,21 @@ import zio.*
  * @param onDecodeFailure what to do when a message in the batch can't be decoded
  * @tparam A the value consumed
  */
-private[v4] final class CoreBatchedConsumer[A](
+final private[v4] class CoreBatchedConsumer[A](
   queue: Queue[Message],
   batchSize: Int,
   onDecodeFailure: DecodeFailurePolicy,
-)(using serde: Serde[A])
-    extends Consumer.Batched[NatsError, A]:
+)(using serde: Serde[A]
+) extends Consumer.Batched[NatsError, A]:
 
   override def consume[E2 >: NatsError](logic: List[A] => IO[E2, Unit]): IO[E2, Unit] =
-    queue.takeBetween(1, batchSize).flatMap: messages =>
-      val (reasons, values) = messages.toList.partitionMap(message => serde.decode(message.getData))
-      onDecodeFailure match
-        case DecodeFailurePolicy.Surface if reasons.nonEmpty => ZIO.fail(NatsError.Decode(reasons.mkString(", ")))
-        case _                                               => ZIO.when(values.nonEmpty)(logic(values)).unit
+    queue
+      .takeBetween(1, batchSize)
+      .flatMap: messages =>
+        val (reasons, values) = messages.toList.partitionMap(message => serde.decode(message.getData))
+        onDecodeFailure match
+          case DecodeFailurePolicy.Surface if reasons.nonEmpty => ZIO.fail(NatsError.Decode(reasons.mkString(", ")))
+          case _                                               => ZIO.when(values.nonEmpty)(logic(values)).unit
 
 
 object CoreBatchedConsumer:
@@ -51,5 +53,6 @@ object CoreBatchedConsumer:
     subject: String,
     batchSize: Int,
     onDecodeFailure: DecodeFailurePolicy = DecodeFailurePolicy.Surface,
-  )(using Serde[A]): ZIO[Scope, NatsError, Consumer.Batched[NatsError, A]] =
+  )(using Serde[A]
+  ): ZIO[Scope, NatsError, Consumer.Batched[NatsError, A]] =
     NatsSubscriber.make(connection).flatMap(_.batchedConsumer(subject, batchSize, onDecodeFailure))

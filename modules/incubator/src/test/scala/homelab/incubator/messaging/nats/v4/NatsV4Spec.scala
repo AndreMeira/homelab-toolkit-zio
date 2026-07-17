@@ -45,7 +45,7 @@ object NatsV4Spec extends ZIOSpecDefault:
       },
       test("Discard: an undecodable message is skipped and the consumer keeps delivering") {
         val intSerde: Serde[Int] = new Serde[Int]:
-          def encode(value: Int): Array[Byte] = value.toString.getBytes(StandardCharsets.UTF_8)
+          def encode(value: Int): Array[Byte]                 = value.toString.getBytes(StandardCharsets.UTF_8)
           def decode(bytes: Array[Byte]): Either[String, Int] =
             new String(bytes, StandardCharsets.UTF_8).toIntOption.toRight("not an int")
 
@@ -63,7 +63,7 @@ object NatsV4Spec extends ZIOSpecDefault:
       },
       test("batched Discard: drops undecodable messages and delivers the rest") {
         val intSerde: Serde[Int] = new Serde[Int]:
-          def encode(value: Int): Array[Byte] = value.toString.getBytes(StandardCharsets.UTF_8)
+          def encode(value: Int): Array[Byte]                 = value.toString.getBytes(StandardCharsets.UTF_8)
           def decode(bytes: Array[Byte]): Either[String, Int] =
             new String(bytes, StandardCharsets.UTF_8).toIntOption.toRight("not an int")
 
@@ -77,8 +77,7 @@ object NatsV4Spec extends ZIOSpecDefault:
             _          <- producer.emit("2")
             received   <- Ref.make(Set.empty[Int])
             done       <- Promise.make[Nothing, Unit]
-            logic       = (batch: List[Int]) =>
-                            received.updateAndGet(_ ++ batch).flatMap(all => ZIO.when(all == Set(1, 2))(done.succeed(())).unit)
+            logic       = (batch: List[Int]) => received.updateAndGet(_ ++ batch).flatMap(all => ZIO.when(all == Set(1, 2))(done.succeed(())).unit)
             fiber      <- consumer.consume(logic).forever.fork
             _          <- done.await
             out        <- received.get
@@ -147,9 +146,11 @@ object NatsV4Spec extends ZIOSpecDefault:
             done       <- Promise.make[Nothing, Unit]
             // The error value is irrelevant — settle naks any handler failure; only the retry matters.
             logic       = (_: String) =>
-                            attempts.updateAndGet(_ + 1).flatMap: attempt =>
-                              if attempt == 1 then ZIO.fail(NatsError.Decode("forced first-attempt failure"))
-                              else done.succeed(()).unit
+                            attempts
+                              .updateAndGet(_ + 1)
+                              .flatMap: attempt =>
+                                if attempt == 1 then ZIO.fail(NatsError.Decode("forced first-attempt failure"))
+                                else done.succeed(()).unit
             _          <- producer.emit("x")
             fiber      <- consumer.consume(logic).forever.fork
             _          <- done.await
@@ -159,7 +160,7 @@ object NatsV4Spec extends ZIOSpecDefault:
       },
       test("an undecodable payload fails the consumer by default (Surface — non-destructive)") {
         val intSerde: Serde[Int] = new Serde[Int]:
-          def encode(value: Int): Array[Byte] = value.toString.getBytes(StandardCharsets.UTF_8)
+          def encode(value: Int): Array[Byte]                 = value.toString.getBytes(StandardCharsets.UTF_8)
           def decode(bytes: Array[Byte]): Either[String, Int] =
             new String(bytes, StandardCharsets.UTF_8).toIntOption.toRight("not an int")
 
@@ -174,9 +175,9 @@ object NatsV4Spec extends ZIOSpecDefault:
           yield assertTrue(outcome match { case Left(NatsError.Decode(_)) => true; case _ => false })
       },
       test("with DecodeFailurePolicy.Discard a poison message is termed once and the consumer continues") {
-        val decodeCount = new java.util.concurrent.atomic.AtomicInteger(0)
+        val decodeCount          = new java.util.concurrent.atomic.AtomicInteger(0)
         val intSerde: Serde[Int] = new Serde[Int]:
-          def encode(value: Int): Array[Byte] = value.toString.getBytes(StandardCharsets.UTF_8)
+          def encode(value: Int): Array[Byte]                 = value.toString.getBytes(StandardCharsets.UTF_8)
           def decode(bytes: Array[Byte]): Either[String, Int] =
             decodeCount.incrementAndGet()
             new String(bytes, StandardCharsets.UTF_8).toIntOption.toRight("not an int")
@@ -254,8 +255,7 @@ object NatsV4Spec extends ZIOSpecDefault:
             _          <- ZIO.foreachDiscard(1 to 20)(i => producer.emit(i.toString))
             received   <- Ref.make(Set.empty[String])
             done       <- Promise.make[Nothing, Unit]
-            logic       = (message: String) =>
-                            received.updateAndGet(_ + message).flatMap(seen => ZIO.when(seen.size == 20)(done.succeed(())).unit)
+            logic       = (message: String) => received.updateAndGet(_ + message).flatMap(seen => ZIO.when(seen.size == 20)(done.succeed(())).unit)
             fiber      <- consumer.consume(logic).forever.fork
             _          <- done.await
             out        <- received.get
@@ -327,7 +327,7 @@ object NatsV4Spec extends ZIOSpecDefault:
                             "backpressure.>",
                             JetStreamBridgedConsumer.Config(maxAckPending = 2),
                           )(using Serde.utf8)
-            gate       <- Promise.make[Nothing, Unit] // never completed → handlers never ack
+            gate       <- Promise.make[Nothing, Unit]       // never completed → handlers never ack
             delivered  <- Ref.make(0)
             // many concurrent consumes; each takes a message and blocks it unacked
             fiber      <- ZIO.foreachParDiscard(1 to 10)(_ => consumer.consume(_ => delivered.update(_ + 1) *> gate.await)).fork
@@ -348,8 +348,7 @@ object NatsV4Spec extends ZIOSpecDefault:
             _          <- ZIO.foreachDiscard(1 to 10)(i => producer.emit(i.toString))
             received   <- Ref.make(List.empty[String])
             done       <- Promise.make[Nothing, Unit]
-            logic       = (batch: List[String]) =>
-                            received.updateAndGet(_ ++ batch).flatMap(all => ZIO.when(all.size == 10)(done.succeed(())).unit)
+            logic       = (batch: List[String]) => received.updateAndGet(_ ++ batch).flatMap(all => ZIO.when(all.size == 10)(done.succeed(())).unit)
             fiber      <- consumer.consume(logic).forever.fork
             _          <- done.await
             out        <- received.get
@@ -372,8 +371,7 @@ object NatsV4Spec extends ZIOSpecDefault:
             _          <- ZIO.foreachDiscard(1 to 10)(i => producer.emit(i.toString))
             received   <- Ref.make(List.empty[String])
             done       <- Promise.make[Nothing, Unit]
-            logic       = (batch: List[String]) =>
-                            received.updateAndGet(_ ++ batch).flatMap(all => ZIO.when(all.size == 10)(done.succeed(())).unit)
+            logic       = (batch: List[String]) => received.updateAndGet(_ ++ batch).flatMap(all => ZIO.when(all.size == 10)(done.succeed(())).unit)
             fiber      <- consumer.consume(logic).forever.fork
             _          <- done.await
             out        <- received.get
@@ -396,8 +394,7 @@ object NatsV4Spec extends ZIOSpecDefault:
             _          <- ZIO.foreachDiscard(1 to 10)(i => producer.emit(i.toString))
             received   <- Ref.make(List.empty[String])
             done       <- Promise.make[Nothing, Unit]
-            logic       = (batch: List[String]) =>
-                            received.updateAndGet(_ ++ batch).flatMap(all => ZIO.when(all.size == 10)(done.succeed(())).unit)
+            logic       = (batch: List[String]) => received.updateAndGet(_ ++ batch).flatMap(all => ZIO.when(all.size == 10)(done.succeed(())).unit)
             fiber      <- consumer.consume(logic).forever.fork
             _          <- done.await
             out        <- received.get
@@ -406,7 +403,7 @@ object NatsV4Spec extends ZIOSpecDefault:
       },
       test("batched Discard: an undecodable message is termed, the rest of the batch delivered") {
         val intSerde: Serde[Int] = new Serde[Int]:
-          def encode(value: Int): Array[Byte] = value.toString.getBytes(StandardCharsets.UTF_8)
+          def encode(value: Int): Array[Byte]                 = value.toString.getBytes(StandardCharsets.UTF_8)
           def decode(bytes: Array[Byte]): Either[String, Int] =
             new String(bytes, StandardCharsets.UTF_8).toIntOption.toRight("not an int")
 
@@ -427,8 +424,7 @@ object NatsV4Spec extends ZIOSpecDefault:
             _          <- producer.emit("2")
             received   <- Ref.make(Set.empty[Int])
             done       <- Promise.make[Nothing, Unit]
-            logic       = (batch: List[Int]) =>
-                            received.updateAndGet(_ ++ batch).flatMap(all => ZIO.when(all == Set(1, 2))(done.succeed(())).unit)
+            logic       = (batch: List[Int]) => received.updateAndGet(_ ++ batch).flatMap(all => ZIO.when(all == Set(1, 2))(done.succeed(())).unit)
             fiber      <- consumer.consume(logic).forever.fork
             _          <- done.await
             out        <- received.get
@@ -437,7 +433,7 @@ object NatsV4Spec extends ZIOSpecDefault:
       },
       test("batched Surface: a poison message fails the whole batch (blast-radius)") {
         val intSerde: Serde[Int] = new Serde[Int]:
-          def encode(value: Int): Array[Byte] = value.toString.getBytes(StandardCharsets.UTF_8)
+          def encode(value: Int): Array[Byte]                 = value.toString.getBytes(StandardCharsets.UTF_8)
           def decode(bytes: Array[Byte]): Either[String, Int] =
             new String(bytes, StandardCharsets.UTF_8).toIntOption.toRight("not an int")
 

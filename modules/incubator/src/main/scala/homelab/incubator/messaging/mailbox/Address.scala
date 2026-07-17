@@ -1,6 +1,5 @@
 package homelab.incubator.messaging.mailbox
 
-
 /**
  * A substrate-neutral reply address — an opaque routing token (`<: String`) that an adapter serializes its
  * internal address into (a NATS inbox subject, an in-memory UUID string, a Postgres `pod.msg` pair, …) and
@@ -8,6 +7,7 @@ package homelab.incubator.messaging.mailbox
  * broker-specific one, so switching substrate leaves request DTOs untouched.
  */
 type Address = Address.Type
+
 
 object Address:
   opaque type Type <: String = String

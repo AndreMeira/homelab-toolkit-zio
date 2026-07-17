@@ -1,6 +1,5 @@
 package homelab.incubator.messaging.nats.v2
 
-
 import java.nio.charset.StandardCharsets
 
 

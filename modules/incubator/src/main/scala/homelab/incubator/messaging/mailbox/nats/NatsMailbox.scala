@@ -28,8 +28,8 @@ final class NatsMailbox(connection: Connection, dispatcher: Dispatcher) extends 
   override def expect[B: Serde](timeout: Duration): IO[NatsError, Mailbox.Receipt[NatsError, B]] =
     ZIO
       .attemptBlocking {
-        val inbox = connection.createInbox()
-        val reply = new CompletableFuture[Array[Byte]]()
+        val inbox                   = connection.createInbox()
+        val reply                   = new CompletableFuture[Array[Byte]]()
         val handler: MessageHandler = message => {
           reply.complete(message.getData)
           dispatcher.unsubscribe(inbox) // one-shot: drop the inbox once the reply lands

@@ -58,15 +58,15 @@ object SerialBenchSpec extends ZIOSpecDefault:
   private def bench(label: String, logic: Batcher.Logic[Any, Nothing, Nothing, Int, Int], warmup: Int, n: Int) =
     ZIO.scoped:
       for
-        scope   <- ZIO.scope
-        ref     <- Ref.make[Serial.State[LineageMismatch, Int, Int]](Serial.State.Idle[LineageMismatch, Int, Int]())
-        batcher  = Serial[Any, Nothing, Nothing, Int, Int](1, scope, ref, logic)
-        rawOp    = logic.run(Batch.single(7)).map(_.values.head)
-        batOp    = batcher.run(7)
-        _       <- rawOp.repeatN(warmup - 1) *> batOp.repeatN(warmup - 1) // JIT + alloc warmup
-        raw     <- measure(n)(rawOp)
-        bat     <- measure(n)(batOp)
-        _       <- ZIO.debug(f"[$label] raw=$raw%8.3f µs/call   batcher=$bat%8.3f µs/call   overhead=${bat - raw}%8.3f µs")
+        scope  <- ZIO.scope
+        ref    <- Ref.make[Serial.State[LineageMismatch, Int, Int]](Serial.State.Idle[LineageMismatch, Int, Int]())
+        batcher = Serial[Any, Nothing, Nothing, Int, Int](1, scope, ref, logic)
+        rawOp   = logic.run(Batch.single(7)).map(_.values.head)
+        batOp   = batcher.run(7)
+        _      <- rawOp.repeatN(warmup - 1) *> batOp.repeatN(warmup - 1) // JIT + alloc warmup
+        raw    <- measure(n)(rawOp)
+        bat    <- measure(n)(batOp)
+        _      <- ZIO.debug(f"[$label] raw=$raw%8.3f µs/call   batcher=$bat%8.3f µs/call   overhead=${bat - raw}%8.3f µs")
       yield ()
 
   def spec = suite("Serial rough single-call overhead")(
@@ -172,9 +172,10 @@ object SerialBenchSpec extends ZIOSpecDefault:
           dedI     <- dedItems.get
           serMs     = (serEnd - serStart).toDouble / 1e6
           dedMs     = (dedEnd - dedStart).toDouble / 1e6
-          _        <- ZIO.debug(
-                        f"N=$n over $keys keys, $perItem%dµs/item   serial: $serMs%7.1f ms ($serI items)    dedup: $dedMs%6.1f ms ($dedI items)    → ${serMs / dedMs}%.1f× faster"
-                      )
+          _        <-
+            ZIO.debug(
+              f"N=$n over $keys keys, $perItem%dµs/item   serial: $serMs%7.1f ms ($serI items)    dedup: $dedMs%6.1f ms ($dedI items)    → ${serMs / dedMs}%.1f× faster"
+            )
         yield assertTrue(serRes == want, dedRes == want, dedMs < serMs)
     } @@ TestAspect.withLiveClock,
     test("one hot key, N duplicates: dedup holds O(1) state + allocations where Serial holds O(N)") {
@@ -205,5 +206,5 @@ object SerialBenchSpec extends ZIOSpecDefault:
                           f"    → ${serI.toDouble / dedI}%.0f× fewer allocations, ${serM.toDouble / dedM}%.0f× smaller peak state"
                       )
         yield assertTrue(serRes.forall(_ == 0), dedRes.forall(_ == 0), dedM < serM, dedI < serI)
-    } @@ TestAspect.withLiveClock
+    } @@ TestAspect.withLiveClock,
   ) @@ TestAspect.ifPropSet("benchmarks") // opt-in: `sbt -Dbenchmarks=true …`; skipped in CI (timing-based)

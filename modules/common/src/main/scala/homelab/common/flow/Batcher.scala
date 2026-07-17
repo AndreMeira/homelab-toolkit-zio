@@ -4,7 +4,7 @@ package homelab.common.flow
 import homelab.common.data.Batch
 import homelab.common.data.Batch.LineageMismatch
 import homelab.common.error.ApplicationError
-import homelab.common.flow.batching.{Adaptive, DeduplicatedSerial, Distributed, Serial}
+import homelab.common.flow.batching.{ Adaptive, DeduplicatedSerial, Distributed, Serial }
 import zio.*
 
 

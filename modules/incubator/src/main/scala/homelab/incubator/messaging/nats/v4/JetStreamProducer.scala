@@ -15,8 +15,7 @@ import zio.*
  * @param subjectOf derives a message's subject (its partition key)
  * @tparam A the value published
  */
-private[v4] final class JetStreamProducer[A](jetStream: JetStream, subjectOf: A => String)(using serde: Serde[A])
-    extends Producer[NatsError, A]:
+final private[v4] class JetStreamProducer[A](jetStream: JetStream, subjectOf: A => String)(using serde: Serde[A]) extends Producer[NatsError, A]:
 
   override def emit(value: A): IO[NatsError, Unit] =
     ZIO

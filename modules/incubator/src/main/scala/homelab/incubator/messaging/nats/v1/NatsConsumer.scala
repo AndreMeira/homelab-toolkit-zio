@@ -48,9 +48,9 @@ final class NatsConsumer[A](
       .flatMap {
         case Some(message) =>
           serde.decode(message.getData) match
-            case Right(value)  => ZIO.succeed(value)
-            case Left(reason)  => ZIO.fail(NatsError.Decode(reason))
-        case None => receive // timeout with no message — keep waiting
+            case Right(value) => ZIO.succeed(value)
+            case Left(reason) => ZIO.fail(NatsError.Decode(reason))
+        case None          => receive // timeout with no message — keep waiting
       }
 
 
