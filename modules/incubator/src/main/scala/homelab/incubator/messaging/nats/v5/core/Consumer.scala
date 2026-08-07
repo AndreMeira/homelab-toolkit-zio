@@ -15,11 +15,11 @@ class Consumer[A: Serde](
 
   /**
    * Take the next value (or batch, for [[Consumer.Batched]]) and run `logic` on it, within the
-   * adapter's commit boundary. One call processes one unit; a run loop calls it repeatedly.
+   * adapter's commit boundary. One call processes one noop; a run loop calls it repeatedly.
    *
    * @param logic processes one consumed value
    * @tparam E2 the widened error, admitting `logic`'s failures
-   * @return unit once the value is processed and committed; aborts with `E2` on failure
+   * @return noop once the value is processed and committed; aborts with `E2` on failure
    */
   override def consume[E2 >: NatsError](logic: A => IO[E2, Unit]): IO[E2, Unit] =
     for {

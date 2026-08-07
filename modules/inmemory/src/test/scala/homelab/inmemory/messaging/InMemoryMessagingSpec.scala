@@ -222,30 +222,30 @@ object InMemoryMessagingSpec extends ZIOSpecDefault:
                      case _                   => false
         yield assertTrue(failed)
       },
-      test("Pipe.PerItem consumes, transforms, and emits in a loop") {
+      test("Through.PerItem consumes, transforms, and emits in a loop") {
         for
           in    <- Wire.make[Int]
           out   <- Wire.make[Int]
-          pipe   = new Pipe.PerItem[Nothing, Int, Int]:
+          through   = new Through.PerItem[Nothing, Int, Int]:
                      def input: Consumer[Nothing, Int]         = in
                      def output: Producer[Nothing, Int]        = out
                      def process(value: Int): IO[Nothing, Int] = ZIO.succeed(value * 10)
-          fiber <- pipe.run.fork
+          fiber <- through.run.fork
           _     <- ZIO.foreachDiscard(1 to 20)(in.emit)
           res   <- ZIO.foreach((1 to 20).toList)(_ => out.consumer.source.take)
           _     <- fiber.interrupt
         yield assertTrue(res == (1 to 20).map(_ * 10).toList)
       },
-      test("Pipe.Batched consumes batches, transforms, and emits") {
+      test("Through.Batched consumes batches, transforms, and emits") {
         for
           queue  <- Queue.unbounded[Int]
           out    <- Wire.make[Int]
           batched = new QueueConsumer.Batched(QueueSource.Pure(queue), 5)
-          pipe    = new Pipe.Batched[Nothing, Int, Int]:
+          through    = new Through.Batched[Nothing, Int, Int]:
                       def input: Consumer.Batched[Nothing, Int]              = batched
                       def output: Producer[Nothing, Int]                     = out
                       def process(values: List[Int]): IO[Nothing, List[Int]] = ZIO.succeed(values.map(_ * 10))
-          fiber  <- pipe.run.fork
+          fiber  <- through.run.fork
           _      <- queue.offerAll((1 to 20).toList)
           res    <- ZIO.foreach((1 to 20).toList)(_ => out.consumer.source.take)
           _      <- fiber.interrupt

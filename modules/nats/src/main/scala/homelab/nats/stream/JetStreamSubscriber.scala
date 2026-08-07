@@ -25,7 +25,7 @@ final class JetStreamSubscriber(connection: Connection):
    * @param config the stream / durable / subject identity and ack tuning
    * @param queue  the bridge queue delivered messages are offered into
    * @param scope  the scope the delivery fiber is forked into
-   * @return unit once delivery is established; aborts with [[NatsError.Connect]] if the consumer can't be
+   * @return noop once delivery is established; aborts with [[NatsError.Connect]] if the consumer can't be
    *         created or attached
    */
   def subscribe(config: ContextConfig, queue: Queue[Message], scope: Scope): IO[NatsError, Unit] =

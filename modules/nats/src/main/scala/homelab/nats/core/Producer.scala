@@ -22,7 +22,7 @@ final class Producer[A: Serde](connection: Connection, subjectOf: A => String) e
    * Publish `value` to its derived subject.
    *
    * @param value the value to publish
-   * @return unit once buffered for send; aborts with [[NatsError.Publish]] if publishing fails
+   * @return noop once buffered for send; aborts with [[NatsError.Publish]] if publishing fails
    */
   override def emit(value: A): IO[NatsError, Unit] =
     ZIO

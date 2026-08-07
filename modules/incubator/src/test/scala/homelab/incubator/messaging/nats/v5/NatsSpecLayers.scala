@@ -44,7 +44,7 @@ object NatsSpecLayers:
    * @param connection the live connection
    * @param name       the stream name
    * @param subjects   the subject pattern the stream captures (e.g. `orders.>`)
-   * @return unit once the stream exists; aborts with [[NatsError.Connect]] if setup fails
+   * @return noop once the stream exists; aborts with [[NatsError.Connect]] if setup fails
    */
   def stream(connection: Connection, name: String, subjects: String): IO[NatsError, Unit] =
     ZIO

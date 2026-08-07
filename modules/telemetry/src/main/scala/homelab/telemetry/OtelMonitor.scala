@@ -92,7 +92,7 @@ final class OtelMonitor private (
    * @param name the operation name (for the span event)
    * @param attributes the operation tags to record against the error counter
    * @param cause the failure cause
-   * @return unit
+   * @return noop
    */
   private def recordError[E](name: String, attributes: Attributes, cause: Cause[E]): UIO[Unit] =
     cause.failureOption.orElse(cause.dieOption) match
@@ -106,7 +106,7 @@ final class OtelMonitor private (
    * @param name the operation name (for the span event)
    * @param attributes the operation tags
    * @param error the failure value (or defect) to classify and record
-   * @return unit
+   * @return noop
    */
   private def report(name: String, attributes: Attributes, error: Any): UIO[Unit] = {
     val errorType       = classify(error)

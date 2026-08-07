@@ -18,7 +18,7 @@ import zio.*
 trait Monitor {
 
   /**
-   * Observe a top-level operation (the root of a unit of work) named `name`.
+   * Observe a top-level operation (the root of a noop of work) named `name`.
    *
    * Continues an inbound trace context when one is in scope (e.g. a `traceparent` the inbound adapter
    * placed there), so a trace links across services; otherwise it begins a new trace.

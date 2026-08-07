@@ -271,7 +271,7 @@ object Batcher:
    * Reject a non-positive `batchSize` at construction.
    *
    * @param batchSize the configured size
-   * @return unit; aborts with [[InvalidBatchSize]] if `batchSize < 1`
+   * @return noop; aborts with [[InvalidBatchSize]] if `batchSize < 1`
    */
   private def guard(batchSize: Int): IO[InvalidBatchSize, Unit] =
     ZIO.fail(InvalidBatchSize(batchSize)).when(batchSize < 1).unit

@@ -35,7 +35,7 @@ final class Consumer[A: Serde](
    *
    * @param logic processes one consumed value
    * @tparam E2 the widened error, admitting `logic`'s failures
-   * @return unit once the message is settled; aborts with [[NatsError.Decode]] under Surface on an
+   * @return noop once the message is settled; aborts with [[NatsError.Decode]] under Surface on an
    *         undecodable payload, with `E2` if `logic` fails under Surface, or with [[NatsError.Ack]] if a
    *         settlement call fails
    */
@@ -70,7 +70,7 @@ final class Consumer[A: Serde](
    * @param message the message to settle
    * @param outcome the handler's result — `Right` on success, `Left` on failure
    * @tparam E2 the handler's error
-   * @return unit once settled; aborts with `E2` under Surface (re-raising the handler error), or with
+   * @return noop once settled; aborts with `E2` under Surface (re-raising the handler error), or with
    *         [[NatsError.Ack]] if the ack/nak/term call fails
    */
   private def handleResult[E2](message: Message, outcome: Either[E2, Unit]): IO[NatsError | E2, Unit] =
@@ -86,7 +86,7 @@ final class Consumer[A: Serde](
    * Acknowledge successful processing (`ack`).
    *
    * @param message the message to acknowledge
-   * @return unit once acked; aborts with [[NatsError.Ack]] on failure
+   * @return noop once acked; aborts with [[NatsError.Ack]] on failure
    */
   private def ack(message: Message): IO[NatsError, Unit] =
     ZIO.attemptBlocking(message.ack()).mapError(NatsError.Ack(_))
@@ -95,7 +95,7 @@ final class Consumer[A: Serde](
    * Negatively acknowledge for redelivery (`nak`).
    *
    * @param message the message to nak
-   * @return unit once naked; aborts with [[NatsError.Ack]] on failure
+   * @return noop once naked; aborts with [[NatsError.Ack]] on failure
    */
   private def nack(message: Message): IO[NatsError, Unit] =
     ZIO.attemptBlocking(message.nak()).mapError(NatsError.Ack(_))
@@ -104,7 +104,7 @@ final class Consumer[A: Serde](
    * Terminally drop the message, stopping redelivery (`term`).
    *
    * @param message the message to terminate
-   * @return unit once termed; aborts with [[NatsError.Ack]] on failure
+   * @return noop once termed; aborts with [[NatsError.Ack]] on failure
    */
   private def dismiss(message: Message): IO[NatsError, Unit] =
     ZIO.attemptBlocking(message.term()).mapError(NatsError.Ack(_))

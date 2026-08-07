@@ -71,7 +71,7 @@ final private[flow] class Serial[E, BE, In, Out](
   /**
    * Drain the queue one FIFO batch at a time until empty, then return to idle.
    *
-   * @return unit; carries the drain's error/interrupt in its (forked) fiber, unobserved by callers
+   * @return noop; carries the drain's error/interrupt in its (forked) fiber, unobserved by callers
    */
   private def runDrain: IO[Err, Unit] =
     ref
@@ -94,7 +94,7 @@ final private[flow] class Serial[E, BE, In, Out](
    * still drained.
    *
    * @param batch the `(input, promise)` pairs to process
-   * @return unit; never fails except by propagating an interrupt
+   * @return noop; never fails except by propagating an interrupt
    */
   private def runBatch(batch: List[(In, Promise[Err, Out])]): IO[Err, Unit] =
     val inputs   = Batch.make(batch.map((in, _) => in))
@@ -111,7 +111,7 @@ final private[flow] class Serial[E, BE, In, Out](
   /**
    * Fail every promise with `cause` (a whole-batch failure, defect, or interrupt).
    *
-   * @return unit
+   * @return noop
    */
   private def failAll(promises: List[Promise[Err, Out]], cause: Cause[Err]): UIO[Unit] =
     ZIO.foreachDiscard(promises)(_.failCause(cause).unit)
@@ -119,7 +119,7 @@ final private[flow] class Serial[E, BE, In, Out](
   /**
    * Complete each promise from its result slot — same lineage (verified) ⇒ slot `i` is caller `i`'s outcome.
    *
-   * @return unit
+   * @return noop
    */
   private def fulfil(promises: List[Promise[Err, Out]], result: Batch[BE, Out]): UIO[Unit] =
     ZIO.foreachDiscard(result.toList.zip(promises)):
@@ -130,7 +130,7 @@ final private[flow] class Serial[E, BE, In, Out](
    * Scope finalizer: interrupt every queued caller so close drops pending work without stranding anyone (the
    * in-flight batch is handled by [[runBatch]]'s `onExit`).
    *
-   * @return unit
+   * @return noop
    */
   private[flow] def abandon: UIO[Unit] =
     ref.get.flatMap:

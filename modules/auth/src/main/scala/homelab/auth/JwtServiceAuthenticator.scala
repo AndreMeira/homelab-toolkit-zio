@@ -50,7 +50,7 @@ final class JwtServiceAuthenticator(
    * Check the token was minted for us — its `aud` includes the expected audience.
    *
    * @param claim the verified claims
-   * @return unit; fails with [[InvalidServiceToken]] if the audience doesn't include the expected one
+   * @return noop; fails with [[InvalidServiceToken]] if the audience doesn't include the expected one
    */
   private def checkAudience(claim: JwtClaim): IO[UnauthorisedError, Unit] =
     if claim.audience.exists(_.contains(expectations.audience)) then ZIO.unit
@@ -60,7 +60,7 @@ final class JwtServiceAuthenticator(
    * Check the token came from the trusted issuer — its `iss` equals the expected issuer.
    *
    * @param claim the verified claims
-   * @return unit; fails with [[InvalidServiceToken]] if the issuer doesn't match
+   * @return noop; fails with [[InvalidServiceToken]] if the issuer doesn't match
    */
   private def checkIssuer(claim: JwtClaim): IO[UnauthorisedError, Unit] =
     if claim.issuer.contains(expectations.issuer) then ZIO.unit

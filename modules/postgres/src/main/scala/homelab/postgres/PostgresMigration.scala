@@ -26,7 +26,7 @@ final class PostgresMigration(flyway: Flyway, monitor: Monitor):
   /**
    * Apply all pending migrations.
    *
-   * @return unit; fails with [[MigrationFailed]] if a migration fails
+   * @return noop; fails with [[MigrationFailed]] if a migration fails
    */
   def applyMigrations: IO[MigrationFailed, Unit] =
     monitor.track("PostgresMigration.applyMigrations", PostgresDatabase.Tag):
@@ -35,7 +35,7 @@ final class PostgresMigration(flyway: Flyway, monitor: Monitor):
   /**
    * Drop everything Flyway manages (guarded by the config's `allowClean`).
    *
-   * @return unit; fails with [[CleanFailed]] if the clean fails or is disabled
+   * @return noop; fails with [[CleanFailed]] if the clean fails or is disabled
    */
   def cleanMigrations: IO[CleanFailed, Unit] =
     monitor.track("PostgresMigration.cleanMigrations", PostgresDatabase.Tag):

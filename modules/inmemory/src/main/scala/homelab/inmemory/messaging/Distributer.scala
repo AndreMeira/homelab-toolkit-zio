@@ -34,7 +34,7 @@ final class Distributer[K, A](
    *
    * @param logic processes a single value
    * @tparam E2 the widened error, admitting `logic`'s failures
-   * @return unit once one value is processed; aborts with `E2` when `logic` fails
+   * @return noop once one value is processed; aborts with `E2` when `logic` fails
    */
   override def consume[E2 >: Nothing](logic: A => IO[E2, Unit]): IO[E2, Unit] =
     queue.takeWith((_, value) => logic(value))
@@ -43,7 +43,7 @@ final class Distributer[K, A](
    * Enqueue `value` under its partition key, suspending while the queue's buffer is full.
    *
    * @param value the value to emit
-   * @return unit once the value is queued
+   * @return noop once the value is queued
    */
   override def emit(value: A): IO[Nothing, Unit] =
     partitioner.partition(value).flatMap(key => queue.offer(key, value))

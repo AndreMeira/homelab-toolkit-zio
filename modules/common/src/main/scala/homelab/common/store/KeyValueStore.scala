@@ -29,7 +29,7 @@ trait KeyValueStore[K, V] {
   /**
    * Store `value` under `key`, overwriting any existing value (upsert).
    *
-   * @return unit; fails with `AdapterError` on an infrastructure failure
+   * @return noop; fails with `AdapterError` on an infrastructure failure
    */
   def set(key: K, value: V): IO[AdapterError, Unit]
 

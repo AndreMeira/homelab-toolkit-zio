@@ -35,7 +35,7 @@ private[v4] object Heartbeat:
    * Best-effort `inProgress()` on every message.
    *
    * @param messages the messages to signal progress on
-   * @return unit; individual ping failures are ignored
+   * @return noop; individual ping failures are ignored
    */
   private def ping(messages: List[Message]): UIO[Unit] =
     ZIO.foreachDiscard(messages)(message => ZIO.attemptBlocking(message.inProgress()).ignore)

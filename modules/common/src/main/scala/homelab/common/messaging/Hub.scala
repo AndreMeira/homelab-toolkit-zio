@@ -23,7 +23,7 @@ trait Hub[E, A] extends Producer[E, A] {
    * Emit `value` to every subscribed producer.
    *
    * @param value the value to fan out
-   * @return unit once every producer has received it; aborts with `E` on the first failure
+   * @return noop once every producer has received it; aborts with `E` on the first failure
    */
   def emit(value: A): IO[E, Unit] =
     ZIO.uninterruptible(ZIO.foreachDiscard(producers)(_.emit(value)))

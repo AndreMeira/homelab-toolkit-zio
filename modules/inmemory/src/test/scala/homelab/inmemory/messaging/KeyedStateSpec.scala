@@ -30,7 +30,7 @@ object KeyedStateSpec extends ZIOSpecDefault:
       val (_, s1)     = KeyedState.empty[Int, String].enqueue(1, "a")
       val (_, s2)     = s1.enqueue(1, "b")
       val (value, s3) = s2.claim(1)
-      assertTrue(value == "a", s3.pending(1) == Vector("b"), s3.running == Set(1))
+      assertTrue(value == Some("a"), s3.pending(1) == Vector("b"), s3.running == Set(1))
     },
     test("claiming a key's last value drops it from the backlog") {
       val (_, s1) = KeyedState.empty[Int, String].enqueue(1, "a")

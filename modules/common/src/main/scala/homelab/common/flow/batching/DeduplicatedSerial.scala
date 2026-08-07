@@ -92,7 +92,7 @@ final private[flow] class DeduplicatedSerial[E, BE, Key, In, Out](
   /**
    * Drain one FIFO requests of distinct keys at a time until empty, then return to idle.
    *
-   * @return unit; carries the drain's error/interrupt in its (forked) fiber, unobserved by callers
+   * @return noop; carries the drain's error/interrupt in its (forked) fiber, unobserved by callers
    */
   private def runDrain: IO[Err, Unit] =
     ref
@@ -114,7 +114,7 @@ final private[flow] class DeduplicatedSerial[E, BE, Key, In, Out](
    * drain, but a typed failure or defect is swallowed so the remaining queue is still drained.
    *
    * @param requests the `(representative input, shared promise)` pairs to process
-   * @return unit; never fails except by propagating an interrupt
+   * @return noop; never fails except by propagating an interrupt
    */
   private def runBatch(requests: List[(In, Promise[Err, Out])]): IO[Err, Unit] =
     val batch              = Batch.make(requests)
@@ -131,7 +131,7 @@ final private[flow] class DeduplicatedSerial[E, BE, Key, In, Out](
   /**
    * Fail every key's shared promise with `cause` (a whole-requests failure, defect, or interrupt).
    *
-   * @return unit
+   * @return noop
    */
   private def failAll(promises: Batch.Success[Promise[Err, Out]], cause: Cause[Err]): UIO[Unit] =
     ZIO.foreachDiscard(promises.values)(_.failCause(cause).unit)
@@ -140,7 +140,7 @@ final private[flow] class DeduplicatedSerial[E, BE, Key, In, Out](
    * Complete each key's shared promise from its result slot — same lineage (verified) ⇒ slot `i` is key `i`'s
    * outcome, waking all of that key's awaiters.
    *
-   * @return unit
+   * @return noop
    */
   private def fulfil(promises: Batch.Success[Promise[Err, Out]], result: Batch[BE, Out]): UIO[Unit] =
     ZIO.foreachDiscard(result.toList.zip(promises.values)):
@@ -151,7 +151,7 @@ final private[flow] class DeduplicatedSerial[E, BE, Key, In, Out](
    * Scope finalizer: interrupt every queued key's shared promise so close drops pending work without
    * stranding anyone (the in-flight requests is handled by [[runBatch]]'s `onExit`).
    *
-   * @return unit
+   * @return noop
    */
   private[flow] def abandon: UIO[Unit] =
     ref.get.flatMap:

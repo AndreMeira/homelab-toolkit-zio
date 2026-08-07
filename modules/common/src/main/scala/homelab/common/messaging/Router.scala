@@ -23,7 +23,7 @@ trait Router[E, A] extends Producer[E, A] {
    * Emit by routing: pick the route for `value`, then emit the routed value through its producer.
    *
    * @param value the value to route and emit
-   * @return unit once emitted through the chosen producer; aborts with `E` on failure
+   * @return noop once emitted through the chosen producer; aborts with `E` on failure
    */
   def emit(value: A): IO[E, Unit] =
     route(value) match

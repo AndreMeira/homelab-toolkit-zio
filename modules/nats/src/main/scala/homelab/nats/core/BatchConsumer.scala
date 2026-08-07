@@ -31,7 +31,7 @@ final class BatchConsumer[A: Serde](
    *
    * @param logic processes one batch of consumed values
    * @tparam E2 the widened error, admitting `logic`'s failures
-   * @return unit once the batch is processed; aborts with [[NatsError.Decode]] under Surface on an
+   * @return noop once the batch is processed; aborts with [[NatsError.Decode]] under Surface on an
    *         undecodable payload, or with `E2` if `logic` fails
    */
   override def consume[E2 >: NatsError](logic: List[A] => IO[E2, Unit]): IO[E2, Unit] =

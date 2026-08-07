@@ -6,7 +6,7 @@
 // Status: scaffold — only `common` DATA is populated (errors, value objects, Requester). Ports and
 // adapters (magnum/inmemory/auth) come next.
 
-val scala3Version         = "3.3.4"
+val scala3Version         = "3.8.3"
 val zioVersion            = "2.1.23" // keep in sync with the zio-core that zio-prelude/zio-http pull, else zio-test layer macros break
 val zioPreludeVersion     = "1.0.0-RC47"
 val zioLoggingVersion     = "2.5.0"

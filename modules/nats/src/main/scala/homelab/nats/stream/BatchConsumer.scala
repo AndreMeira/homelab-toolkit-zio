@@ -39,7 +39,7 @@ final class BatchConsumer[A: Serde](
    *
    * @param logic processes one batch of consumed values
    * @tparam E2 the widened error, admitting `logic`'s failures
-   * @return unit once the batch is settled; aborts with [[NatsError.Decode]] under Surface on an undecodable
+   * @return noop once the batch is settled; aborts with [[NatsError.Decode]] under Surface on an undecodable
    *         payload, with `E2` if `logic` fails under Surface, or with [[NatsError.Ack]] if a settlement call
    *         fails
    */
@@ -80,7 +80,7 @@ final class BatchConsumer[A: Serde](
    * @param messages the decodable messages to settle
    * @param outcome  the handler's result — `Right` on success, `Left` on failure
    * @tparam E2 the handler's error
-   * @return unit once settled; aborts with `E2` under Surface (re-raising the handler error), or with
+   * @return noop once settled; aborts with `E2` under Surface (re-raising the handler error), or with
    *         [[NatsError.Ack]] if an ack/nak/term call fails
    */
   private def handleResult[E2](messages: List[Message], outcome: Either[E2, Unit]): IO[NatsError | E2, Unit] =
@@ -96,7 +96,7 @@ final class BatchConsumer[A: Serde](
    * `ack` every message.
    *
    * @param messages the messages to acknowledge
-   * @return unit once all are acked; aborts with [[NatsError.Ack]] on the first failure
+   * @return noop once all are acked; aborts with [[NatsError.Ack]] on the first failure
    */
   private def ackAll(messages: List[Message]): IO[NatsError, Unit] =
     ZIO.foreachDiscard(messages)(message => ZIO.attemptBlocking(message.ack()).mapError(NatsError.Ack(_)))
@@ -105,7 +105,7 @@ final class BatchConsumer[A: Serde](
    * `nak` every message (redeliver).
    *
    * @param messages the messages to nak
-   * @return unit once all are naked; aborts with [[NatsError.Ack]] on the first failure
+   * @return noop once all are naked; aborts with [[NatsError.Ack]] on the first failure
    */
   private def nackAll(messages: List[Message]): IO[NatsError, Unit] =
     ZIO.foreachDiscard(messages)(message => ZIO.attemptBlocking(message.nak()).mapError(NatsError.Ack(_)))
@@ -114,7 +114,7 @@ final class BatchConsumer[A: Serde](
    * `term` every message (stop redelivery).
    *
    * @param messages the messages to terminate
-   * @return unit once all are termed; aborts with [[NatsError.Ack]] on the first failure
+   * @return noop once all are termed; aborts with [[NatsError.Ack]] on the first failure
    */
   private def dismissAll(messages: List[Message]): IO[NatsError, Unit] =
     ZIO.foreachDiscard(messages)(message => ZIO.attemptBlocking(message.term()).mapError(NatsError.Ack(_)))

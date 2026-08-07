@@ -223,7 +223,7 @@ object NatsConsumer:
    * @param serde   decodes its payload
    * @tparam E2 the widened error of `logic`
    * @tparam A  the decoded value type
-   * @return unit once settled; aborts with [[NatsError.Ack]] only if the ack/nak/term call fails
+   * @return noop once settled; aborts with [[NatsError.Ack]] only if the ack/nak/term call fails
    */
   private def settle[E2 >: NatsError, A](message: Message, logic: A => IO[E2, Unit])(using serde: Serde[A]): IO[E2, Unit] =
     serde.decode(message.getData) match
@@ -234,7 +234,7 @@ object NatsConsumer:
    * Run a blocking ack/nak/term call, tagging a failure as [[NatsError.Ack]].
    *
    * @param acknowledge the by-name ack side effect
-   * @return unit once acknowledged; aborts with [[NatsError.Ack]] on failure
+   * @return noop once acknowledged; aborts with [[NatsError.Ack]] on failure
    */
   private def ack(acknowledge: => Unit): IO[NatsError, Unit] =
     ZIO.attemptBlocking(acknowledge).mapError(NatsError.Ack(_))

@@ -22,7 +22,7 @@ final class Producer[A: Serde](jetStream: JetStream, subjectOf: A => String) ext
    * Publish `value` to its derived subject, waiting for the server's `PublishAck`.
    *
    * @param value the value to publish
-   * @return unit once persisted; aborts with [[NatsError.Publish]] if publishing fails (e.g. no stream
+   * @return noop once persisted; aborts with [[NatsError.Publish]] if publishing fails (e.g. no stream
    *         captures the subject)
    */
   override def emit(value: A): IO[NatsError, Unit] =

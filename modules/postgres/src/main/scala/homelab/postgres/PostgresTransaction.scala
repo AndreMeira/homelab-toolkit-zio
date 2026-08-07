@@ -30,7 +30,7 @@ final class PostgresTransaction(val connection: Connection) extends Database.Tra
   /**
    * Commit the underlying connection.
    *
-   * @return unit; fails with [[PostgresTransaction.TransactionError]] if the commit fails
+   * @return noop; fails with [[PostgresTransaction.TransactionError]] if the commit fails
    */
   def commit: IO[PostgresTransaction.Error, Unit] = ZIO
     .attemptBlocking(connection.commit())
@@ -39,7 +39,7 @@ final class PostgresTransaction(val connection: Connection) extends Database.Tra
   /**
    * Roll the underlying connection back.
    *
-   * @return unit; fails with [[PostgresTransaction.TransactionError]] if the rollback fails
+   * @return noop; fails with [[PostgresTransaction.TransactionError]] if the rollback fails
    */
   def rollback: IO[PostgresTransaction.Error, Unit] = ZIO
     .attemptBlocking(connection.rollback())

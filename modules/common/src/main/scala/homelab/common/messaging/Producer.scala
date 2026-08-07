@@ -18,7 +18,7 @@ trait Producer[+E, -A] { self =>
    * Emit a single value.
    *
    * @param value the value to emit
-   * @return unit once emitted; aborts with `E` on failure
+   * @return noop once emitted; aborts with `E` on failure
    */
   def emit(value: A): IO[E, Unit]
 
@@ -26,10 +26,10 @@ trait Producer[+E, -A] { self =>
    * Emit each value in order. Uninterruptible, so a partial emission cannot be torn.
    *
    * @param values the values to emit, in order
-   * @return unit once all are emitted; aborts with `E` on the first failure
+   * @return noop once all are emitted; aborts with `E` on the first failure
    */
   def emitMany(values: List[A]): IO[E, Unit] =
-    ZIO.uninterruptible(ZIO.foreachDiscard(values)(emit))
+    ZIO.foreachDiscard(values)(emit)
 
   /**
    * Adapt this producer to accept `B` by mapping each `B` to an `A` before emitting.
@@ -49,12 +49,5 @@ object Producer {
    *
    * @return a producer of `Unit` that does nothing
    */
-  val unit: Producer[Nothing, Unit] = _ => ZIO.unit
-
-  /**
-   * A producer over the empty type — nothing can ever be emitted through it.
-   *
-   * @return a producer of `Nothing`
-   */
-  val nothing: Producer[Nothing, Nothing] = _ => ZIO.unit
+  val noop: Producer[Nothing, Unit] = _ => ZIO.unit
 }

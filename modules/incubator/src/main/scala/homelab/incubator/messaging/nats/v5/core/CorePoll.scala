@@ -26,7 +26,7 @@ class CorePoll(
    * succeeds — so a failed subscribe leaves the gate open for the next caller to retry, and concurrent
    * first-callers serialize on the permit instead of racing.
    *
-   * @return unit once the subscription is (or already was) live; aborts with [[NatsError.Connect]] if
+   * @return noop once the subscription is (or already was) live; aborts with [[NatsError.Connect]] if
    *         subscribing fails
    */
   private def start: IO[NatsError, Unit] =

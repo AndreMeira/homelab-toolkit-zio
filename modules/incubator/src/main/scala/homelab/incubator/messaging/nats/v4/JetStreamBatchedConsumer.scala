@@ -18,7 +18,7 @@ import zio.*
  * rest still processed).
  *
  * '''All-or-nothing handler:''' the handler receives the whole decodable batch and succeeds or fails as a
- * unit — on failure every message in it is settled the same way (nak / term / surface), so successful
+ * noop — on failure every message in it is settled the same way (nak / term / surface), so successful
  * items are redelivered too (idempotency covers them). And the whole batch must be processed and acked
  * within the consumer's `ackWait`, or it redelivers mid-processing — size batches accordingly.
  *
@@ -40,7 +40,7 @@ trait JetStreamBatchedConsumer[A: Serde](
    * @param messages the received batch
    * @param logic    the handler to run on the decoded values
    * @tparam E2 the widened error of `logic`
-   * @return unit once settled; may abort with [[NatsError.Decode]], the handler's error, or [[NatsError.Ack]]
+   * @return noop once settled; may abort with [[NatsError.Decode]], the handler's error, or [[NatsError.Ack]]
    */
   protected def settleBatch[E2 >: NatsError](messages: List[Message], logic: List[A] => IO[E2, Unit]): IO[E2, Unit] =
     val (undecodable, decodable) = messages.partitionMap: message =>
@@ -66,7 +66,7 @@ trait JetStreamBatchedConsumer[A: Serde](
    * @param decodable the `(message, value)` pairs that decoded
    * @param logic     the handler
    * @tparam E2 the widened error of `logic`
-   * @return unit; aborts with the handler's error (on `Surface`) or [[NatsError.Ack]]
+   * @return noop; aborts with the handler's error (on `Surface`) or [[NatsError.Ack]]
    */
   private def runBatch[E2 >: NatsError](decodable: List[(Message, A)], logic: List[A] => IO[E2, Unit]): IO[E2, Unit] =
     val (messages, decoded) = decodable.unzip
@@ -86,7 +86,7 @@ trait JetStreamBatchedConsumer[A: Serde](
    *
    * @param messages    the messages to settle
    * @param acknowledge the per-message ack side effect (`_.ack()` / `_.nak()` / `_.term()`)
-   * @return unit once all are settled; aborts with [[NatsError.Ack]] on the first failure
+   * @return noop once all are settled; aborts with [[NatsError.Ack]] on the first failure
    */
   private def settleAll(messages: List[Message])(acknowledge: Message => Unit): IO[NatsError, Unit] =
     ZIO.foreachDiscard(messages)(message => ZIO.attemptBlocking(acknowledge(message)).mapError(NatsError.Ack(_)))

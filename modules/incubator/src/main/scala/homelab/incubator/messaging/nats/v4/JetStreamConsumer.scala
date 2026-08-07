@@ -31,7 +31,7 @@ trait JetStreamConsumer[A: Serde](
    * @param message the received message
    * @param logic   the handler to run on the decoded value
    * @tparam E2 the widened error of `logic`
-   * @return unit once settled; may abort with [[NatsError.Decode]], the handler's error, or [[NatsError.Ack]]
+   * @return noop once settled; may abort with [[NatsError.Decode]], the handler's error, or [[NatsError.Ack]]
    */
   protected def settle[E2 >: NatsError](message: Message, logic: A => IO[E2, Unit]): IO[E2, Unit] =
     Serde[A].decode(message.getData) match
@@ -55,7 +55,7 @@ trait JetStreamConsumer[A: Serde](
    * Run a blocking ack/nak/term call, tagging a failure as [[NatsError.Ack]].
    *
    * @param acknowledge the by-name ack side effect
-   * @return unit once acknowledged; aborts with [[NatsError.Ack]] on failure
+   * @return noop once acknowledged; aborts with [[NatsError.Ack]] on failure
    */
   private def ack(acknowledge: => Unit): IO[NatsError, Unit] =
     ZIO.attemptBlocking(acknowledge).mapError(NatsError.Ack(_))

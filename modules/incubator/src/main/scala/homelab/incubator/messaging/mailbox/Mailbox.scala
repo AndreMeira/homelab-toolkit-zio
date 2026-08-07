@@ -39,7 +39,7 @@ trait Mailbox[+E]:
    * @param address the recipient address, taken from a request
    * @param message the value to deliver
    * @tparam B the delivered type (must match what the awaiter expected)
-   * @return unit once delivered (or dropped); aborts with `E` on an encode / transport failure
+   * @return noop once delivered (or dropped); aborts with `E` on an encode / transport failure
    */
   def deliver[B: Serde](address: Address, message: B): IO[E, Unit]
 

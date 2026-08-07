@@ -4,10 +4,10 @@ import zio.*
 
 
 /**
- * A long-running unit of work in a messaging topology: it runs until interrupted or its first failure.
+ * A long-running noop of work in a messaging topology: it runs until interrupted or its first failure.
  *
  * `Worker` is the root of the topology hierarchy — a [[Source]] that only emits, a [[Processor]] that
- * only consumes, or a [[Pipe]] that does both. It owns no lifecycle of its own; the composition root
+ * only consumes, or a [[Through]] that does both. It owns no lifecycle of its own; the composition root
  * forks `run` and supervises it.
  *
  * @tparam E the error a run aborts with

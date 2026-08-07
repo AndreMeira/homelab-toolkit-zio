@@ -80,7 +80,7 @@ final class SharedInboxNatsMailbox(
    * unknown UUID (a late reply after timeout) or an unparseable subject is dropped.
    *
    * @param message the received reply
-   * @return unit once routed or dropped
+   * @return noop once routed or dropped
    */
   private[nats] def dispatch(message: Message): UIO[Unit] =
     replyIdOf(message.getSubject) match

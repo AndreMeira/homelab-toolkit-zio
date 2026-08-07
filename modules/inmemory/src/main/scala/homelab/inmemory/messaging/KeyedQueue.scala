@@ -40,7 +40,7 @@ final class KeyedQueue[K, A](
    *
    * @param key   the value's partition key
    * @param value the value to enqueue
-   * @return unit once the value is queued and any ready transition published
+   * @return noop once the value is queued and any ready transition published
    */
   def offer(key: K, value: A): UIO[Unit] = ZIO.uninterruptibleMask { restore =>
     restore(permit.acquire) *> state.modify(_.enqueue(key, value)).flatMap(publish(key, _))
@@ -55,14 +55,36 @@ final class KeyedQueue[K, A](
    * @param logic processes the claimed key and value
    * @tparam R the environment `logic` needs
    * @tparam E the error `logic` aborts with
-   * @return unit once one value is processed and its key freed; aborts with `E` when `logic` fails
+   * @return noop once one value is processed and its key freed; aborts with `E` when `logic` fails
    */
-  def takeWith[R, E](logic: (K, A) => ZIO[R, E, Unit]): ZIO[R, E, Unit] =
+  def takeWith[R, E, A1](logic: (K, A) => ZIO[R, E, A1]): ZIO[R, E, A1] =
     ZIO.uninterruptibleMask { restore =>
       restore(ready.take).flatMap { key =>
         // From here to the `ensuring` attachment we are uninterruptible: the claimed key cannot leak.
-        state.modify(_.claim(key)).flatMap { value =>
-          permit.release *> restore(logic(key, value)).ensuring(releaseKey(key))
+        state.modify(_.claim(key)).flatMap {
+          case None        => ZIO.dieMessage(s"KeyedQueue.takeWith: claimed key $key had no value")
+          case Some(value) => permit.release *> restore(logic(key, value)).ensuring(releaseKey(key))
+        }
+      }
+    }
+
+  /**
+   * Block until a key is claimable, claim all its values, run `logic` on them while holding the key, and
+   * free the key once `logic` settles — on success, failure, or interruption. The bracket is the
+   * primitive (rather than separate take/release) so there is no window where a claimed key can escape
+   * its release: only the park (`ready.take`) and `logic` itself are interruptible.
+   *
+   * @param logic processes the claimed key and its values
+   * @tparam R the environment `logic` needs
+   * @tparam E the error `logic` aborts with
+   * @return noop once all values are processed and the key freed; aborts with `E` when `logic` fails
+   */
+  def takeAllWith[R, E, A1](logic: (K, List[A]) => ZIO[R, E, A1]): ZIO[R, E, A1] =
+    ZIO.uninterruptibleMask { restore =>
+      restore(ready.take).flatMap { key =>
+        // From here to the `ensuring` attachment we are uninterruptible: the claimed key cannot leak.
+        state.modify(_.claimAll(key)).flatMap { values =>
+          permit.release *> restore(logic(key, values)).ensuring(releaseKey(key))
         }
       }
     }
@@ -72,7 +94,7 @@ final class KeyedQueue[K, A](
    * immediately — at the tail of the ready order, which is what makes scheduling round-robin.
    *
    * @param key the key whose value just finished
-   * @return unit once the key is freed and any re-ready transition published
+   * @return noop once the key is freed and any re-ready transition published
    */
   private def releaseKey(key: K): UIO[Unit] =
     state.modify(_.release(key)).flatMap(publish(key, _))
@@ -82,7 +104,7 @@ final class KeyedQueue[K, A](
    *
    * @param key        the key to publish
    * @param transition the ready-transition flag from the pure state
-   * @return unit once published (or immediately when there was no transition)
+   * @return noop once published (or immediately when there was no transition)
    */
   private def publish(key: K, transition: Boolean): UIO[Unit] =
     ZIO.when(transition)(ready.offer(key)).unit
@@ -137,11 +159,25 @@ object KeyedQueue {
      * @param key the key to claim
      * @return the key's head value and the state with it removed and the key marked running
      */
-    def claim(key: K): (A, KeyedState[K, A]) = {
-      val values     = pending(key)
-      val newPending = if values.tail.isEmpty then pending - key else pending.updated(key, values.tail)
-      values.head -> KeyedState(newPending, running + key)
-    }
+    def claim(key: K): (Option[A], KeyedState[K, A]) = pending.get(key) match
+      case None         => None -> this
+      case Some(values) =>
+        val newPending = if values.tail.isEmpty then pending - key else pending.updated(key, values.tail)
+        values.headOption -> KeyedState(newPending, running + key)
+
+    /**
+     * Claim all values of a ready key: remove its backlog and mark the key running.
+     *
+     * Precondition: `key` was published by a ready transition and not claimed since — it has backlog
+     * and is not running. The publish-once discipline of [[enqueue]]/[[release]] guarantees this;
+     * violating it is a driver bug and throws (a defect, not an error).
+     *
+     * @param key the key to claim
+     * @return the key's backlog and the state with it removed and the key marked running
+     */
+    def claimAll(key: K): (List[A], KeyedState[K, A]) = pending.get(key) match
+      case None         => List.empty    -> this
+      case Some(values) => values.toList -> KeyedState(pending - key, running + key)
 
     /**
      * Clear a finished key's running mark. The returned flag signals the re-ready transition: `true`
@@ -187,14 +223,14 @@ object KeyedQueue {
     /**
      * Take a permit, suspending while none are available.
      *
-     * @return unit once a permit is held
+     * @return noop once a permit is held
      */
     def acquire: UIO[Unit]
 
     /**
      * Return a permit, admitting a suspended [[acquire]].
      *
-     * @return unit once the permit is released
+     * @return noop once the permit is released
      */
     def release: UIO[Unit]
 

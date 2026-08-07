@@ -26,7 +26,7 @@ final class CoreSubscriber(dispatcher: Dispatcher):
    * @param subject the subject to subscribe to (may be a wildcard, e.g. `orders.*`)
    * @param queue   the bridge queue delivered messages are offered into
    * @param scope   the scope the delivery fiber is forked into
-   * @return unit once the subscription is established; aborts with [[NatsError.Connect]] if subscribing fails
+   * @return noop once the subscription is established; aborts with [[NatsError.Connect]] if subscribing fails
    */
   def subscribe(subject: String, queue: Queue[Message], scope: Scope): IO[NatsError, Unit] =
     for

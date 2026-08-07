@@ -53,7 +53,7 @@ final class PostgresDatabase(dataSource: DataSource, monitor: Monitor) extends D
    * application that shares the pool between migrations and queries).
    *
    * @param config the migration configuration (locations, schemas, baseline settings, etc.)
-   * @return unit; fails with [[PostgresMigration.MigrationFailed]] if Flyway can't be loaded or a
+   * @return noop; fails with [[PostgresMigration.MigrationFailed]] if Flyway can't be loaded or a
    *         migration script fails
    */
   def migrate(config: MigrationConfig): IO[PostgresMigration.MigrationFailed, Unit] =
@@ -90,7 +90,7 @@ final class PostgresDatabase(dataSource: DataSource, monitor: Monitor) extends D
    * @tparam E the domain error the body may have raised
    * @param tx the transaction to finalise
    * @param exit the body's run outcome
-   * @return unit — the connection is always closed
+   * @return noop — the connection is always closed
    */
   private def release[E](tx: PostgresTransaction, exit: Exit[AdapterError | E, Any]): UIO[Unit] =
     exit match
@@ -102,7 +102,7 @@ final class PostgresDatabase(dataSource: DataSource, monitor: Monitor) extends D
    * this doubles as a safety net; errors are ignored.
    *
    * @param tx the transaction whose connection to close
-   * @return unit
+   * @return noop
    */
   private def close(tx: PostgresTransaction): UIO[Unit] =
     ZIO.attemptBlocking(tx.connection.close()).ignore

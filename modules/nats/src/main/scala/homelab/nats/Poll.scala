@@ -10,7 +10,7 @@ import zio.*
  * at a time or in bounded batches. An implementation owns a bridge queue that a subscriber fills
  * asynchronously (a Core dispatcher, or a JetStream `consume` callback) and subscribes lazily on first
  * demand; the consumers built on top add decoding and settlement. Named for what the *consumer* does — take
- * the next unit of work — not for any network poll: delivery is push-based underneath.
+ * the next noop of work — not for any network poll: delivery is push-based underneath.
  */
 trait Poll:
 
@@ -84,7 +84,7 @@ object Poll:
      * first `one`/`many`, guarded by [[start]]; it performs the effect only — the gate owns `started`, so an
      * implementation must not set it.
      *
-     * @return unit once initialised; aborts with [[NatsError.Connect]] if initialisation fails
+     * @return noop once initialised; aborts with [[NatsError.Connect]] if initialisation fails
      */
     def init: IO[NatsError, Unit]
 
@@ -111,7 +111,7 @@ object Poll:
      * so a failed init leaves the gate open for the next caller to retry, and concurrent first-callers
      * serialise on the permit instead of racing.
      *
-     * @return unit once initialised (or already was); aborts with [[NatsError.Connect]] if [[init]] fails
+     * @return noop once initialised (or already was); aborts with [[NatsError.Connect]] if [[init]] fails
      */
     private def start: IO[NatsError, Unit] =
       started.get.flatMap:
