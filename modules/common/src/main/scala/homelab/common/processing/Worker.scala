@@ -1,10 +1,10 @@
-package homelab.common.messaging
+package homelab.common.processing
 
 import zio.*
 
 
 /**
- * A long-running noop of work in a messaging topology: it runs until interrupted or its first failure.
+ * A long-running unit of work in a messaging topology: it runs until interrupted or its first failure.
  *
  * `Worker` is the root of the topology hierarchy — a [[Source]] that only emits, a [[Processor]] that
  * only consumes, or a [[Through]] that does both. It owns no lifecycle of its own; the composition root
@@ -19,5 +19,5 @@ trait Worker[+E] {
    *
    * @return never completes successfully; aborts with `E` on the first failure
    */
-  def run: IO[E, Nothing]
+  def run: ZIO[Scope, E, Nothing]
 }

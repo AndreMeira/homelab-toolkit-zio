@@ -2,6 +2,7 @@ package homelab.inmemory.messaging
 
 
 import homelab.common.messaging.*
+import homelab.common.processing.{Source, Through}
 import zio.*
 import zio.test.*
 
@@ -10,6 +11,9 @@ import zio.test.*
 // Live clock throughout (only the Source.Tick test sleeps); a per-suite timeout turns any hang into a
 // failure rather than blocking the run.
 object InMemoryMessagingSpec extends ZIOSpecDefault:
+
+  // A no-op output sink for the parallel-policy tests, which assert on `process`, not what is emitted.
+  private val discard: Producer[Nothing, Int] = _ => ZIO.unit
 
   def spec = suite("in-memory messaging")(
     suite("queue channel")(
@@ -164,18 +168,19 @@ object InMemoryMessagingSpec extends ZIOSpecDefault:
       },
     ),
     suite("topology run loops")(
-      test("Processor.Parallel runs its pool concurrently — two keys in flight at once") {
+      test("Through.Parallel runs its pool concurrently — two keys in flight at once") {
         for
           d      <- Distributer.make[Int, Int](None)(_ % 2)
           inWork <- Ref.make(Set.empty[Int])
           bothIn <- Promise.make[Nothing, Unit]
           gate   <- Promise.make[Nothing, Unit]
-          proc    = new Processor.Parallel[Nothing, Int]:
-                      def parallelism = 2
-                      def input: Consumer[Nothing, Int] = d
-                      def process(v: Int): IO[Nothing, Unit] =
-                        inWork.updateAndGet(_ + v).flatMap(s => bothIn.succeed(()).when(s.size == 2)) *> gate.await
-          fiber  <- proc.run.fork
+          through = new Through.Parallel[Nothing, Int, Int]:
+                      def parallelism                    = 2
+                      def input: Consumer[Nothing, Int]  = d
+                      def output: Producer[Nothing, Int] = discard
+                      def process(v: Int): IO[Nothing, Int] =
+                        (inWork.updateAndGet(_ + v).flatMap(s => bothIn.succeed(()).when(s.size == 2)) *> gate.await).as(v)
+          fiber  <- ZIO.scoped(through.run).fork
           _      <- d.emit(0)
           _      <- d.emit(1)
           _      <- bothIn.await // completes ONLY if both values are being processed simultaneously
@@ -184,37 +189,40 @@ object InMemoryMessagingSpec extends ZIOSpecDefault:
           seen   <- inWork.get
         yield assertTrue(seen == Set(0, 1))
       },
-      test("Processor.Parallel preserves the input's per-key serialisation") {
+      test("Through.Parallel preserves the input's per-key serialisation") {
         for
           d        <- Distributer.make[Int, Int](None)(_ => 0) // ONE key: values must process strictly one at a time
           inFlight <- Ref.make(0)
           peak     <- Ref.make(0)
           count    <- Ref.make(0)
           done     <- Promise.make[Nothing, Unit]
-          proc      = new Processor.Parallel[Nothing, Int]:
-                        def parallelism = 4
-                        def input: Consumer[Nothing, Int] = d
-                        def process(value: Int): IO[Nothing, Unit] =
+          through   = new Through.Parallel[Nothing, Int, Int]:
+                        def parallelism                    = 4
+                        def input: Consumer[Nothing, Int]  = d
+                        def output: Producer[Nothing, Int] = discard
+                        def process(value: Int): IO[Nothing, Int] =
                           inFlight.updateAndGet(_ + 1).flatMap(n => peak.update(_ max n)) *>
                             ZIO.sleep(20.millis) *>
                             inFlight.update(_ - 1) *>
-                            count.updateAndGet(_ + 1).flatMap(c => done.succeed(()).when(c == 3)).unit
-          fiber    <- proc.run.fork
+                            count.updateAndGet(_ + 1).flatMap(c => done.succeed(()).when(c == 3)) *>
+                            ZIO.succeed(value)
+          fiber    <- ZIO.scoped(through.run).fork
           _        <- ZIO.foreachDiscard(1 to 3)(d.emit)
           _        <- done.await
           _        <- fiber.interrupt
           p        <- peak.get
         yield assertTrue(p == 1) // hand-off dispatch releases the key early and drives this to 3
       },
-      test("Processor.Parallel fails fast — one loop's failure aborts run") {
+      test("Through.Parallel fails fast — one loop's failure aborts run") {
         val boom = new RuntimeException("boom")
         for
           d     <- Distributer.make[Int, Int](None)(identity)
-          proc   = new Processor.Parallel[Exception, Int]:
-                     def parallelism = 2
-                     def input: Consumer[Exception, Int] = d
-                     def process(v: Int): IO[Exception, Unit] = ZIO.fail(boom)
-          fiber <- proc.run.fork
+          through = new Through.Parallel[Exception, Int, Int]:
+                      def parallelism                      = 2
+                      def input: Consumer[Exception, Int]  = d
+                      def output: Producer[Exception, Int] = discard
+                      def process(v: Int): IO[Exception, Int] = ZIO.fail(boom)
+          fiber <- ZIO.scoped(through.run).fork
           _     <- d.emit(1)
           exit  <- fiber.await
           failed = exit match

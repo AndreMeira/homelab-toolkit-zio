@@ -21,12 +21,12 @@ private[data] case class BatchMap[+E, +A](
   override def partial: Batch.Partial[E, A] =
     PartialBatchMap(lineage, items)
 
-  override def verifyLineage(other: Batch[_, _]): Either[LineageMismatch, Unit] =
+  override def verifyLineage(other: Batch[?, ?]): Either[LineageMismatch, Unit] =
     other match
       case BatchMap(parent, _) if parent == lineage => Right(())
       case _                                        => Left(LineageMismatch)
 
-  override def verifyLineage(other: Batch.Partial[_, _]): Either[LineageMismatch, Unit] =
+  override def verifyLineage(other: Batch.Partial[?, ?]): Either[LineageMismatch, Unit] =
     other match
       case PartialBatchMap(parent, _) if parent == lineage => Right(())
       case _                                               => Left(LineageMismatch)

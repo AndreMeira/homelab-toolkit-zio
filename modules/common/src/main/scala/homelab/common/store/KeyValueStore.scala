@@ -17,7 +17,8 @@ import zio.*
  * @tparam K the key type
  * @tparam V the stored value type
  */
-trait KeyValueStore[K, V] {
+trait KeyValueStore[-K, V] {
+  self =>
 
   /**
    * Look up the value stored under `key`.
@@ -40,4 +41,17 @@ trait KeyValueStore[K, V] {
    *         `AdapterError` on an infrastructure failure
    */
   def delete(key: K): IO[AdapterError, Boolean]
+
+  /**
+   * Re-key this store: adapt it to keys `K2` by mapping each incoming key to a `K` before delegating. Every
+   * operation applies `fn` to its key and runs against this store; the stored value type `V` is unchanged.
+   *
+   * @param fn maps an incoming `K2` key to this store's `K`
+   * @tparam K2 the adapted key type
+   * @return a store keyed by `K2` that runs each operation on `fn(key)` through this one
+   */
+  def contramap[K2](fn: K2 => K): KeyValueStore[K2, V] = new KeyValueStore[K2, V]:
+    def get(key: K2): IO[AdapterError, Option[V]]      = self.get(fn(key))
+    def set(key: K2, value: V): IO[AdapterError, Unit] = self.set(fn(key), value)
+    def delete(key: K2): IO[AdapterError, Boolean]     = self.delete(fn(key))
 }

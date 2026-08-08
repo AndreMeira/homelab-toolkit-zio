@@ -1,5 +1,7 @@
-package homelab.common.messaging
+package homelab.common.processing
 
+
+import homelab.common.messaging.Producer
 import zio.*
 
 

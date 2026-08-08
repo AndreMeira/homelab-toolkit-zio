@@ -17,7 +17,7 @@ trait Router[E, A] extends Producer[E, A] {
    *
    * @return a function from an input to its `(value, producer)` route
    */
-  def route: A => Router.Route[E, A]
+  def route: A => Router.Route[E, ?]
 
   /**
    * Emit by routing: pick the route for `value`, then emit the routed value through its producer.
@@ -25,14 +25,13 @@ trait Router[E, A] extends Producer[E, A] {
    * @param value the value to route and emit
    * @return noop once emitted through the chosen producer; aborts with `E` on failure
    */
-  def emit(value: A): IO[E, Unit] =
-    route(value) match
-      case (output, producer) => producer.emit(output)
+  def emit(value: A): IO[E, Unit] = route(value) match
+    case Router.Route(output, producer) => producer.emit(output)
 }
 
 
 object Router {
 
   /** A routing decision: the value to emit and the producer to emit it through. */
-  type Route[E, A] = (A, Producer[E, A])
+  case class Route[+E, A](value: A, producer: Producer[E, A])
 }

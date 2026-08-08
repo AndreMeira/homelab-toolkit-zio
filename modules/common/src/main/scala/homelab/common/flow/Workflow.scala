@@ -10,14 +10,20 @@ import zio.*
 
 /**
  * A named, effectful **Workflow** (stepper)— repeatedly advances a state `S` via [[next]] until a step finishes,
- * yielding the terminal state and an output. Autonomous: each step is driven by the current state
- * alone, with no per-step input — hence "stepper" rather than a `(In, State) => (State, Out)` machine.
+ * yielding an output `O`. Autonomous: each step is driven by the current state alone, with no per-step
+ * input — hence "stepper" rather than a `(In, State) => (State, Out)` machine.
+ *
+ * `S` is the resume cursor, not the result: it exists so each `Continue` carries enough to persist and
+ * replay a step. The result is `O` alone. If a workflow's terminal state is worth returning, the author
+ * folds it into `O` — the framework does not presume it (a state machine, where the terminal state *is*
+ * the contract, would carry `S` in `Done`; a `Workflow` is a checkpointing execution flow that produces
+ * an output).
  *
  * Implement `next` as a case-lambda over the state:
  * {{{
  *   override def next =
  *     case Counting(n) if n < limit => tick.as(Loop.continue(Counting(n + 1)))
- *     case Counting(n)              => summary(n).map(o => Loop.done((Counting(n), o)))
+ *     case Counting(n)              => summary(n).map(Loop.done)
  * }}}
  *
  * Resumable by replay: because `Continue` carries the whole state, an executor can persist `S` after
@@ -33,22 +39,22 @@ trait Workflow[R, E, S, O] {
   self =>
 
   /**
-   * The transition: given the current state, continue with a new state or finish with the terminal
-   * state and output. Implemented as a case-lambda over `S`.
+   * The transition: given the current state, continue with a new state or finish with the output.
+   * Implemented as a case-lambda over `S`.
    *
-   * @return the transition function; its effect continues with a new `S` or finishes with the terminal
-   *         `(S, O)`, and fails with `E` if the step fails
+   * @return the transition function; its effect continues with a new `S` or finishes with an `O`, and
+   *         fails with `E` if the step fails
    */
-  def next: S => ZIO[R, E, Loop.Next[S, (S, O)]]
+  def next: S => ZIO[R, E, Loop.Next[S, O]]
 
   /**
    * Run the stepper in memory from `initial` until [[next]] finishes. Stack-safe (it delegates to
    * [[Loop]]); a persistent, resumable runner would live in its own executor.
    *
    * @param initial the starting state
-   * @return the terminal `(state, output)`; fails with `E` if any step fails
+   * @return the output produced when the stepper finishes; fails with `E` if any step fails
    */
-  def execute(initial: S): ZIO[R, E, (S, O)] = Loop(initial)(next)
+  def execute(initial: S): ZIO[R, E, O] = Loop(initial)(next)
 
   /**
    * Make this stepper **durable**: checkpoint the state to `persistence` before each step so an
@@ -73,6 +79,21 @@ trait Workflow[R, E, S, O] {
 object Workflow {
 
   /**
+   * Build a [[Workflow]] from a bare transition function, without declaring a named subtype — for ad-hoc
+   * or inline steppers where a full trait would be overkill.
+   *
+   * @param run the transition: given the current state, continue with a new `S` or finish with an `O`
+   * @tparam R the environment each step needs
+   * @tparam E the error a step may fail with
+   * @tparam S the state advanced from step to step
+   * @tparam O the output produced when the stepper finishes
+   * @return a workflow whose [[Workflow.next]] is `run`
+   */
+  def make[R, E, S, O](run: S => ZIO[R, E, Loop.Next[S, O]]): Workflow[R, E, S, O] =
+    new Workflow:
+      override def next: S => ZIO[R, E, Loop.Next[S, O]] = run
+
+  /**
    * A helper trait for common domain implementations:
    * the stepper needs no environment and fails only with [[ApplicationError]].
    *
@@ -88,9 +109,8 @@ object Workflow {
    * [[initial]] seeds the first state when the store holds nothing for that key.
    *
    * Resume is by replay — a resumed run re-runs the step whose state it last persisted — so, as with
-   * [[Workflow]], `S` must be **serializable** and each step **idempotent**. Unlike [[Workflow.execute]],
-   * which yields the terminal `(S, O)`, the durable run discards the final state (the checkpoint is
-   * deleted) and returns only the output `O`.
+   * [[Workflow]], `S` must be **serializable** and each step **idempotent**. Like [[Workflow.execute]],
+   * the run returns only the output `O`; the final checkpoint is deleted on completion.
    *
    * @tparam R the environment each step needs
    * @tparam E the error a step may fail with
@@ -150,7 +170,7 @@ object Workflow {
     private def loop(input: I, state: S): ZIO[R, E | AdapterError, O] = Loop(state): current =>
       workflow.next(current).flatMap {
         case Continue(nextState) => store.set(input, nextState).as(Loop.continue(nextState))
-        case Done((_, output))   => store.delete(input).as(Loop.done(output))
+        case Done(output)        => store.delete(input).as(Loop.done(output))
       }
 
 }

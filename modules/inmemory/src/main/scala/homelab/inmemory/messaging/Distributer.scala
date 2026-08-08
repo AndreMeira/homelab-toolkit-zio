@@ -1,7 +1,7 @@
 package homelab.inmemory.messaging
 
 
-import homelab.common.messaging.{ Consumer, Producer }
+import homelab.common.messaging.{ Consumer, Pipe, Producer }
 import zio.*
 
 
@@ -13,7 +13,7 @@ import zio.*
  * scheduled round-robin, and a key's next value is claimable the instant its previous one finishes.
  *
  * Concurrency is the caller's: `consume` serves one value per call, so fork N `consume` loops (e.g.
- * [[homelab.common.messaging.Processor.Parallel]]) to process N keys at once — an idle loop parks
+ * [[Processor.Parallel]]) to process N keys at once — an idle loop parks
  * cheaply and the queue wakes exactly one loop per newly claimable key, so large pools carry no
  * thundering-herd cost. `consume` returns once the value is processed; `logic` failures abort the very
  * call that ran them.
@@ -26,7 +26,7 @@ import zio.*
 final class Distributer[K, A](
   partitioner: Distributer.Partitioner[K, A],
   queue: KeyedQueue[K, A],
-) extends Producer[Nothing, A], Consumer[Nothing, A] {
+) extends Pipe[Nothing, A] {
 
   /**
    * Claim one value from one claimable key and run `logic` on it, holding the key for the duration; if
@@ -51,6 +51,26 @@ final class Distributer[K, A](
 
 
 object Distributer {
+
+  def make[K, V](queue: KeyedQueue[K, V])(partition: V => K): Distributer[K, V] =
+    new Distributer(Partitioner.pure(partition), queue)
+
+  final class Batched[K, A](
+    partitioner: Distributer.Partitioner[K, A],
+    queue: KeyedQueue[K, A],
+  ) extends Pipe.Batched[Nothing, A] {
+
+    override def consume[E2 >: Nothing](logic: List[A] => IO[E2, Unit]): IO[E2, Unit] =
+      queue.takeAllWith((_, values) => logic(values))
+
+    override def emit(value: A): IO[Nothing, Unit] =
+      partitioner.partition(value).flatMap(key => queue.offer(key, value))
+  }
+
+  object Batched {
+    def make[K, V](queue: KeyedQueue[K, V])(partition: V => K): Batched[K, V] =
+      new Batched(Partitioner.pure(partition), queue)
+  }
 
   /**
    * Derives a value's partition key — the routing identity that co-locates related messages.

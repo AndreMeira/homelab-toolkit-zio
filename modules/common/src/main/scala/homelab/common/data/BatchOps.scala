@@ -15,6 +15,17 @@ private[data] trait BatchOps[+E, +A] {
   /** The backing slots, keyed by input position. */
   def items: Map[Int, Either[E, A]]
 
+  /**
+   * Pair each successful value with its same-index counterpart in `other`; this side's errors pass
+   * through, and `other`'s error at a paired index becomes the pair's error. A success whose index is
+   * absent from `other` is dropped — in practice lineage keeps the two index sets equal, so nothing is.
+   *
+   * @param other the same-position slots to pair with, keyed by index
+   * @tparam E2 the widened error type, admitting `other`'s errors
+   * @tparam B  the value type of `other`'s slots
+   * @return the slots with each `Right(value)` paired as `Right((value, b))` against `other`'s `Right(b)`
+   *         at the same index, `Left`s on either side kept, and this side's positions preserved
+   */
   def zipItems[E2 >: E, B](other: Map[Int, Either[E2, B]]): Map[Int, Either[E2, (A, B)]] =
     items.flatMap:
       case (index, Left(err))    => Some(index -> Left(err))
