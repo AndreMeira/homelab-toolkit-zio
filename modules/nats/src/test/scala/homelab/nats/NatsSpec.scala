@@ -20,7 +20,7 @@ import java.nio.charset.StandardCharsets
  *     republishing until it's seen — never relying on a fire-and-forget publish landing before the SUB is
  *     live. JetStream is durable, so publish-before-consume is fine.
  *   - There is '''one JetStream consumer model''' (the async `consume`→queue bridge), so "resume across
- *     instances" is tested across restarts (sequential scopes) rather than two concurrent consumers, and the
+ *     instances" is tested across restarts (serial scopes) rather than two concurrent consumers, and the
  *     batched consumer drains opportunistically (whatever is buffered, not wait-to-fill).
  *
  * Each test uses its own subject/stream so they don't interfere. Requires a running Docker daemon.

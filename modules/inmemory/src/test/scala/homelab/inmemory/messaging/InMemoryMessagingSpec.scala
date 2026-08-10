@@ -225,9 +225,7 @@ object InMemoryMessagingSpec extends ZIOSpecDefault:
           fiber <- ZIO.scoped(through.run).fork
           _     <- d.emit(1)
           exit  <- fiber.await
-          failed = exit match
-                     case Exit.Failure(cause) => cause.failures.contains(boom)
-                     case _                   => false
+          failed = exit.foldExit(_.failures.contains(boom), _ => false)
         yield assertTrue(failed)
       },
       test("Through.PerItem consumes, transforms, and emits in a loop") {

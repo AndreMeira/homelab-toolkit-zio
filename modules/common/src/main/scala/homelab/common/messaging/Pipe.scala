@@ -1,6 +1,8 @@
 package homelab.common.messaging
 
-import zio.IO
+
+import homelab.common.flow.KeyedQueue
+import zio.{ IO, Queue }
 
 
 /**
@@ -37,6 +39,36 @@ trait Pipe[+E, A] extends Consumer[E, A] with Producer[E, A]:
 object Pipe:
 
   /**
+   * A [[Pipe]] over an unbounded [[Queue]]: `emit` offers, `consume` takes one value. Emission never fails,
+   * so the pipe's error is `Nothing`.
+   *
+   * @param queue the backing queue
+   * @tparam A the value carried
+   * @return a queue-backed pipe
+   */
+  def fromQueue[A](queue: Queue[A]): Pipe[Nothing, A] =
+    new Pipe[Nothing, A]:
+      def emit(value: A): IO[Nothing, Unit]                              = queue.offer(value).unit
+      def consume[E2 >: Nothing](logic: A => IO[E2, Unit]): IO[E2, Unit] = queue.take.flatMap(logic)
+
+  /**
+   * A **key-safe** [[Pipe]] over a [[KeyedQueue]]: `emit` routes a value to `key(value)`, and `consume`
+   * claims one value from a key not already in flight, holding that key until the value is done. So draining
+   * this pipe concurrently — e.g. from a [[homelab.common.processing.Worker.Parallel]] — never runs two
+   * values for the same key at once: the parallelism is *across* keys, serialized *within* one.
+   *
+   * @param queue the backing keyed queue
+   * @param key   the partition key of a value
+   * @tparam K the partition key
+   * @tparam A the value carried
+   * @return a keyed, per-key-serialized pipe
+   */
+  def fromKeyedQueue[K, A](queue: KeyedQueue[K, A])(key: A => K): Pipe[Nothing, A] =
+    new Pipe[Nothing, A]:
+      def emit(value: A): IO[Nothing, Unit]                              = queue.offer(key(value), value).unit
+      def consume[E2 >: Nothing](logic: A => IO[E2, Unit]): IO[E2, Unit] = queue.takeWith((_, value) => logic(value))
+
+  /**
    * A [[Pipe]] whose intake delivers batches: a [[Consumer.Batched]] of `A` on the read side, a single-`A`
    * [[Producer]] on the write side. Values are emitted one or many at a time and consumed a `List[A]` at a
    * time.
@@ -45,6 +77,7 @@ object Pipe:
    * @tparam A the element carried
    */
   trait Batched[+E, A] extends Consumer.Batched[E, A] with Producer[E, A]:
+    self =>
 
     /**
      * Emit a single value — an alias for [[Producer.emit]].

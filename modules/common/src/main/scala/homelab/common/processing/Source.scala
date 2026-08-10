@@ -6,14 +6,14 @@ import zio.*
 
 
 /**
- * A [[Worker]] with an output and no input: it generates values and emits them. The generation loop
+ * A [[Node]] with an output and no input: it generates values and emits them. The generation loop
  * is supplied by a sub-trait — [[Source.Repeat]] emits as fast as it can, [[Source.Tick]] emits on a
  * schedule.
  *
  * @tparam E the error generation aborts with
  * @tparam A the value produced
  */
-trait Source[+E, -A] extends Worker[E] {
+trait Source[+E, -A] extends Node[E] {
 
   /**
    * The destination for generated values.

@@ -1,5 +1,7 @@
 package homelab.common.messaging
 
+
+import homelab.common.flow.KeyedQueue
 import zio.*
 
 
@@ -44,7 +46,7 @@ trait Consumer[+E, +A] { self =>
    * @return a consumer that runs `fn` for each consumed value before passing it to its logic
    */
   def mapZIO[B, E1 >: E](fn: A => IO[E1, B]): Consumer[E1, B] = new Consumer[E1, B]:
-    def consume[E2 >: E1](logic: B => IO[E2, Unit]): IO[E2, Unit] = 
+    def consume[E2 >: E1](logic: B => IO[E2, Unit]): IO[E2, Unit] =
       self.consume(a => fn(a).flatMap(logic))
 
   /**
@@ -77,7 +79,8 @@ object Consumer {
    * @tparam E the error consuming aborts with
    * @tparam A the element type of each delivered batch
    */
-  trait Batched[+E, +A] extends Consumer[E, List[A]]
+  trait Batched[+E, +A] extends Consumer[E, List[A]]:
+    def aggregate[B](fn: List[A] => B): Consumer[E, B] = map(fn)
 
   /**
    * A consumer that runs its logic once with `()` and never fails — a no-op intake.
@@ -86,5 +89,32 @@ object Consumer {
    */
   val unit: Consumer[Nothing, Unit] = new Consumer[Nothing, Unit] {
     def consume[E2 >: Nothing](logic: Unit => IO[E2, Unit]): IO[E2, Unit] = logic(())
+  }
+
+  /**
+   * A [[Consumer]] over a ZIO [[Queue]]: each `consume` takes the next value — suspending until one is
+   * offered — and runs `logic` on it. Never fails.
+   *
+   * @param queue the queue to pull values from
+   * @tparam A the value consumed
+   * @return a consumer delivering `queue`'s values, one per `consume` call
+   */
+  def fromQueue[A](queue: Queue[A]): Consumer[Nothing, A] = new Consumer[Nothing, A] {
+    def consume[E2 >: Nothing](logic: A => IO[E2, Unit]): IO[E2, Unit] = queue.take.flatMap(logic)
+  }
+
+  /**
+   * A [[Consumer]] over a [[KeyedQueue]]: each `consume` claims the next ready key's head value and runs
+   * `logic` on it while that key is held — so per-key serialisation and fairness stay the queue's, and this
+   * consumer merely delivers the values (the partition key is not surfaced to `logic`). Never fails.
+   *
+   * @param queue the keyed queue to pull values from
+   * @tparam K the queue's partition key, not surfaced to `logic`
+   * @tparam A the value consumed
+   * @return a consumer delivering `queue`'s values, one per `consume` call
+   */
+  def fromKeyedQueue[K, A](queue: KeyedQueue[K, A]): Consumer[Nothing, A] = new Consumer[Nothing, A] {
+    def consume[E2 >: Nothing](logic: A => IO[E2, Unit]): IO[E2, Unit] =
+      queue.takeWith((_, request) => logic(request))
   }
 }

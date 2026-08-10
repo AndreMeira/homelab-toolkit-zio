@@ -27,7 +27,7 @@ import java.nio.charset.StandardCharsets
  *     live. JetStream is durable, so publish-before-consume is fine.
  *   - v5 has '''one JetStream consumer model''' (the async `consume`→queue bridge), so the v4 polling/bridged
  *     pairs collapse to a single consumer, and "resume across instances" is tested across restarts
- *     (sequential scopes) rather than two concurrent consumers.
+ *     (serial scopes) rather than two concurrent consumers.
  *
  * Each test uses its own subject/stream so they don't interfere. Requires a running Docker daemon.
  */

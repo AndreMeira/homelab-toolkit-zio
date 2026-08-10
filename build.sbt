@@ -20,6 +20,7 @@ val zioOtelVersion        = "3.1.13"
 val otelVersion           = "1.57.0"
 val fabric8Version        = "6.0.0"
 val testcontainersVersion = "1.20.6"
+val sttpVersion           = "4.0.9"
 
 ThisBuild / scalaVersion := scala3Version
 ThisBuild / organization := "com.andremeira.homelab"
@@ -117,7 +118,7 @@ lazy val auth = project
 
 
 // Messaging adapter — NATS (Core NATS ephemeral pub/sub + JetStream durable delivery), promoted from the
-// incubator's messaging/nats sketches. Implements the common `messaging` ports; ZStream is an internal
+// llm's messaging/nats sketches. Implements the common `messaging` ports; ZStream is an internal
 // bridge detail (never surfaced). Integration tests via Testcontainers (a JetStream-enabled nats server).
 lazy val nats = project
   .in(file("modules/nats"))
@@ -144,13 +145,14 @@ lazy val incubator = project
     publish / skip := true,
     scalacOptions  := Nil, // experiment area — Java-interop heavy; skip the strict prod flags
     libraryDependencies ++= Seq(
-      "com.github.jwt-scala" %% "jwt-zio-json" % jwtVersion,
-      "dev.zio"              %% "zio-http"     % zioHttpVersion,
-      "dev.zio"              %% "zio-streams"  % zioVersion, // adapter-internal only (NATS callback bridge); never surfaced
-      "io.nats"              % "jnats"          % "2.20.5", // NATS exploration sketch (messaging/nats)
-      "dev.zio"              %% "zio-test"      % zioVersion            % Test,
-      "dev.zio"              %% "zio-test-sbt"  % zioVersion            % Test,
-      "org.testcontainers"    % "testcontainers" % testcontainersVersion % Test, // NATS via GenericContainer
+      "com.github.jwt-scala"          %% "jwt-zio-json"   % jwtVersion,
+      "dev.zio"                       %% "zio-http"       % zioHttpVersion,
+      "com.softwaremill.sttp.client4" %% "zio"            % sttpVersion, // llm sketch: sttp4 ZIO backend + SSE (core/model/shared-zio transitively)
+      "dev.zio"                       %% "zio-streams"    % zioVersion, // adapter-internal only (NATS callback bridge); never surfaced
+      "io.nats"                        % "jnats"          % "2.20.5", // NATS exploration sketch (messaging/nats)
+      "dev.zio"                       %% "zio-test"       % zioVersion            % Test,
+      "dev.zio"                       %% "zio-test-sbt"   % zioVersion            % Test,
+      "org.testcontainers"             % "testcontainers" % testcontainersVersion % Test, // NATS via GenericContainer
     ),
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
   )

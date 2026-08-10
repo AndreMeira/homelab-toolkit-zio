@@ -1,7 +1,8 @@
-package homelab.inmemory.messaging
+package homelab.common.flow
 
 
-import homelab.inmemory.messaging.KeyedQueue.KeyedState
+import homelab.common.flow.KeyedQueue.KeyedState
+
 import zio.test.*
 
 

@@ -1,5 +1,5 @@
 ---
-title: "Checkpoint — 2026-07-05 — toolkit bootstrapped; auth verification prototyped in `incubator`"
+title: "Checkpoint — 2026-07-05 — toolkit bootstrapped; auth verification prototyped in `llm`"
 type: session
 status: current
 updated: 2026-07-05

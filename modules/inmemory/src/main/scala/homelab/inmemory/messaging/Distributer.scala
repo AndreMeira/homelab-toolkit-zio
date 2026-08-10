@@ -1,6 +1,7 @@
 package homelab.inmemory.messaging
 
 
+import homelab.common.flow.KeyedQueue
 import homelab.common.messaging.{ Consumer, Pipe, Producer }
 import zio.*
 

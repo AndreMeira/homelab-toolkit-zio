@@ -1,4 +1,4 @@
-package homelab.inmemory.messaging
+package homelab.common.flow
 
 
 import homelab.common.error.ApplicationError

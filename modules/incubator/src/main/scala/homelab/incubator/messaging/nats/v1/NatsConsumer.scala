@@ -19,7 +19,7 @@ import zio.*
  * consumer waits. ZIO's blocking pool is unbounded, so this won't deadlock — but it is one thread per
  * parked consumer, so consumer count per instance is bounded by the thread/memory budget (thousands),
  * not by NATS. v2 removes this by bridging the async `Dispatcher` callback into a ZIO `Queue`, making
- * `consume` fiber-based (see `homelab.incubator.messaging.nats.v2`).
+ * `consume` fiber-based (see `homelab.llm.messaging.nats.v2`).
  *
  * @param subscription the live subscription this consumer reads from
  * @param serde        decodes wire bytes into a value

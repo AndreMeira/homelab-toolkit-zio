@@ -74,7 +74,7 @@ object BatcherSpec extends ZIOSpecDefault:
         ZIO.scoped:
           for
             b    <- serial(mapped)
-            outs <- ZIO.foreach((1 to 20).toList)(b.run) // sequential: each call is a fresh leader
+            outs <- ZIO.foreach((1 to 20).toList)(b.run) // serial: each call is a fresh leader
           yield assertTrue(outs == (1 to 20).map(_ * 10).toList)
       },
       test("interrupting one caller neither wedges the batcher nor strands the batch") {

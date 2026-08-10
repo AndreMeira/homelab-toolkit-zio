@@ -1,12 +1,13 @@
 package homelab.common.processing
 
 
+import homelab.common.flow.KeyedQueue
 import homelab.common.messaging.*
 import zio.*
 
 
 /**
- * A [[Worker]] with an input: it consumes `A` and emits however it likes — to zero, one, or many
+ * A [[Node]] with an input: it consumes `A` and emits however it likes — to zero, one, or many
  * [[Producer]]s held as its own fields. Emission is intentionally unspecified here; the common
  * 1-in/1-out case is [[Through]], which also supplies the run loop. A worker that fans out to several
  * outputs (success + dead-letter, say) extends `Processor` directly and writes its own `run`.
@@ -14,7 +15,7 @@ import zio.*
  * @tparam E the error processing aborts with
  * @tparam A the value consumed
  */
-trait Processor[+E, +A] extends Worker[E] {
+trait Processor[+E, +A] extends Node[E] {
 
   /**
    * The intake this processor consumes from.
@@ -52,7 +53,7 @@ object Processor {
    * @tparam A the value consumed
    * @return never completes successfully; aborts with `E` on the first failure
    */
-  def sequential[E, A](input: Consumer[E, A])(handle: A => IO[E, Unit]): IO[E, Nothing] =
+  def serial[E, A](input: Consumer[E, A])(handle: A => IO[E, Unit]): IO[E, Nothing] =
     input.consume(handle).forever
 
   /**

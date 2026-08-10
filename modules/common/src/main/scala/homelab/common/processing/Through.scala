@@ -7,7 +7,7 @@ import zio.*
 
 /**
  * The 1-input / 1-output [[Processor]]: consume `A`, transform, emit `B` on a single `output`.
- * Multi-output or output-less workers extend [[Processor]] (or [[Worker]]) directly and manage
+ * Multi-output or output-less workers extend [[Processor]] (or [[Node]]) directly and manage
  * producers as fields.
  *
  * @tparam E the error processing aborts with
@@ -46,12 +46,12 @@ object Through {
 
     /**
      * Consume, transform, and emit in a loop until interrupted or the first failure, via
-     * [[Processor.sequential]].
+     * [[Processor.serial]].
      *
      * @return never completes successfully; aborts with `E` on failure
      */
     def run: IO[E, Nothing] =
-      Processor.sequential(input): value =>
+      Processor.serial(input): value =>
         process(value).flatMap(output.emit)
   }
 
@@ -113,12 +113,12 @@ object Through {
 
     /**
      * Consume a batch, transform it, and emit the results in a loop until interrupted or the first
-     * failure, via [[Processor.sequential]].
+     * failure, via [[Processor.serial]].
      *
      * @return never completes successfully; aborts with `E` on failure
      */
     def run: IO[E, Nothing] =
-      Processor.sequential(input): values =>
+      Processor.serial(input): values =>
         process(values).flatMap(output.emitMany)
   }
 

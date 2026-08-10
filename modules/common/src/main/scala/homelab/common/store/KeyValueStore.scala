@@ -54,4 +54,9 @@ trait KeyValueStore[-K, V] {
     def get(key: K2): IO[AdapterError, Option[V]]      = self.get(fn(key))
     def set(key: K2, value: V): IO[AdapterError, Unit] = self.set(fn(key), value)
     def delete(key: K2): IO[AdapterError, Boolean]     = self.delete(fn(key))
+
+  def bucket(key: K): Bucket[V] = new Bucket[V]:
+    override def get: IO[AdapterError, Option[V]]   = self.get(key)
+    override def empty: IO[AdapterError, Boolean]   = self.delete(key)
+    override def set(value: V): IO[AdapterError, V] = self.set(key, value).as(value)
 }
