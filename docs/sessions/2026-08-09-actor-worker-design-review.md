@@ -148,23 +148,37 @@ has a startup step (scan pending, re-enqueue). Seam: the same `Persistence` port
 
 ## Update — 2026-08-10
 
-**`pipeToSelf` rewritten to a child-scope idiom; the manual fiber bookkeeping is gone.** The old version
-tracked in-flight pipes in a `Ref[Map[Long, Fiber]]` + id counter, pruned on `.ensuring`, and interrupted
-survivors with one `Fiber.interruptAll` finalizer — because `forkScoped`/`forkIn` register via
-`ReleaseMap.addDiscard` (no removal handle), so a long-lived scope would accumulate finalizers. New shape:
+**`pipeToSelf` simplified to a plain `forkIn(scope)`; the manual fiber bookkeeping was never needed.** The
+original version tracked in-flight pipes in a `Ref[Map[Long, Fiber]]` + id counter, pruned on `.ensuring`, and
+interrupted survivors with one `Fiber.interruptAll` finalizer — on the belief that `forkScoped`/`forkIn`
+accumulate finalizers on a long-lived scope. **That belief was wrong** (verified against `zio/ZIO.scala`
+2.1.23): `forkIn(scope)` is
+
+```scala
+scope.fork.flatMap(child => restore(self).onExit(child.close(_)).forkDaemon.tap(f => child.addFinalizer(interrupt(f))))
+```
+
+— it forks a **child** of `scope` (`Scope.fork`, self-cleaning via `ReleaseMap.add`'s removal handle), and
+`onExit(child.close)` closes that child when the fiber exits, which **self-removes it from the parent**. And
+`forkScoped == scopeWith(forkIn(_))`, so it self-cleans too. The internal `interrupt` even guards
+self-interrupt (`if fiberId == fiber.id then Exit.unit else fiber.interrupt`), so there was never a deadlock to
+fear. So the whole `Ref[Map]` apparatus — *and* the intermediate `scope.fork` + `ensuring(pipe.close)` idiom I
+briefly landed — was redundant. Final shape:
 
 ```scala
 def pipeToSelf(message: UIO[I]): UIO[Unit] =
-  scope.fork.flatMap(pipe => message.flatMap(sender.emit).ensuring(pipe.close(Exit.unit)).forkIn(pipe).unit)
+  message.flatMap(sender.emit).forkIn(scope).unit
 ```
 
-Each pipe runs in a **child** of the entity's scope: `forkIn` makes it survive the turn; the child is bounded
-by the parent, so entity-close interrupts in-flight pipes; and `pipe.close` on completion **self-removes** the
-child from the parent — because `Scope.fork` registers via `ReleaseMap.add`, which *returns a removal handle*
-(verified in `zio/Scope.scala`). So a long-lived entity never accumulates. Verified by probe: no self-close
-deadlock, in-flight pipes interrupted at scope-close (fast, not blocking), 5000 pipes drained clean. Same
-idiom now used in the LLM sketch's `peeled` (child scope closed when `rest` ends, parent as abandonment
-backstop). Key takeaway banked: **`Scope.fork` self-cleans (`add`); `addFinalizer`/`forkScoped` do not
-(`addDiscard`)** — reach for `fork` when forking many short-lived scoped things off a long-lived scope.
+`forkIn(scope)` gives every property by itself: survives the turn (daemon), interrupted at entity-close (child
+bounded by parent), self-removed on completion (no accumulation). Verified by probe: in-flight pipes
+interrupted at scope-close (fast, not blocking), 5000 pipes drained clean.
+
+**Corrected takeaway (supersedes the earlier note in this update's history):** `forkScoped`/`forkIn`
+**self-clean** — they fork a child scope and close it on fiber exit (`ReleaseMap.add`, removable). What does
+*not* self-clean is raw `ZIO.addFinalizer` / `Scope.addFinalizer` (`ReleaseMap.addDiscard`, no removal handle)
+— so accumulating hand-rolled finalizers on a long-lived scope leaks, but **forking fibers into it via
+`forkScoped`/`forkIn` does not.** The same `forkIn`-into-a-scope pattern powers the LLM sketch's `peeled` (its
+child scope is closed when `rest` ends).
 
 Only the *backpressure* cap (#5) remains open for `pipeToSelf`; the leak/lifecycle concern is closed.

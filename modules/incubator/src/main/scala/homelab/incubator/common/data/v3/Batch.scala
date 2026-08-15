@@ -12,7 +12,7 @@ import homelab.incubator.common.data.v3.Batch.LineageMismatch
  *
  * Backed by a `Map[Int, Either[E, A]]`, so indices are unique by construction and overlays are plain map
  * merges. Indices are only meaningful within a single [[Batch.make]] lineage: only overlay batches that
- * were derived from the same `make`.
+ * were derived from the same `inmemory`.
  */
 case class Batch[+E, +A] private (slots: Map[Int, Either[E, A]], lineage: Batch.Lineage):
 

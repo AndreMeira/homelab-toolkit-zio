@@ -1,5 +1,8 @@
 // homelab-toolkit-zio — shared ZIO building blocks for homelab services.
-// DDD + hexagonal at the module level: `common` holds data + ports; each adapter is its own module.
+// DDD + hexagonal at the module level: `common` holds data + ports, plus the in-process adapters that
+// need no dependency of their own (`store/inmemory`, `messaging/inmemory`). A separate module exists to
+// quarantine a third-party dependency — magnum/Hikari, OTel, the NATS client — never merely to mark a
+// port/adapter boundary.
 // ZIO counterpart of ../homelab-toolkit (Kyo).
 // Stack rationale: ../homelab-toolkit/docs/decisions/0001-effect-system-zio-until-kyo-matures.md
 //
@@ -67,19 +70,6 @@ lazy val postgres = project
       "dev.zio"           %% "zio-test"                   % zioVersion            % Test,
       "dev.zio"           %% "zio-test-sbt"               % zioVersion            % Test,
       "org.testcontainers" % "postgresql"                 % testcontainersVersion % Test,
-    ),
-    testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
-  )
-
-
-lazy val inmemory = project
-  .in(file("modules/inmemory"))
-  .dependsOn(common)
-  .settings(
-    name := "homelab-inmemory",
-    libraryDependencies ++= Seq(
-      "dev.zio" %% "zio-test"     % zioVersion % Test,
-      "dev.zio" %% "zio-test-sbt" % zioVersion % Test,
     ),
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
   )
@@ -160,7 +150,7 @@ lazy val incubator = project
 
 lazy val root = project
   .in(file("."))
-  .aggregate(common, postgres, inmemory, telemetry, auth, incubator, nats)
+  .aggregate(common, postgres, telemetry, auth, incubator, nats)
   .settings(
     name           := "homelab-toolkit-zio",
     publish / skip := true,

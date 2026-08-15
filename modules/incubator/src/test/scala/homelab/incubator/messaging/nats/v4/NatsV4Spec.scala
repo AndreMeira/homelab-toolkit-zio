@@ -158,7 +158,7 @@ object NatsV4Spec extends ZIOSpecDefault:
             _          <- fiber.interrupt
           yield assertTrue(count >= 2)
       },
-      test("an undecodable payload fails the consumer by default (Surface — non-destructive)") {
+      test("an undecodable payload fails the consumer by inmemory (Surface — non-destructive)") {
         val intSerde: Serde[Int] = new Serde[Int]:
           def encode(value: Int): Array[Byte]                 = value.toString.getBytes(StandardCharsets.UTF_8)
           def decode(bytes: Array[Byte]): Either[String, Int] =

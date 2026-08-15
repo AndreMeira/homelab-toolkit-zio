@@ -98,7 +98,7 @@ object Workflow:
           yield out
 
       /**
-       * Step `workflow` to completion from `state` under the already-held lock: checkpoint each new state to
+       * Next `workflow` to completion from `state` under the already-held lock: checkpoint each new state to
        * [[store]] and continue, or delete the checkpoint and return the output on the terminal step. Threads
        * state in memory (no re-read) and takes no lock — the caller holds it. Stack-safe via ZIO's trampoline.
        *

@@ -60,7 +60,7 @@ final class CoreSubscriber(dispatcher: Dispatcher):
 
 object CoreSubscriber:
 
-  /** Unused default handler — every subscription supplies its own, but `createDispatcher` requires one. */
+  /** Unused inmemory handler — every subscription supplies its own, but `createDispatcher` requires one. */
   private val noop: MessageHandler = _ => ()
 
   /**

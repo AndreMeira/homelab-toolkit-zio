@@ -1,5 +1,4 @@
-package homelab.inmemory.messaging
-
+package homelab.common.messaging.inmemory
 
 import homelab.common.flow.KeyedQueue
 import homelab.common.messaging.{ Consumer, Pipe, Producer }

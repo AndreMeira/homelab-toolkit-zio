@@ -1,7 +1,6 @@
 package homelab.common.processing
 
 
-import homelab.common.flow.KeyedQueue
 import homelab.common.messaging.*
 import zio.*
 
@@ -15,7 +14,7 @@ import zio.*
  * @tparam E the error processing aborts with
  * @tparam A the value consumed
  */
-trait Processor[+E, +A] extends Node[E] {
+trait Processor[+E, A] {
 
   /**
    * The intake this processor consumes from.
@@ -23,10 +22,51 @@ trait Processor[+E, +A] extends Node[E] {
    * @return the input consumer
    */
   def input: Consumer[E, A]
+
+  /**
+   * Transform a single input into a single output.
+   *
+   * @param value the input to transform
+   * @return the output; aborts with `E` on failure
+   */
+  def process(value: A): IO[E, Unit]
+
+  /**
+   * Consume, transform, and emit in a loop until interrupted or the first failure, via
+   * [[Processor.serial]].
+   *
+   * @return never completes successfully; aborts with `E` on failure
+   */
+  def run: ZIO[Scope, E, Nothing] = Processor.serial(input)(process)
 }
 
 
 object Processor {
+
+  /**
+   * A [[Processor]] that handles values concurrently up to a configured `parallelism` limit.
+   * Uses on-demand listener spawning to keep fiber count proportional to actual work.
+   *
+   * @tparam E the error processing aborts with
+   * @tparam A the value consumed
+   */
+  trait Parallel[E, A] extends Processor[E, A] {
+
+    /**
+     * The concurrency cap: how many values may run `handle` concurrently. Must be positive.
+     *
+     * @return the maximum number of concurrent `handle` executions
+     */
+    def parallelism: Int
+
+    /**
+     * Consume, transform, and emit in a loop until interrupted or the first failure, via
+     * [[Processor.parallel]].
+     *
+     * @return never completes successfully; aborts with `E` on failure
+     */
+    override def run: ZIO[Scope, E, Nothing] = Processor.parallel(input, parallelism)(process)
+  }
 
   /**
    * A [[Processor]] whose intake delivers batches — its `input` is a [[Consumer.Batched]].
@@ -42,6 +82,26 @@ object Processor {
      * @return the batched input consumer
      */
     def input: Consumer.Batched[E, A]
+  }
+
+  object Batched {
+
+    /**
+     * A [[Processor.Batched]] that handles batches concurrently up to a configured `parallelism` limit.
+     * Combines batched consumption with concurrent processing via on-demand listener spawning.
+     *
+     * @tparam E the error processing aborts with
+     * @tparam A the element type of each consumed batch
+     */
+    trait Parallel[E, A] extends Processor.Parallel[E, List[A]] with Processor.Batched[E, A] {
+
+      /**
+       * The batched intake this processor consumes from.
+       *
+       * @return the batched input consumer
+       */
+      def input: Consumer.Batched[E, A]
+    }
   }
 
   /**
@@ -77,7 +137,7 @@ object Processor {
    */
   def parallel[E, A](input: Consumer[E, A], parallelism: Int)(handle: A => IO[E, Unit]): ZIO[Scope, E, Nothing] =
     for
-      scope   <- ZIO.service[Scope]
+      scope   <- ZIO.scope
       sem     <- Semaphore.make(parallelism)
       failure <- Promise.make[E, Nothing]
       _       <- spawn(input, sem, failure)(handle).forever.forkIn(scope)
@@ -86,7 +146,7 @@ object Processor {
 
   /**
    * One spawn step: fork a listener and park until it starts running `handle` — holding a value *and* a
-   * permit — then return, so [[parallel]]'s `forever` spawns the next listener exactly then. Repeated,
+   * permit — then return, so [[parallel]]'s `serial` spawns the next listener exactly then. Repeated,
    * this keeps one waiting listener and up to `parallelism` running ones, with fibers appearing only when
    * there is work. `handle` runs inside the listener's consume call, keeping any key held for its whole
    * duration. A listener's failure is captured inside its fiber into `failure` (it is otherwise

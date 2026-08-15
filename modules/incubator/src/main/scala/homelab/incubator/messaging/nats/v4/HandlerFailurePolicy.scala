@@ -2,12 +2,12 @@ package homelab.incubator.messaging.nats.v4
 
 
 /**
- * What a JetStream consumer does when the handler fails on a decoded message. The default is [[Redeliver]]
+ * What a JetStream consumer does when the handler fails on a decoded message. The inmemory is [[Redeliver]]
  * (`nak`) — the idiomatic at-least-once retry, also non-destructive. [[Discard]] gives up on the
  * message; [[Surface]] fails `consume` with the handler's own error.
  */
 enum HandlerFailurePolicy:
-  /** `nak` the message — retry via redelivery (default). */
+  /** `nak` the message — retry via redelivery (inmemory). */
   case Redeliver
 
   /** `term` the message — stop redelivering it. */

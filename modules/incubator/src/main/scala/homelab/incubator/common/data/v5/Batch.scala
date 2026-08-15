@@ -12,9 +12,9 @@ import homelab.incubator.common.data.v5.Batch.LineageMismatch
  * [[Batch.Partial]] and can only be overlaid *onto* a `Batch`, never promoted back to one — which is what
  * keeps an overlay fold complete.
  *
- * Backed by a `Map[Int, Either[E, A]]`; the `Int` index is the per-make positional identity. Overlaying
- * across lineages fails with [[Batch.LineageMismatch]]. Lineage is reference identity, so `make(xs)` differs
- * from `make(xs)` — compare `toList`, not batches.
+ * Backed by a `Map[Int, Either[E, A]]`; the `Int` index is the per-inmemory positional identity. Overlaying
+ * across lineages fails with [[Batch.LineageMismatch]]. Lineage is reference identity, so `inmemory(xs)` differs
+ * from `inmemory(xs)` — compare `toList`, not batches.
  */
 case class Batch[+E, +A] private (slots: Map[Int, Either[E, A]], lineage: Batch.Lineage):
 

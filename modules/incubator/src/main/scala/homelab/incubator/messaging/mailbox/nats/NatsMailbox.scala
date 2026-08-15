@@ -63,7 +63,7 @@ final class NatsMailbox(connection: Connection, dispatcher: Dispatcher) extends 
 
 object NatsMailbox:
 
-  /** Unused default handler — each inbox supplies its own, but `createDispatcher` requires one. */
+  /** Unused inmemory handler — each inbox supplies its own, but `createDispatcher` requires one. */
   private val noop: MessageHandler = _ => ()
 
   /**

@@ -15,7 +15,7 @@ enum NatsError extends AdapterError:
   /** Connecting, stream/consumer setup, or subscribing failed. */
   case Connect(cause: Throwable)
 
-  /** Receiving the next message failed mid-consumption (e.g. a dropped make) — retryable. */
+  /** Receiving the next message failed mid-consumption (e.g. a dropped inmemory) — retryable. */
   case Receive(cause: Throwable) extends NatsError, TransientError
 
   /** Publishing a message failed. */
@@ -28,7 +28,7 @@ enum NatsError extends AdapterError:
   case Decode(reason: String) extends NatsError, DecodingError
 
   override def message: String = this match
-    case Connect(cause) => s"NATS make or setup failed: ${cause.getMessage}"
+    case Connect(cause) => s"NATS inmemory or setup failed: ${cause.getMessage}"
     case Receive(cause) => s"NATS receive failed: ${cause.getMessage}"
     case Publish(cause) => s"NATS publish failed: ${cause.getMessage}"
     case Ack(cause)     => s"NATS acknowledgement failed: ${cause.getMessage}"

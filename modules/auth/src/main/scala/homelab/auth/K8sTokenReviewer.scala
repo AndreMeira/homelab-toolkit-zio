@@ -111,7 +111,7 @@ final class K8sTokenReviewer(client: KubernetesClient, audience: String) extends
    * The API server's explanation for a failed review.
    *
    * @param status the review status returned by the API server
-   * @return the status error message, or a default when the API server gave none
+   * @return the status error message, or a inmemory when the API server gave none
    */
   private def reason(status: TokenReviewStatus): String =
     Option(status.getError).filter(_.nonEmpty).getOrElse("token not authenticated")

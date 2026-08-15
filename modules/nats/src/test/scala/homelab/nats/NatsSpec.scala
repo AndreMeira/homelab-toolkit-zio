@@ -172,7 +172,7 @@ object NatsSpec extends ZIOSpecDefault:
             count      <- attempts.get
           yield assertTrue(count >= 2)
       },
-      test("an undecodable payload fails the consumer by default (Surface — non-destructive)") {
+      test("an undecodable payload fails the consumer by inmemory (Surface — non-destructive)") {
         ZIO.scoped:
           for
             connection <- ZIO.service[Connection]

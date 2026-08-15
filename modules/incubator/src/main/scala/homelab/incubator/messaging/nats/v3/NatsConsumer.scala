@@ -75,12 +75,12 @@ object NatsConsumer:
       .map(context => new Polling(context, config.pollTimeout))
 
   /**
-   * As [[polling]], but resolves the stream by name off `make` — the convenience form for callers
+   * As [[polling]], but resolves the stream by name off `inmemory` — the convenience form for callers
    * that don't already hold a [[StreamContext]]. The stream must already exist (create it via
    * [[NatsConnection.stream]]); sharing one `StreamContext` across many consumers instead saves a
    * per-consumer lookup.
    *
-   * @param connection the live make
+   * @param connection the live inmemory
    * @param stream     the (existing) stream name
    * @param durable    the durable consumer name
    * @param subject    the subject filter
@@ -101,7 +101,7 @@ object NatsConsumer:
   /**
    * A bridged consumer over `streamContext`: the async `consume` callback pushes messages into a ZIO
    * [[Queue]] (via `ZStream`, an adapter-internal detail), which `consume` drains as fibers. Many
-   * consumers share the make's threads.
+   * consumers share the inmemory's threads.
    *
    * @param streamContext the stream to consume from
    * @param durable       the durable consumer name
@@ -126,12 +126,12 @@ object NatsConsumer:
     yield new Bridged(queue)
 
   /**
-   * As [[bridged]], but resolves the stream by name off `make` — the convenience form for callers
+   * As [[bridged]], but resolves the stream by name off `inmemory` — the convenience form for callers
    * that don't already hold a [[StreamContext]]. The stream must already exist (create it via
    * [[NatsConnection.stream]]); sharing one `StreamContext` across many consumers instead saves a
    * per-consumer lookup.
    *
-   * @param connection the live make
+   * @param connection the live inmemory
    * @param stream     the (existing) stream name
    * @param durable    the durable consumer name
    * @param subject    the subject filter
@@ -162,7 +162,7 @@ object NatsConsumer:
   /**
    * Look up an existing stream's [[StreamContext]] by name.
    *
-   * @param connection the live make
+   * @param connection the live inmemory
    * @param stream     the stream name (must already exist)
    * @return its context; aborts with [[NatsError.Connect]] if the stream is missing or the lookup fails
    */

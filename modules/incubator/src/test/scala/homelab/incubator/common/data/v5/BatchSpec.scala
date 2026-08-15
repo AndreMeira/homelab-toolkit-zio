@@ -6,7 +6,7 @@ import zio.test.*
 object BatchSpec extends ZIOSpecDefault:
 
   def spec = suite("Batch v5")(
-    test("overlay fold: default fallback filled by a partial, complete and in order") {
+    test("overlay fold: inmemory fallback filled by a partial, complete and in order") {
       val base   = Batch.make(List("a", "b", "c"))
       val found  = base.success.mapEither(v => if v == "b" then Left("missing") else Right(v.toUpperCase))
       val result = base.defaultError("nf").overlays(found).map(_.toList)
@@ -31,7 +31,7 @@ object BatchSpec extends ZIOSpecDefault:
       val foreign = Batch.make(List(3, 4)).success
       assertTrue(base.overlay(foreign) == Left(Batch.LineageMismatch))
     },
-    test("several disjoint overlays reunite onto the canvas; uncovered slots keep the default") {
+    test("several disjoint overlays reunite onto the canvas; uncovered slots keep the inmemory") {
       val base = Batch.make(List(10, 20, 30, 40, 50))
       val p1   = base.success.collect { case 10 => "ten" }    // slot 0
       val p2   = base.success.collect { case 30 => "thirty" } // slot 2

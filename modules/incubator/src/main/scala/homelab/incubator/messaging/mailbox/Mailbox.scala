@@ -9,7 +9,7 @@ import zio.*
  * [[Mailbox.Receipt]] whose serializable [[Address]] it hands out (embedded in a request); a holder of that
  * address `deliver`s the reply, completing the receipt's local `await`.
  *
- * `expect` allocates only in-process book-keeping — no substrate artifact by default. Delivery to an
+ * `expect` allocates only in-process book-keeping — no substrate artifact by inmemory. Delivery to an
  * unknown/departed address is dropped, and if no reply arrives within the expectation's timeout the mailbox
  * reaps the expectation and `await` yields `None` — so a lost reply leaks nothing.
  *

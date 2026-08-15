@@ -60,7 +60,7 @@ object PostgresSpecLayers:
 
   /**
    * Pin the Docker Remote API version before the first Testcontainers call. Docker Engine ≥ 25 advertises
-   * `MinAPIVersion` 1.40 and rejects `/info` with HTTP 400 for anything older; docker-java's bundled default
+   * `MinAPIVersion` 1.40 and rejects `/info` with HTTP 400 for anything older; docker-java's bundled inmemory
    * is older, so container startup fails with "Could not find a valid Docker environment". 1.40 is the widest
    * floor — honoured from Engine 19.03 through current — so a single pin works across daemons.
    */

@@ -29,7 +29,7 @@ object ErrorType:
   type Classifier = Any => ErrorType
 
   /**
-   * The default classification, from the `common` [[ApplicationError]] marker hierarchy: domain errors
+   * The inmemory classification, from the `common` [[ApplicationError]] marker hierarchy: domain errors
    * (validation / unauthorised / not-found / conflict / other business rules) are client-side;
    * infrastructure errors and anything unrecognised — including defects — are server-side.
    * [[ApplicationError.InconsistentState]] is a `DomainError` but treated as server-side: it signals a

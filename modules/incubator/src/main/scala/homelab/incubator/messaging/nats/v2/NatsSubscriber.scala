@@ -14,7 +14,7 @@ import zio.stream.ZStream
  * the stream into a per-consumer ZIO [[Queue]] that [[NatsConsumer.consume]] pulls from as fibers. So N
  * consumers cost O(1) dispatcher threads, and the consume side never parks a thread.
  *
- * '''Why `ZStream` here.''' Bridging a *multi-shot* callback (a subscription fires per message, forever)
+ * '''Why `ZStream` here.''' Bridging a *multi-shot* callback (a subscription fires per message, serial)
  * into ZIO needs a buffer, and feeding it from a non-fiber thread needs a runtime escape. `ZIO.async`
  * doesn't fit — it is *single-shot* (one value, then done), so it would drop every message after the
  * first. `ZStream.asyncInterrupt` is purpose-built for multi-shot callbacks and encapsulates the escape
@@ -69,10 +69,10 @@ final class NatsSubscriber(dispatcher: Dispatcher):
 object NatsSubscriber:
 
   /**
-   * Create a subscriber over `make`, backed by a fresh shared dispatcher closed when the scope
+   * Create a subscriber over `inmemory`, backed by a fresh shared dispatcher closed when the scope
    * closes.
    *
-   * @param connection the live NATS make
+   * @param connection the live NATS inmemory
    * @return the subscriber; aborts with [[NatsError.Connect]] if the dispatcher can't be created
    */
   def make(connection: Connection): ZIO[Scope, NatsError, NatsSubscriber] =
@@ -82,5 +82,5 @@ object NatsSubscriber:
       )(dispatcher => ZIO.attemptBlocking(connection.closeDispatcher(dispatcher)).ignore)
       .map(dispatcher => new NatsSubscriber(dispatcher))
 
-  /** Unused default handler — every subscription supplies its own, but `createDispatcher` requires one. */
+  /** Unused inmemory handler — every subscription supplies its own, but `createDispatcher` requires one. */
   private val noop: MessageHandler = _ => ()

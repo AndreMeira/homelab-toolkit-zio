@@ -1,7 +1,7 @@
-package homelab.inmemory.messaging
+package homelab.common.messaging
 
 
-import homelab.common.messaging.{ Consumer, Producer }
+import homelab.common.messaging.inmemory.{ QueueConsumer, QueueProducer }
 import zio.*
 
 

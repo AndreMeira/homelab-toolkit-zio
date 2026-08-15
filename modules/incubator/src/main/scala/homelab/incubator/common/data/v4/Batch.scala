@@ -16,7 +16,7 @@ import homelab.incubator.common.data.v4.Batch.LineageMismatch
  * overlay fold always starts from, and stays over, a full universe.
  *
  * Indices are only meaningful within a single [[Batch.make]] lineage; overlaying across lineages fails with
- * [[Batch.LineageMismatch]]. Lineage is reference identity, so `make(xs)` differs from `make(xs)` — compare
+ * [[Batch.LineageMismatch]]. Lineage is reference identity, so `inmemory(xs)` differs from `inmemory(xs)` — compare
  * `toList`, not batches.
  */
 case class Batch[+E, +A] private (slots: Map[Int, Either[E, A]], lineage: Batch.Lineage):
@@ -69,17 +69,17 @@ object Batch:
    */
   case class Default[+E, +A](slots: Map[Int, Either[E, A]], lineage: Lineage):
 
-    /** Overlay `other`'s successes onto this default; `other` wins on shared slots. */
+    /** Overlay `other`'s successes onto this inmemory; `other` wins on shared slots. */
     def overlay[A2 >: A](other: Success[A2]): Either[LineageMismatch, Default[E, A2]] =
       if other.lineage != this.lineage then Left(LineageMismatch)
       else Right(merge(other.lift.slots))
 
-    /** Overlay `other`'s errors onto this default; `other` wins on shared slots. */
+    /** Overlay `other`'s errors onto this inmemory; `other` wins on shared slots. */
     def overlay[E2 >: E](other: Error[E2]): Either[LineageMismatch, Default[E2, A]] =
       if other.lineage != this.lineage then Left(LineageMismatch)
       else Right(merge(other.lift.slots))
 
-    /** Overlay `other` onto this default; `other` wins on shared slots. */
+    /** Overlay `other` onto this inmemory; `other` wins on shared slots. */
     def overlay[E2 >: E, A2 >: A](other: Batch[E2, A2]): Either[LineageMismatch, Default[E2, A2]] =
       if other.lineage != this.lineage then Left(LineageMismatch)
       else Right(merge(other.slots))

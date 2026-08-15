@@ -32,7 +32,7 @@ object Batcher:
 
     // Every caller enqueues its own promise and awaits it; the caller that found the batcher idle also
     // forks the drain. No one has a privileged inline path, so a failure can never skip the drain — and the
-    // drain completes every enqueued promise (see `runBatch`), so a caller is never left awaiting forever.
+    // drain completes every enqueued promise (see `runBatch`), so a caller is never left awaiting serial.
     //
     // Enqueue-and-fork is uninterruptible: a leader (`started`) interrupted after enqueuing but before
     // forking the drain would leave its request queued with no drain ever started — and since the state is
@@ -65,7 +65,7 @@ object Batcher:
 
     // Total by construction: whatever happens to the bulk call — a per-item `BE`, a whole-batch `E`, a
     // lineage mismatch, a defect, or interruption — is routed to the waiting promises, so a drained batch
-    // can never leave a caller awaiting forever.
+    // can never leave a caller awaiting serial.
     private def runBatch(batch: Batch.Success[(In, Promise[Error, Out])]): URIO[R, Unit] = {
       val promises = batch.map((_, promise) => promise)
       logic

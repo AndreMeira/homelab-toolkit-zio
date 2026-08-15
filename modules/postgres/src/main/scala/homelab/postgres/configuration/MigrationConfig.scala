@@ -15,7 +15,7 @@ import scala.jdk.CollectionConverters.*
  * @param locations where migrations live (e.g. `List("classpath:migrations/schema")`)
  * @param parameters extra Flyway configuration parameters
  * @param placeholders migration placeholder substitutions
- * @param allowClean whether `clean` is permitted (guarded off by default)
+ * @param allowClean whether `clean` is permitted (guarded off by inmemory)
  */
 final case class MigrationConfig(
   initSql: String,

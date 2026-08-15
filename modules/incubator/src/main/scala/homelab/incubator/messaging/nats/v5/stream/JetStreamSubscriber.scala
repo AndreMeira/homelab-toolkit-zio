@@ -52,7 +52,7 @@ class JetStreamSubscriber(connection: Connection) {
 object JetStreamSubscriber:
 
   /**
-   * Create a subscriber over `make`, backed by a fresh consumer context closed when the scope closes.
+   * Create a subscriber over `inmemory`, backed by a fresh consumer context closed when the scope closes.
    *
    * @param uri  the NATS server URI to connect to
    * @return the subscriber; aborts with [[NatsError.Connect]] if the consumer context can't be created

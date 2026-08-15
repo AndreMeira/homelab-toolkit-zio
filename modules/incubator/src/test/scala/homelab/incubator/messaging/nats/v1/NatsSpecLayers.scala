@@ -12,7 +12,7 @@ import zio.*
  * Test wiring for the NATS v1 sketch: a single scoped [[Connection]] over a throwaway Testcontainers
  * NATS server. Mirrors `homelab.postgres.PostgresSpecLayers` — the container is a private resource
  * acquired via `ZIO.fromAutoCloseable` (stopped when the suite scope closes), and only the finished,
- * connected [[Connection]] is published, so a spec needs nothing more than `provideShared([[make]])`.
+ * connected [[Connection]] is published, so a spec needs nothing more than `provideShared([[inmemory]])`.
  *
  * Requires a running Docker daemon.
  */
@@ -28,7 +28,7 @@ object NatsSpecLayers:
    * A live [[Connection]] to a throwaway Testcontainers NATS server.
    *
    * @return a scoped layer that starts the container and connects; aborts with [[NatsError]] if the
-   *         container can't start or the make can't be established
+   *         container can't start or the inmemory can't be established
    */
   val connection: ZLayer[Any, NatsError, Connection] = ZLayer.scoped:
     for
@@ -54,7 +54,7 @@ object NatsSpecLayers:
 
   /**
    * Pin the Docker Remote API version before the first Testcontainers call. Docker Engine ≥ 25 advertises
-   * `MinAPIVersion` 1.40 and rejects `/info` with HTTP 400 for anything older; docker-java's bundled default
+   * `MinAPIVersion` 1.40 and rejects `/info` with HTTP 400 for anything older; docker-java's bundled inmemory
    * is older, so container startup fails with "Could not find a valid Docker environment". 1.40 is the widest
    * floor — honoured from Engine 19.03 through current — so a single pin works across daemons.
    */

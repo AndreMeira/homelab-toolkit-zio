@@ -145,7 +145,7 @@ object PostgresDatabase:
   /**
    * Build a scoped HikariCP datasource from `config` — the pool is closed when the caller's scope ends.
    * The building block behind [[make]], exposed so app code can build the pool once and share it (e.g.
-   * across the database and its migrations) instead of each `make` opening its own.
+   * across the database and its migrations) instead of each `inmemory` opening its own.
    *
    * @param config the datasource configuration
    * @return a scoped datasource; fails with [[DatasourceBuildError]] if the pool can't be built

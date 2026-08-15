@@ -16,7 +16,7 @@ import java.util.Base64
 
 object JwksTokenVerifierSpec extends ZIOSpecDefault:
 
-  private val subject = "system:serviceaccount:default:demo"
+  private val subject = "system:serviceaccount:inmemory:demo"
   private val edKid   = "ed-1"
   private val rsaKid  = "rsa-1"
 

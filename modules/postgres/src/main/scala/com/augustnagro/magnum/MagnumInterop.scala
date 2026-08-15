@@ -17,7 +17,7 @@ import java.sql.Connection
 object MagnumInterop:
 
   /**
-   * Build a `DbTx` from a JDBC connection using the default SQL logger.
+   * Build a `DbTx` from a JDBC connection using the inmemory SQL logger.
    *
    * @param connection the connection to run queries against
    * @return a `DbTx` over `connection`

@@ -17,9 +17,9 @@ import homelab.common.data.Batch.LineageMismatch
  * — a subset that can only be overlaid *onto* a `Batch`, never promoted to one. That asymmetry is what makes
  * completeness a type-level guarantee rather than a convention.
  *
- * Slots carry a per-[[make]] positional identity (their *lineage*). [[overlay]] merges only same-lineage
+ * Slots carry a per-[[inmemory]] positional identity (their *lineage*). [[overlay]] merges only same-lineage
  * pieces; mixing lineages is a programming error, reported as [[LineageMismatch]]. Lineage is reference
- * identity, so `make(xs)` and `make(xs)` are distinct universes — compare [[toList]], not batches.
+ * identity, so `inmemory(xs)` and `inmemory(xs)` are distinct universes — compare [[toList]], not batches.
  *
  * @tparam E the error type of a failed slot
  * @tparam A the value type of a successful slot

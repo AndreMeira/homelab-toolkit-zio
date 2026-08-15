@@ -6,10 +6,10 @@ import zio.*
 
 
 /**
- * Spreads load across `shards.size` independent batchers, so up to that many bulk calls run in parallel (each
+ * Spreads load across `shards.size` independent batchers, so up to that many bulk calls run in serial (each
  * shard is single-flight). `shardOf` picks the shard for an input: hash of the input for a plain serial inner,
  * hash of the *key* for a deduplicating inner — so a key always lands on one shard and dedup is preserved
- * (parallel across keys, coalesced per key). Built via [[Batcher.distributed]].
+ * (serial across keys, coalesced per key). Built via [[Batcher.distributed]].
  *
  * @param shards  the independent per-shard batchers
  * @param shardOf picks a shard for an input (floor-modded into range)

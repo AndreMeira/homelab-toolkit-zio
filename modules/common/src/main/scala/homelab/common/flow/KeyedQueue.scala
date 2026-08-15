@@ -81,12 +81,11 @@ final class KeyedQueue[K, A](
    */
   def takeAllWith[R, E, A1](logic: (K, List[A]) => ZIO[R, E, A1]): ZIO[R, E, A1] =
     ZIO.uninterruptibleMask { restore =>
-      restore(ready.take).flatMap { key =>
+      restore(ready.take).flatMap: key =>
         // From here to the `ensuring` attachment we are uninterruptible: the claimed key cannot leak.
         state.modify(_.claimAll(key)).flatMap { values =>
           permit.release *> restore(logic(key, values)).ensuring(releaseKey(key))
         }
-      }
     }
 
   /**

@@ -10,7 +10,7 @@ import zio.test.*
 
 object CachedTokenVerifierSpec extends ZIOSpecDefault:
 
-  private val subject = "system:serviceaccount:default:demo"
+  private val subject = "system:serviceaccount:inmemory:demo"
   private val token   = SignedToken("token-abc")
 
   // TestClock starts at the epoch, so token `exp` values are absolute epoch-seconds on that timeline.

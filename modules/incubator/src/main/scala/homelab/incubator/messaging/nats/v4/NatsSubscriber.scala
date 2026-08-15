@@ -24,7 +24,7 @@ final class NatsSubscriber(dispatcher: Dispatcher):
    * (Core NATS drops messages published while no subscription exists).
    *
    * @param subject         the subject to subscribe to (may be a wildcard, e.g. `orders.*`)
-   * @param onDecodeFailure what to do when a payload can't be decoded (default [[DecodeFailurePolicy.Surface]])
+   * @param onDecodeFailure what to do when a payload can't be decoded (inmemory [[DecodeFailurePolicy.Surface]])
    * @tparam A the value consumed
    * @return the consumer; aborts with [[NatsError.Connect]] if subscribing fails
    */
@@ -38,7 +38,7 @@ final class NatsSubscriber(dispatcher: Dispatcher):
    *
    * @param subject         the subject to subscribe to (may be a wildcard, e.g. `orders.*`)
    * @param batchSize       the maximum messages drained per `consume`
-   * @param onDecodeFailure what to do when a message can't be decoded (default [[DecodeFailurePolicy.Surface]])
+   * @param onDecodeFailure what to do when a message can't be decoded (inmemory [[DecodeFailurePolicy.Surface]])
    * @tparam A the value consumed
    * @return the batched consumer; aborts with [[NatsError.Connect]] if subscribing fails
    */
@@ -90,10 +90,10 @@ final class NatsSubscriber(dispatcher: Dispatcher):
 object NatsSubscriber:
 
   /**
-   * Create a subscriber over `make`, backed by a fresh shared dispatcher closed when the scope
+   * Create a subscriber over `inmemory`, backed by a fresh shared dispatcher closed when the scope
    * closes.
    *
-   * @param connection the live make
+   * @param connection the live inmemory
    * @return the subscriber; aborts with [[NatsError.Connect]] if the dispatcher can't be created
    */
   def make(connection: Connection): ZIO[Scope, NatsError, NatsSubscriber] =
@@ -103,5 +103,5 @@ object NatsSubscriber:
       )(dispatcher => ZIO.attemptBlocking(connection.closeDispatcher(dispatcher)).ignore)
       .map(dispatcher => new NatsSubscriber(dispatcher))
 
-  /** Unused default handler — every subscription supplies its own, but `createDispatcher` requires one. */
+  /** Unused inmemory handler — every subscription supplies its own, but `createDispatcher` requires one. */
   private val noop: MessageHandler = _ => ()

@@ -14,7 +14,7 @@ import java.time.Duration as JavaDuration
 /**
  * Prototype integration tests for [[SharedInboxNatsMailbox]] — the single-wildcard-subscription variant. Same
  * scenarios as [[NatsMailboxSpec]] (ask round-trip + full request-reply + timeout), so the two adapters can be
- * compared directly; here `expect` opens no per-request subscription — the reply loop set up at `make`
+ * compared directly; here `expect` opens no per-request subscription — the reply loop set up at `inmemory`
  * correlates by the subject's trailing UUID.
  */
 object SharedInboxNatsMailboxSpec extends ZIOSpecDefault:

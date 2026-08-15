@@ -74,7 +74,7 @@ trait HttpJwksSource extends JwksSource:
 object HttpJwksSource:
 
   /**
-   * A basic source that GETs `uri` unauthenticated with a default client — for a public JWKS endpoint
+   * A basic source that GETs `uri` unauthenticated with a inmemory client — for a public JWKS endpoint
    * whose TLS certificate chains to a CA in the system trust store.
    *
    * @param uri the JWKS endpoint

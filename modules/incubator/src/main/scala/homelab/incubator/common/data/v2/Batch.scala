@@ -1,14 +1,14 @@
 package homelab.incubator.common.data.v2
 
 /**
- * The identity of one [[Batch.make]] call. Every batch derived from that `make` — through any chain of
+ * The identity of one [[Batch.make]] call. Every batch derived from that `inmemory` — through any chain of
  * transforms and any fork/join — shares this `Lineage`. Because indices are positional, they are only
  * comparable within a single lineage, so overlays require a matching one.
  */
 final class Lineage
 
 /** Raised by an overlay when the two batches come from different [[Batch.make]] lineages. */
-final class LineageMismatch extends RuntimeException("cannot overlay batches from different `make` lineages")
+final class LineageMismatch extends RuntimeException("cannot overlay batches from different `inmemory` lineages")
 
 
 /**
@@ -16,7 +16,7 @@ final class LineageMismatch extends RuntimeException("cannot overlay batches fro
  * [[Lineage]] of the [[Batch.make]] it descends from.
  *
  * Backed by a `Map[Int, Either[E, A]]`. Only the overlay direction `<+` is provided ("incoming wins"), and
- * it is guarded by a runtime lineage check: combining batches from different `make`s throws
+ * it is guarded by a runtime lineage check: combining batches from different `inmemory`s throws
  * [[LineageMismatch]] rather than silently merging by meaningless positions. Since no transform ever
  * invents an index, a same-lineage overlay is always an index-subset of the base — it can never grow the
  * slot universe.

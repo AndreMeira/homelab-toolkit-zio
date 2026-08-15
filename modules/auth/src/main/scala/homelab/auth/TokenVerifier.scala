@@ -44,7 +44,7 @@ object TokenVerifier:
    * self-contained alternative that cannot see revocation, see [[k8sOffline]].
    *
    * @param audience the audience a token must be valid for
-   * @param ttl      how long a successful review is reused before re-verifying (default one minute)
+   * @param ttl      how long a successful review is reused before re-verifying (inmemory one minute)
    * @return the verifier, owning a Kubernetes client closed with the scope; fails with
    *         [[K8sTokenReviewer.ClientUnavailable]] if the client can't be built
    */

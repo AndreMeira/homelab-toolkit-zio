@@ -1,5 +1,4 @@
-package homelab.inmemory.store
-
+package homelab.common.store.inmemory
 
 import homelab.common.store.KeyValueStore
 import zio.*

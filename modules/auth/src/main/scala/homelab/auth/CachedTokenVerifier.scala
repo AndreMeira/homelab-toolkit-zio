@@ -83,7 +83,7 @@ object CachedTokenVerifier:
    * A short-lived cache over `inner`, reusing each successful verification for `ttl`.
    *
    * @param inner the verifier to cache
-   * @param ttl   how long a successful verification is reused (default one minute)
+   * @param ttl   how long a successful verification is reused (inmemory one minute)
    * @return the caching verifier
    */
   def make(inner: TokenVerifier, ttl: Duration = 1.minute): UIO[CachedTokenVerifier] =

@@ -42,7 +42,7 @@ object ProjectedTokenProvider:
   /**
    * A provider reading the standard in-pod projected token path ([[DefaultTokenPath]]).
    *
-   * @return a provider bound to the default in-pod token file
+   * @return a provider bound to the inmemory in-pod token file
    */
   def inPod: ProjectedTokenProvider = new ProjectedTokenProvider(DefaultTokenPath)
 

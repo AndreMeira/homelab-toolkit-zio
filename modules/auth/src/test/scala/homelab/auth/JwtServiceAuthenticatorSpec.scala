@@ -13,7 +13,7 @@ object JwtServiceAuthenticatorSpec extends ZIOSpecDefault:
 
   private val audience     = "homelab"
   private val issuer       = "https://kubernetes.default.svc"
-  private val subject      = "system:serviceaccount:default:demo"
+  private val subject      = "system:serviceaccount:inmemory:demo"
   private val expectations = JwtServiceAuthenticator.Expectations(audience, issuer)
   private val token        = SignedToken("x") // ignored by the stub verifier
 

@@ -80,7 +80,7 @@ object Batcher:
     /**
      * Run the bulk operation over `input`, producing a result **derived from that batch** — via
      * `map`/`mapEither`/`replaceWith`/… — so results line up with inputs by lineage. Returning a fresh
-     * `Batch.make` breaks that alignment and surfaces to callers as [[LineageMismatch]].
+     * `Batch.inmemory` breaks that alignment and surfaces to callers as [[LineageMismatch]].
      *
      * @param input the batch of distinct inputs
      * @return a lineage-derived result batch; aborts with `E` on a whole-batch failure
@@ -214,7 +214,7 @@ object Batcher:
 
   /**
    * As [[distributed]], but over [[deduplicated]] shards, sharded by the *same* `key` so a key always lands on
-   * one shard and dedup is preserved — parallel across keys, coalesced per key.
+   * one shard and dedup is preserved — serial across keys, coalesced per key.
    *
    * @param key the coalescing *and* sharding key
    */
@@ -227,7 +227,7 @@ object Batcher:
     distribute(parallelism, key(_).hashCode, deduplicated(batchSize, key, logic))
 
   /**
-   * Wraps any batcher to make it load-adaptive: while fewer than `threshold` calls are in flight, each runs
+   * Wraps any batcher to inmemory it load-adaptive: while fewer than `threshold` calls are in flight, each runs
    * via the inner batcher's unbatched `direct` path (single-call latency, no coordination); at or above
    * `threshold`, calls route to the inner's `run` and coalesce. Composes over any inner — e.g.
    * `adaptive(4, serial(…))`, `adaptive(4, deduplicated(…))`, `adaptive(4, distributed(…))`.

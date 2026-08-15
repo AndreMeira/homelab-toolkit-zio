@@ -1,4 +1,4 @@
-package homelab.inmemory.messaging
+package homelab.common.messaging.inmemory
 
 import zio.{ Chunk, Queue, Ref, UIO, ZIO }
 

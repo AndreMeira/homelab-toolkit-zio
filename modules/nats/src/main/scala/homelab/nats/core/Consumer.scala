@@ -59,7 +59,7 @@ object Consumer:
   /**
    * Tuning for a Core consumer.
    *
-   * @param onDecodeFailure what to do when a payload can't be decoded (default [[DecodeFailurePolicy.Surface]])
+   * @param onDecodeFailure what to do when a payload can't be decoded (inmemory [[DecodeFailurePolicy.Surface]])
    */
   final case class Config(onDecodeFailure: DecodeFailurePolicy = DecodeFailurePolicy.Surface)
 

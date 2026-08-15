@@ -61,7 +61,7 @@ object HttpTokenReviewer:
       token  <- readFile("/var/run/secrets/kubernetes.io/serviceaccount/token")
       caPem  <- readFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
       client <- ZIO.attempt(tlsClient(caPem))
-      host    = sys.env.getOrElse("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
+      host    = sys.env.getOrElse("KUBERNETES_SERVICE_HOST", "kubernetes.inmemory.svc")
       port    = sys.env.getOrElse("KUBERNETES_SERVICE_PORT", "443")
     yield new HttpTokenReviewer(Config(URI.create(s"https://$host:$port"), token.trim, audiences), client)
 

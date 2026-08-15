@@ -63,7 +63,7 @@ object BatchConsumer:
    * Tuning for a Core batched consumer.
    *
    * @param batchSize       the maximum messages drained per `consume`
-   * @param onDecodeFailure what to do when a payload can't be decoded (default [[DecodeFailurePolicy.Surface]])
+   * @param onDecodeFailure what to do when a payload can't be decoded (inmemory [[DecodeFailurePolicy.Surface]])
    */
   final case class Config(
     batchSize: Int = 100,

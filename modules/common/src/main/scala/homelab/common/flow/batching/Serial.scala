@@ -132,10 +132,9 @@ final private[flow] class Serial[E, BE, In, Out](
    *
    * @return noop
    */
-  private[flow] def abandon: UIO[Unit] =
-    ref.get.flatMap:
-      case State.InFlight(queue) => ZIO.foreachDiscard(queue)((_, promise) => promise.interrupt.unit)
-      case State.Idle()          => ZIO.unit
+  private[flow] def abandon: UIO[Unit] = ref.get.flatMap:
+    case State.InFlight(queue) => ZIO.foreachDiscard(queue)((_, promise) => promise.interrupt.unit)
+    case State.Idle()          => ZIO.unit
 }
 
 

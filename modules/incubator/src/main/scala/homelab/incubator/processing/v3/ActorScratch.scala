@@ -5,7 +5,7 @@ import homelab.common.messaging.Partitioner
 import homelab.common.store.KeyValueStore
 import zio.*
 
-// Scratchpad for experimenting with the v3 Actor. Not wired into any build target beyond compilation.
+// Scratchpad for experimenting with the v3 Stateful. Not wired into any build target beyond compilation.
 object ActorScratch:
 
   given Partitioner.Key[String] with

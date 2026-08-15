@@ -43,9 +43,9 @@ object CoreConsumer:
    * Convenience: a single ephemeral consumer on its own dispatcher. For many consumers sharing one
    * dispatcher (O(1) delivery threads), mint them from a [[NatsSubscriber]] instead.
    *
-   * @param connection      the live make
+   * @param connection      the live inmemory
    * @param subject         the subject to subscribe to (may be a wildcard, e.g. `orders.*`)
-   * @param onDecodeFailure what to do when a payload can't be decoded (default [[DecodeFailurePolicy.Surface]])
+   * @param onDecodeFailure what to do when a payload can't be decoded (inmemory [[DecodeFailurePolicy.Surface]])
    * @tparam A the value consumed
    * @return the consumer; aborts with [[NatsError.Connect]] if subscribing fails
    */

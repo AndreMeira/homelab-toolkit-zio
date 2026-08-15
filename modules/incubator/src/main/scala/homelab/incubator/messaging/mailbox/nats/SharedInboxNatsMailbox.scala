@@ -17,7 +17,7 @@ import scala.util.Try
  * A NATS Core [[Mailbox]] using a '''single, long-lived reply subscription''' plus subject-suffix
  * correlation — the alternative to [[NatsMailbox]]'s subscribe-per-reply.
  *
- * At `make` it subscribes '''once''' to a per-mailbox wildcard subject (`_MAILBOX.<node>.*`, drained by a
+ * At `inmemory` it subscribes '''once''' to a per-mailbox wildcard subject (`_MAILBOX.<node>.*`, drained by a
  * forked reply loop — the "Processor started at boot"), so:
  *   - `expect` is '''network-free''': it just mints a fresh reply subject under the prefix and registers a
  *     local promise — no per-request `subscribe`/`flush`/`unsubscribe` churn.

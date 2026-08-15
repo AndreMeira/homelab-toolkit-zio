@@ -1,5 +1,4 @@
-package homelab.inmemory.messaging
-
+package homelab.common.messaging.inmemory
 
 import homelab.common.messaging.Consumer
 import zio.*

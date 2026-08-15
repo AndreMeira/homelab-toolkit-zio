@@ -102,7 +102,7 @@ object CachedTokenProvider:
    * A cache over `source` that refreshes `refreshSkew` before each token's expiry.
    *
    * @param source      where a fresh token comes from
-   * @param refreshSkew how far before `exp` to refresh (default one minute)
+   * @param refreshSkew how far before `exp` to refresh (inmemory one minute)
    * @return the caching provider
    */
   def make(source: JwtProvider, refreshSkew: Duration = 1.minute): UIO[CachedTokenProvider] =

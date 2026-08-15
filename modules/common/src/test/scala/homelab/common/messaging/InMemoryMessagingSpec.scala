@@ -1,19 +1,15 @@
-package homelab.inmemory.messaging
+package homelab.common.messaging
 
 
-import homelab.common.messaging.*
-import homelab.common.processing.{Source, Through}
+import homelab.common.messaging.inmemory.{ Distributer, QueueConsumer, QueueSource }
 import zio.*
 import zio.test.*
 
 
-// Correctness spec for the in-memory messaging adapter and the common topology run loops it drives.
-// Live clock throughout (only the Source.Tick test sleeps); a per-suite timeout turns any hang into a
-// failure rather than blocking the run.
+// Correctness spec for the in-memory messaging adapter: the queue channel (wire, mapped and batched
+// consumers, merged sources) and the distributer's keyed scheduling. Live clock throughout; a per-suite
+// timeout turns any hang into a failure rather than blocking the run.
 object InMemoryMessagingSpec extends ZIOSpecDefault:
-
-  // A no-op output sink for the parallel-policy tests, which assert on `process`, not what is emitted.
-  private val discard: Producer[Nothing, Int] = _ => ZIO.unit
 
   def spec = suite("in-memory messaging")(
     suite("queue channel")(
@@ -65,12 +61,12 @@ object InMemoryMessagingSpec extends ZIOSpecDefault:
           allIn    <- Promise.make[Nothing, Unit]
           logic     = (a: Int) => received.updateAndGet(_ :+ a).flatMap(l => allIn.succeed(()).when(l.size == 9)).unit
           drivers  <- ZIO.foreach(1 to 3)(_ => d.consume(logic).forever.fork) // one loop per key
-          _        <- ZIO.foreachDiscard(1 to 9)(d.emit) // keys 1,2,0 repeating
+          _        <- ZIO.foreachDiscard(1 to 9)(d.emit)                      // keys 1,2,0 repeating
           _        <- allIn.await
           _        <- ZIO.foreachDiscard(drivers)(_.interrupt)
           all      <- received.get
         yield assertTrue(
-          all.toSet == (1 to 9).toSet,             // every value processed
+          all.toSet == (1 to 9).toSet, // every value processed
           all.filter(_ % 3 == 1) == List(1, 4, 7), // per-key FIFO preserved (one in-flight per key, in order)
           all.filter(_ % 3 == 2) == List(2, 5, 8),
           all.filter(_ % 3 == 0) == List(3, 6, 9),
@@ -88,17 +84,17 @@ object InMemoryMessagingSpec extends ZIOSpecDefault:
       },
       test("a slow key never blocks other keys") {
         for
-          d       <- Distributer.make[Int, Int](None)(_ % 2) // even = slow key, odd = fast key
-          gate    <- Promise.make[Nothing, Unit] // the slow value parks here until the fast key has drained
+          d       <- Distributer.make[Int, Int](None)(_ % 2)                 // even = slow key, odd = fast key
+          gate    <- Promise.make[Nothing, Unit]                             // the slow value parks here until the fast key has drained
           fast    <- Ref.make(List.empty[Int])
           allFast <- Promise.make[Nothing, Unit]
           logic    = (v: Int) =>
                        if v % 2 == 0 then gate.await
                        else fast.updateAndGet(_ :+ v).flatMap(l => allFast.succeed(()).when(l.size == 5)).unit
           drivers <- ZIO.foreach(1 to 2)(_ => d.consume(logic).forever.fork) // one gets stuck on the slow key
-          _       <- d.emit(0)                                       // one slow value on the even key
-          _       <- ZIO.foreachDiscard(List(1, 3, 5, 7, 9))(d.emit) // five fast values on the odd key
-          _       <- allFast.await // completes ONLY if the fast key progresses while the slow value blocks
+          _       <- d.emit(0)                                               // one slow value on the even key
+          _       <- ZIO.foreachDiscard(List(1, 3, 5, 7, 9))(d.emit)         // five fast values on the odd key
+          _       <- allFast.await                                           // completes ONLY if the fast key progresses while the slow value blocks
           _       <- gate.succeed(())
           _       <- ZIO.foreachDiscard(drivers)(_.interrupt)
           order   <- fast.get
@@ -166,128 +162,5 @@ object InMemoryMessagingSpec extends ZIOSpecDefault:
           total       <- promise.await.timeout(3.seconds)
         } yield assertTrue(total.contains(2))
       },
-    ),
-    suite("topology run loops")(
-      test("Through.Parallel runs its pool concurrently — two keys in flight at once") {
-        for
-          d      <- Distributer.make[Int, Int](None)(_ % 2)
-          inWork <- Ref.make(Set.empty[Int])
-          bothIn <- Promise.make[Nothing, Unit]
-          gate   <- Promise.make[Nothing, Unit]
-          through = new Through.Parallel[Nothing, Int, Int]:
-                      def parallelism                    = 2
-                      def input: Consumer[Nothing, Int]  = d
-                      def output: Producer[Nothing, Int] = discard
-                      def process(v: Int): IO[Nothing, Int] =
-                        (inWork.updateAndGet(_ + v).flatMap(s => bothIn.succeed(()).when(s.size == 2)) *> gate.await).as(v)
-          fiber  <- ZIO.scoped(through.run).fork
-          _      <- d.emit(0)
-          _      <- d.emit(1)
-          _      <- bothIn.await // completes ONLY if both values are being processed simultaneously
-          _      <- gate.succeed(())
-          _      <- fiber.interrupt
-          seen   <- inWork.get
-        yield assertTrue(seen == Set(0, 1))
-      },
-      test("Through.Parallel preserves the input's per-key serialisation") {
-        for
-          d        <- Distributer.make[Int, Int](None)(_ => 0) // ONE key: values must process strictly one at a time
-          inFlight <- Ref.make(0)
-          peak     <- Ref.make(0)
-          count    <- Ref.make(0)
-          done     <- Promise.make[Nothing, Unit]
-          through   = new Through.Parallel[Nothing, Int, Int]:
-                        def parallelism                    = 4
-                        def input: Consumer[Nothing, Int]  = d
-                        def output: Producer[Nothing, Int] = discard
-                        def process(value: Int): IO[Nothing, Int] =
-                          inFlight.updateAndGet(_ + 1).flatMap(n => peak.update(_ max n)) *>
-                            ZIO.sleep(20.millis) *>
-                            inFlight.update(_ - 1) *>
-                            count.updateAndGet(_ + 1).flatMap(c => done.succeed(()).when(c == 3)) *>
-                            ZIO.succeed(value)
-          fiber    <- ZIO.scoped(through.run).fork
-          _        <- ZIO.foreachDiscard(1 to 3)(d.emit)
-          _        <- done.await
-          _        <- fiber.interrupt
-          p        <- peak.get
-        yield assertTrue(p == 1) // hand-off dispatch releases the key early and drives this to 3
-      },
-      test("Through.Parallel fails fast — one loop's failure aborts run") {
-        val boom = new RuntimeException("boom")
-        for
-          d     <- Distributer.make[Int, Int](None)(identity)
-          through = new Through.Parallel[Exception, Int, Int]:
-                      def parallelism                      = 2
-                      def input: Consumer[Exception, Int]  = d
-                      def output: Producer[Exception, Int] = discard
-                      def process(v: Int): IO[Exception, Int] = ZIO.fail(boom)
-          fiber <- ZIO.scoped(through.run).fork
-          _     <- d.emit(1)
-          exit  <- fiber.await
-          failed = exit.foldExit(_.failures.contains(boom), _ => false)
-        yield assertTrue(failed)
-      },
-      test("Through.PerItem consumes, transforms, and emits in a loop") {
-        for
-          in    <- Wire.make[Int]
-          out   <- Wire.make[Int]
-          through   = new Through.PerItem[Nothing, Int, Int]:
-                     def input: Consumer[Nothing, Int]         = in
-                     def output: Producer[Nothing, Int]        = out
-                     def process(value: Int): IO[Nothing, Int] = ZIO.succeed(value * 10)
-          fiber <- through.run.fork
-          _     <- ZIO.foreachDiscard(1 to 20)(in.emit)
-          res   <- ZIO.foreach((1 to 20).toList)(_ => out.consumer.source.take)
-          _     <- fiber.interrupt
-        yield assertTrue(res == (1 to 20).map(_ * 10).toList)
-      },
-      test("Through.Batched consumes batches, transforms, and emits") {
-        for
-          queue  <- Queue.unbounded[Int]
-          out    <- Wire.make[Int]
-          batched = new QueueConsumer.Batched(QueueSource.Pure(queue), 5)
-          through    = new Through.Batched[Nothing, Int, Int]:
-                      def input: Consumer.Batched[Nothing, Int]              = batched
-                      def output: Producer[Nothing, Int]                     = out
-                      def process(values: List[Int]): IO[Nothing, List[Int]] = ZIO.succeed(values.map(_ * 10))
-          fiber  <- through.run.fork
-          _      <- queue.offerAll((1 to 20).toList)
-          res    <- ZIO.foreach((1 to 20).toList)(_ => out.consumer.source.take)
-          _      <- fiber.interrupt
-        yield assertTrue(res == (1 to 20).map(_ * 10).toList)
-      },
-      test("Source.Repeat generates and emits until interrupted") {
-        for
-          out     <- Wire.make[Int]
-          counter <- Ref.make(0)
-          source   = new Source.Repeat[Nothing, Int]:
-                       def output: Producer[Nothing, Int] = out
-                       def generate: IO[Nothing, Int]     = counter.updateAndGet(_ + 1)
-          fiber   <- source.run.fork
-          res     <- ZIO.foreach((1 to 10).toList)(_ => out.consumer.source.take)
-          _       <- fiber.interrupt
-        yield assertTrue(res == (1 to 10).toList)
-      },
-    ),
-    suite("source scheduling")(
-      test("Source.Tick waits the initial delay, then emits every interval") {
-        for
-          out     <- Wire.make[Int]
-          counter <- Ref.make(0)
-          source   = new Source.Tick[Nothing, Int]:
-                       def initial: Duration              = 200.millis
-                       def interval: Duration             = 50.millis
-                       def output: Producer[Nothing, Int] = out
-                       def generate: IO[Nothing, Int]     = counter.updateAndGet(_ + 1)
-          fiber   <- source.run.fork
-          // nothing within the first 100ms — the initial delay is honoured
-          delayed <- out.consumer.source.take.as(false).race(ZIO.sleep(100.millis).as(true))
-          e1      <- out.consumer.source.take
-          e2      <- out.consumer.source.take
-          e3      <- out.consumer.source.take
-          _       <- fiber.interrupt
-        yield assertTrue(delayed, e1 == 1, e2 == 2, e3 == 3)
-      }
     ),
   ) @@ TestAspect.withLiveClock @@ TestAspect.timeout(60.seconds)
