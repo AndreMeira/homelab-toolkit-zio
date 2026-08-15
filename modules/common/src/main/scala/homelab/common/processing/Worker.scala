@@ -1,107 +1,102 @@
 package homelab.common.processing
 
 
-import zio.*
-import scala.collection.immutable
+import homelab.common.error.ApplicationError
+import homelab.common.messaging.{ Consumer, Pipe }
+import zio.{ IO, Promise, ZIO }
 
 
-trait Worker:
-  def submit[E, A](effect: ZIO[Scope, E, A]): UIO[Promise[E, A]]
+/**
+ * A [[Processor]] that answers: each message carries the promise its reply is routed to, so a caller can
+ * [[ask]] and wait, or [[send]] and not. Request/reply on top of an ordinary pipe — the queue is the mailbox,
+ * and the [[Graph]] is what starts it.
+ *
+ * A failing `receive` fails *its own caller* and nothing else: the error goes to that message's promise and
+ * the loop carries on. Only a defect stops the worker, which is the usual bargain — a defect is a bug, not an
+ * outcome.
+ *
+ * @tparam E the error a reply may fail with
+ * @tparam A the message accepted
+ * @tparam B the reply produced
+ */
+trait Worker[E <: ApplicationError, A, B] extends Processor[E, (A, Promise[E, B])] {
+  private type Payload = (A, Promise[E, B])
+
+  /** The pipe this worker both consumes from and is sent to — its mailbox. */
+  override def input: Pipe[E, Payload]
+
+  /**
+   * What this worker does with a message.
+   *
+   * @return the handler; aborts with `E` when handling fails, which fails that message's caller alone
+   */
+  def receive: A => IO[E, B]
+
+  /**
+   * Queue `message` without waiting for its reply. The reply, and any failure, are discarded — a promise is
+   * still created because it is part of what a worker consumes, but nobody reads it.
+   *
+   * @param message the message to queue
+   * @return noop once queued, not once handled
+   */
+  def send(message: A): IO[E, Unit] =
+    Promise.make[E, B].flatMap:
+      promise => input.emit((message, promise))
+
+  /**
+   * Queue `message` and wait for its reply.
+   *
+   * Waits indefinitely: nothing here times out, and a worker that was never started — never registered with a
+   * [[Graph]], or registered after it ran — leaves its callers waiting forever rather than failing them.
+   *
+   * @param message the message to queue
+   * @return the reply; aborts with `E` if handling it fails
+   */
+  def ask(message: A): IO[E, B] =
+    for
+      promise <- Promise.make[E, B]
+      _       <- input.emit((message, promise))
+      result  <- promise.await
+    yield result
+
+  /**
+   * Handle one message and settle its promise with whatever happened — success, failure, defect or
+   * interruption alike, from an `onExit` so that even a worker being torn down releases the caller waiting on
+   * it rather than leaving it parked forever.
+   *
+   * The typed failure is then swallowed, because it has already reached the one caller it concerns and must
+   * not stop the loop. A defect is left to propagate.
+   *
+   * `final` because this *is* the reply protocol: an override that forgot to settle the promise would leave
+   * callers waiting for the life of their fiber, with nothing failing to say so. Per-message behaviour —
+   * logging, metrics, retries — belongs in [[receive]], which is the part a worker is meant to supply.
+   *
+   * @param value the message and the promise its outcome belongs to
+   * @return noop once the promise is settled
+   */
+  final override def process(value: (A, Promise[E, B])): IO[E, Unit] =
+    val (message, promise) = value
+    receive(message).onExit(exit => promise.done(exit)).catchAll(_ => ZIO.unit).unit
+
+}
 
 
 object Worker {
-  trait Task:
-    def run: UIO[Unit]
-    def drop: UIO[Unit]
-
-  object Task:
-    def make[E, A](effect: ZIO[Scope, E, A], promise: Promise[E, A]): URIO[Scope, Task] =
-      for {
-        scope <- ZIO.scope
-      } yield new Task:
-        override def drop: UIO[Unit] = promise.interrupt.unit
-        override def run: UIO[Unit]  = promise.isDone.flatMap:
-          case true  => ZIO.unit
-          case false => scope.extend(effect.onExit(exit => promise.done(exit)).ignore.unit)
 
   /**
-   * The queue, plus whether a drain fiber is on duty. One cell, because "must I start a drain?" and "is there
-   * anything left to run?" have to be decided against the same instant: a submission landing while the drain
-   * sits between its last task and noticing an empty queue must join that drain, not fork a second one.
+   * A [[Worker]] that handles messages concurrently, up to `parallelism` at a time.
    *
-   * @param pending  the tasks waiting, in submission order, each with the scope it runs in
-   * @param draining whether a drain is on duty — true from the submission that started one until that drain
-   *                 finds the queue empty, which is a longer window than "a task is running"
+   * The trade against the serial [[Worker]] is ordering: messages are still *taken* from the pipe in order,
+   * but they finish in whatever order their handlers do, and a slow message no longer holds up the ones
+   * behind it. Replies stay correct regardless, since each message carries its own promise — there is no
+   * shared reply channel to interleave.
+   *
+   * Choose this when handling is I/O-bound and independent; keep the serial one when messages share state or
+   * their order matters.
+   *
+   * @tparam E the error a reply may fail with
+   * @tparam A the message accepted
+   * @tparam B the reply produced
    */
-  private final case class Backlog(pending: immutable.Queue[(Task, Scope.Closeable)], draining: Boolean)
-
-  private class Live(
-    scope: Scope,
-    backlog: Ref[Backlog],
-  ) extends Worker {
-
-    /**
-     * Take the work on: give it a scope of its own, a promise to answer on, and a place in the queue —
-     * starting a drain if none is on duty.
-     *
-     * Uninterruptible as a whole, and cheaply so, because nothing here suspends: a scope fork, a promise, a
-     * finalizer and one `Ref` update. What it buys is that the bookkeeping cannot be torn in half. An
-     * interrupt landing between [[enqueue]] and the fork would leave the queue holding work with no drain and
-     * `draining` claiming otherwise, so no later submission would ever start one — the worker would accept
-     * messages and silently run nothing. An earlier one would strand `child`, registered on the worker's
-     * scope with nothing left to close it.
-     *
-     * The drain body is put back to `interruptible` on the way out: a forked fiber inherits the interrupt
-     * status of the region that forked it, so without this the drain — an unbounded loop — could never be
-     * interrupted, and closing the worker's scope would block on it forever. Interrupting *this* fiber does
-     * not touch the drain either way: [[ZIO.forkIn]] forks a daemon whose lifetime belongs to the scope, not
-     * to whoever submitted.
-     *
-     * @param effect the work to run, in a scope closed once it settles
-     * @return the promise its outcome will be routed to
-     */
-    override def submit[E, A](effect: ZIO[Scope, E, A]): UIO[Promise[E, A]] =
-      ZIO.uninterruptible {
-        for {
-          child   <- scope.fork
-          promise <- Promise.make[E, A]
-          task    <- child.extend(Task.make(effect, promise))
-          _       <- child.addFinalizer(task.drop)
-          start   <- enqueue(task, child)
-          _       <- ZIO.when(start)(drain.interruptible.forkIn(scope)).unit
-        } yield promise
-      }
-
-    /**
-     * Append `task`, and report whether this submission is the one that has to start the drain.
-     *
-     * Sets `draining` unconditionally: after this step a drain is always on duty — either the one already
-     * running, or the one this caller is about to fork.
-     *
-     * @param task  the work to append
-     * @param owned the scope that task runs in
-     * @return `true` if the caller must fork a drain, else `false`
-     */
-    private def enqueue(task: Task, owned: Scope.Closeable): UIO[Boolean] =
-      backlog.modify: current =>
-        !current.draining -> Backlog(current.pending.enqueue(task -> owned), draining = true)
-
-    /**
-     * Take the next task, or stand the drain down — decided in the same step that finds the queue empty, so
-     * a concurrent [[enqueue]] either lands before it (and gets drained) or after it (and forks a fresh
-     * drain), never in between.
-     *
-     * @return the next task and its scope, or `None` once the queue is empty
-     */
-    private def dequeue: UIO[Option[(Task, Scope.Closeable)]] =
-      backlog.modify: current =>
-        current.pending.dequeueOption match
-          case Some(head -> rest) => Some(head) -> current.copy(pending = rest)
-          case None               => None       -> current.copy(draining = false)
-
-    private def drain: UIO[Unit] = dequeue.flatMap:
-      case None                => ZIO.unit
-      case Some(task -> scope) => scope.use(task.run) *> drain
-  }
-
+  trait Parallel[E <: ApplicationError, A, B] extends Worker[E, A, B], Processor.Parallel[E, (A, Promise[E, B])]
 }

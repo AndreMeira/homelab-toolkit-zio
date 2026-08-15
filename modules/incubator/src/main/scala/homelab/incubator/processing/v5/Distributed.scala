@@ -2,7 +2,7 @@ package homelab.incubator.processing.v5
 
 
 import homelab.common.error.ApplicationError.AdapterError
-import homelab.common.flow.KeyedQueue
+import homelab.common.flow.Permit
 import homelab.common.messaging.Partitioner
 import homelab.common.store.Bucket
 import homelab.incubator.processing.v5.Actor.{ Next, Running, Self, Terminated }
@@ -73,9 +73,9 @@ object Distributed {
     maxInFlight: Option[Int] = None,
   )(using
     key: Partitioner.Key[I] { type Type = K }
-  ): ZIO[Scope, KeyedQueue.Error, Running[E, I, O]] =
+  ): ZIO[Scope, Permit.Error, Running[E, I, O]] =
     for
-      permit  <- KeyedQueue.Permit.make(maxInFlight)
+      permit  <- Permit.make(maxInFlight)
       // One runtime for the whole pool: the distributor takes a slot on it, and so does every entity.
       runtime <- Runtime.make
       // The routing table lives in a slot this factory owns rather than one the entity allocates for itself,
@@ -191,7 +191,7 @@ object Distributed {
     runtime: Runtime,
     behaviour: Actor[E, I, S, O],
     partition: I => K,
-    permit: KeyedQueue.Permit,
+    permit: Permit,
   ) extends Actor[E, Command[E, I, K, O], Table[E, I, K, O], Unit] {
 
     private type Cmd   = Command[E, I, K, O]
@@ -329,7 +329,7 @@ object Distributed {
    */
   final private class Handle[E, I, K, O](
     distributor: Running[E, Command[E, I, K, O], Unit],
-    permit: KeyedQueue.Permit,
+    permit: Permit,
   ) extends Running[E, I, O] {
 
     def ask(message: I): IO[E | Terminated, O] =

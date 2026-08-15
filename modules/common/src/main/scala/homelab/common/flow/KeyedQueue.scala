@@ -28,7 +28,7 @@ import zio.stm.TSemaphore
  * @tparam A the value queued
  */
 final class KeyedQueue[K, A](
-  permit: KeyedQueue.Permit,
+  permit: Permit,
   state: Ref[KeyedQueue.KeyedState[K, A]],
   ready: Queue[K],
 ) {
@@ -202,74 +202,13 @@ object KeyedQueue {
     def empty[K, A]: KeyedState[K, A] = KeyedState(Map.empty, Set.empty)
 
   /**
-   * A failure constructing a [[KeyedQueue]]. An [[ApplicationError.ImplementationError]] because it
-   * signals a misused API (a violated construction invariant), not a runtime or domain condition.
-   */
-  enum Error extends ApplicationError.ImplementationError:
-
-    /** `maxBuffer` was set to a non-positive value, which cannot bound a backlog. */
-    case NonPositiveBuffer(value: Int)
-
-    override def message: String = this match
-      case NonPositiveBuffer(value) => s"maxBuffer must be positive, was $value"
-
-  /**
-   * A backlog bound for the queue. `offer` takes one permit per value, a claimed value gives one back;
-   * when none remain, `acquire` suspends until a release. An unbounded permit never blocks.
-   */
-  trait Permit:
-
-    /**
-     * Take a permit, suspending while none are available.
-     *
-     * @return noop once a permit is held
-     */
-    def acquire: UIO[Unit]
-
-    /**
-     * Return a permit, admitting a suspended [[acquire]].
-     *
-     * @return noop once the permit is released
-     */
-    def release: UIO[Unit]
-
-  object Permit:
-
-    /**
-     * A permit bounded to `maxBuffer` values, or an unbounded (never-blocking) one when `None`.
-     *
-     * @param maxBuffer the backlog cap; must be positive when set, unbounded when `None`
-     * @return the permit; aborts with `Error.NonPositiveBuffer` when `maxBuffer` is non-positive
-     */
-    def make(maxBuffer: Option[Int]): IO[Error, Permit] = maxBuffer match {
-      case Some(n) if n <= 0 => ZIO.fail(Error.NonPositiveBuffer(n))
-      case Some(n)           => TSemaphore.makeCommit(n).map(Permit.bounded)
-      case None              => ZIO.succeed(Permit.unbounded)
-    }
-
-    /** A permit whose `acquire`/`release` are no-ops — no backpressure. */
-    def unbounded: Permit = new Permit:
-      override def acquire: UIO[Unit] = ZIO.unit
-      override def release: UIO[Unit] = ZIO.unit
-
-    /**
-     * A permit backed by a semaphore, bounding the backlog to the semaphore's permit count.
-     *
-     * @param sem the semaphore gating the backlog
-     * @return the permit
-     */
-    def bounded(sem: TSemaphore): Permit = new Permit:
-      override def acquire: UIO[Unit] = sem.acquire.commit
-      override def release: UIO[Unit] = sem.release.commit
-
-  /**
    * A keyed queue with an optional backlog bound. The ready-key queue is unbounded by design: it holds
    * at most one entry per distinct claimable key, and bounding it could deadlock a key release.
    *
    * @param maxBuffer optional backlog cap; `offer` suspends when full, unbounded when `None`
-   * @return the new queue; aborts with `Error` when `maxBuffer` is non-positive
+   * @return the new queue; aborts with `Permit.Error` when `maxBuffer` is non-positive
    */
-  def make[K, A](maxBuffer: Option[Int]): IO[Error, KeyedQueue[K, A]] =
+  def make[K, A](maxBuffer: Option[Int]): IO[Permit.Error, KeyedQueue[K, A]] =
     for {
       permit <- Permit.make(maxBuffer)
       state  <- Ref.make(KeyedState.empty[K, A])

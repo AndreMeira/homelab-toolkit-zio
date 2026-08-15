@@ -1,7 +1,7 @@
 package homelab.common.messaging
 
 
-import homelab.common.messaging.inmemory.{ Distributer, QueueConsumer, QueueSource }
+import homelab.common.messaging.inmemory.{Distributer, QueueConsumer, QueueSource, Wire}
 import zio.*
 import zio.test.*
 

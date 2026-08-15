@@ -1,7 +1,7 @@
 package homelab.incubator.processing.v1
 
 import homelab.common.error.ApplicationError.AdapterError
-import homelab.common.flow.{ KeyedQueue, Loop }
+import homelab.common.flow.{ KeyedQueue, Loop, Permit }
 import homelab.common.messaging.{ Consumer, Partitioner }
 import homelab.common.processing.Processor
 import homelab.common.store.KeyValueStore
@@ -132,7 +132,7 @@ object Pool {
     store: KeyValueStore[key.Type, S],
     parallelism: Int,
     maxBuffer: Option[Int] = None,
-  )(using Tag[I]): ZIO[Scope & R, KeyedQueue.Error, Mailbox[E | AdapterError, I, O]] =
+  )(using Tag[I]): ZIO[Scope & R, Permit.Error, Mailbox[E | AdapterError, I, O]] =
     for
       env   <- ZIO.environment[R]
       queue <- KeyedQueue.make[key.Type, Mailbox.Envelope[E | AdapterError, I, O]](maxBuffer)

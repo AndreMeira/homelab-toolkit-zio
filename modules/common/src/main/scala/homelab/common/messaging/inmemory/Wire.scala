@@ -1,7 +1,8 @@
-package homelab.common.messaging
+package homelab.common.messaging.inmemory
 
 
 import homelab.common.messaging.inmemory.{ QueueConsumer, QueueProducer }
+import homelab.common.messaging.Pipe
 import zio.*
 
 
@@ -13,7 +14,7 @@ import zio.*
  * @param producer the emit side
  * @param consumer the take side
  */
-final case class Wire[A](producer: QueueProducer[A], consumer: QueueConsumer[A]) extends Producer[Nothing, A], Consumer[Nothing, A] {
+final case class Wire[A](producer: QueueProducer[A], consumer: QueueConsumer[A]) extends Pipe[Nothing, A] {
 
   override def emit(value: A): IO[Nothing, Unit] = producer.emit(value)
 

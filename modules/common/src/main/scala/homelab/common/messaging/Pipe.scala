@@ -39,6 +39,21 @@ trait Pipe[+E, A] extends Consumer[E, A] with Producer[E, A]:
 object Pipe:
 
   /**
+   * A [[Pipe]] that holds a key while one of its values is in flight: at most one value per key is out at a
+   * time, and a key's values are delivered in the order they were emitted.
+   *
+   * A marker, not a mechanism — it says what a pipe guarantees, and anything consuming it concurrently relies
+   * on that guarantee. [[fromKeyedQueue]] provides it; a pipe over an external queue can claim it if the queue
+   * leases keys (a per-key claim in a database, say), which is a deliberate assertion rather than something
+   * checked here.
+   *
+   * @tparam E the error consuming may abort with
+   * @tparam A the value carried
+   */
+  trait KeySafe[+E, A] extends Pipe[E, A]
+
+
+  /**
    * A [[Pipe]] over an unbounded [[Queue]]: `emit` offers, `consume` takes one value. Emission never fails,
    * so the pipe's error is `Nothing`.
    *
@@ -63,8 +78,8 @@ object Pipe:
    * @tparam A the value carried
    * @return a keyed, per-key-serialized pipe
    */
-  def fromKeyedQueue[K, A](queue: KeyedQueue[K, A])(key: A => K): Pipe[Nothing, A] =
-    new Pipe[Nothing, A]:
+  def fromKeyedQueue[K, A](queue: KeyedQueue[K, A])(key: A => K): KeySafe[Nothing, A] =
+    new KeySafe[Nothing, A]:
       def emit(value: A): IO[Nothing, Unit]                              = queue.offer(key(value), value).unit
       def consume[E2 >: Nothing](logic: A => IO[E2, Unit]): IO[E2, Unit] = queue.takeWith((_, value) => logic(value))
 

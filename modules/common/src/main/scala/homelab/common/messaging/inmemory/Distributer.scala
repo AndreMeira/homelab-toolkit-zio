@@ -1,6 +1,6 @@
 package homelab.common.messaging.inmemory
 
-import homelab.common.flow.KeyedQueue
+import homelab.common.flow.{ KeyedQueue, Permit }
 import homelab.common.messaging.{ Consumer, Pipe, Producer }
 import zio.*
 
@@ -113,9 +113,9 @@ object Distributer {
    *
    * @param maxBuffer   optional backlog cap; `emit` suspends when full, unbounded when `None`
    * @param partitioner computes a value's partition key
-   * @return the new distributer; aborts with `KeyedQueue.Error` when `maxBuffer` is non-positive
+   * @return the new distributer; aborts with `Permit.Error` when `maxBuffer` is non-positive
    */
-  def makeZIO[K, A](maxBuffer: Option[Int])(partitioner: A => UIO[K]): IO[KeyedQueue.Error, Distributer[K, A]] =
+  def makeZIO[K, A](maxBuffer: Option[Int])(partitioner: A => UIO[K]): IO[Permit.Error, Distributer[K, A]] =
     KeyedQueue.make[K, A](maxBuffer).map(new Distributer(Partitioner.fromFunction(partitioner), _))
 
   /**
@@ -123,8 +123,8 @@ object Distributer {
    *
    * @param maxBuffer   optional backlog cap; `emit` suspends when full, unbounded when `None`
    * @param partitioner computes a value's partition key
-   * @return the new distributer; aborts with `KeyedQueue.Error` when `maxBuffer` is non-positive
+   * @return the new distributer; aborts with `Permit.Error` when `maxBuffer` is non-positive
    */
-  def make[K, A](maxBuffer: Option[Int])(partitioner: A => K): IO[KeyedQueue.Error, Distributer[K, A]] =
+  def make[K, A](maxBuffer: Option[Int])(partitioner: A => K): IO[Permit.Error, Distributer[K, A]] =
     KeyedQueue.make[K, A](maxBuffer).map(new Distributer(Partitioner.pure(partitioner), _))
 }

@@ -1,6 +1,7 @@
 package homelab.common.processing
 
 
+import homelab.common.error.ApplicationError
 import homelab.common.messaging.*
 import zio.*
 
@@ -11,11 +12,23 @@ import zio.*
  * 1-in/1-out case is [[Through]], which also supplies the run loop. A worker that fans out to several
  * outputs (success + dead-letter, say) extends `Processor` directly and writes its own `run`.
  *
+ * Its failures are [[ApplicationError]]s: a processor is something a [[Graph]] runs, and a graph has one
+ * error channel for everything in it. Wrap whatever a library throws at the adapter edge, as everything else
+ * here does, rather than widening this.
+ *
  * @tparam E the error processing aborts with
  * @tparam A the value consumed
  */
-trait Processor[+E, A] {
+trait Processor[+E <: ApplicationError, A] {
 
+  /**
+   * This processor's identity to a [[Graph]]. A `val`, so one instance has one key for its whole life: a
+   * graph that meets the same processor twice — registered directly and reached again as someone's child —
+   * starts it once. Reference identity is the right notion here; two structurally equal processors over
+   * different pipes are two processors.
+   */
+  private[processing] val key: Processor.Key = new Processor.Key
+  
   /**
    * The intake this processor consumes from.
    *
@@ -42,6 +55,9 @@ trait Processor[+E, A] {
 
 
 object Processor {
+  
+  /** A processor's identity, compared by reference — see [[Processor.key]]. */
+  private[processing] class Key
 
   /**
    * A [[Processor]] that handles values concurrently up to a configured `parallelism` limit.
@@ -50,7 +66,7 @@ object Processor {
    * @tparam E the error processing aborts with
    * @tparam A the value consumed
    */
-  trait Parallel[E, A] extends Processor[E, A] {
+  trait Parallel[E <: ApplicationError, A] extends Processor[E, A] {
 
     /**
      * The concurrency cap: how many values may run `handle` concurrently. Must be positive.
@@ -74,7 +90,7 @@ object Processor {
    * @tparam E the error processing aborts with
    * @tparam A the element type of each consumed batch
    */
-  trait Batched[E, A] extends Processor[E, List[A]] {
+  trait Batched[E <: ApplicationError, A] extends Processor[E, List[A]] {
 
     /**
      * The batched intake this processor consumes from.
@@ -93,7 +109,7 @@ object Processor {
      * @tparam E the error processing aborts with
      * @tparam A the element type of each consumed batch
      */
-    trait Parallel[E, A] extends Processor.Parallel[E, List[A]] with Processor.Batched[E, A] {
+    trait Parallel[E <: ApplicationError, A] extends Processor.Parallel[E, List[A]] with Processor.Batched[E, A] {
 
       /**
        * The batched intake this processor consumes from.
