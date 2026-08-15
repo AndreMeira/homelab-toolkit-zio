@@ -136,7 +136,7 @@ object Actor:
   /**
    * The actor **behaviour** (pure): how a fresh entity seeds, and how it steps per message. `self` arrives as
    * a plain parameter and the transition is a bare [[zio.IO]] — dependencies are closed over when the logic
-   * is built, not threaded through a `ZIO` environment. Background work that must outlive the turn goes
+   * is built, not threaded through a `ZIO` environment. Worker work that must outlive the turn goes
    * through [[Self.pipeToSelf]]. A plain state machine is exactly "always [[Step.Continue]], ignore `self`".
    *
    * @tparam E the error a transition may fail with
