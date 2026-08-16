@@ -2,66 +2,37 @@ package homelab.nats.core
 
 
 import homelab.common.messaging.Consumer as ConsumerContract
-import homelab.nats.{ DecodeFailurePolicy, NatsError, Serde }
+import homelab.nats.Codec.Decoder
+import homelab.nats.NatsError
 import io.nats.client.{ Connection, Message }
 import zio.*
 
 
 /**
- * A Core NATS [[ConsumerContract]] — ephemeral, fire-and-forget. A plain drain over a [[CorePoll]]: take the
- * next message, decode it, run `logic`. There is '''no ack''' (Core delivers once and forgets), so a handler
- * failure surfaces to the caller — the message is already gone, nothing to retry. An undecodable payload is
- * handled per `onDecodeFailure`: [[DecodeFailurePolicy.Surface]] fails `consume`,
- * [[DecodeFailurePolicy.Discard]] skips it and delivers the next.
+ * A Core NATS [[ConsumerContract]] over messages — ephemeral, fire-and-forget. A plain drain over a
+ * [[CorePoll]]: take the next message, run `logic`. There is '''no ack''' (Core delivers once and forgets),
+ * so a handler failure surfaces to the caller — the message is already gone, nothing to retry.
  *
- * @param poll            the message source (subscribes lazily on first `consume`)
- * @param onDecodeFailure what to do when a payload can't be decoded
- * @tparam A the value consumed
+ * It consumes `Message`, not a decoded value: decoding is layered on top by the `make[A]` factory, so this
+ * class has no codec and no decode-failure policy. See [[Consumer.make]] for what an undecodable payload does.
+ *
+ * @param poll the message source (subscribes lazily on first `consume`)
  */
-final class Consumer[A: Serde](poll: CorePoll, onDecodeFailure: DecodeFailurePolicy) extends ConsumerContract[NatsError, A]:
+final class Consumer(poll: CorePoll) extends ConsumerContract[NatsError, Message]:
 
   /**
-   * Take the next message, decode it, and run `logic` on the value (or skip it, under Discard). One call
-   * processes one message; a run loop calls it repeatedly.
+   * Take the next message and run `logic` on it. One call processes one message; a run loop calls it
+   * repeatedly.
    *
-   * @param logic processes one consumed value
+   * @param logic processes one consumed message
    * @tparam E2 the widened error, admitting `logic`'s failures
-   * @return noop once the message is processed; aborts with [[NatsError.Decode]] under Surface on an
-   *         undecodable payload, or with `E2` if `logic` fails
+   * @return noop once the message is processed; aborts with `E2` if `logic` fails
    */
-  override def consume[E2 >: NatsError](logic: A => IO[E2, Unit]): IO[E2, Unit] =
-    for
-      message <- poll.one
-      decoded <- decode(message)
-      _       <- decoded match
-                   case None        => ZIO.unit // undecodable under Discard — skip and take the next
-                   case Some(value) => logic(value)
-    yield ()
-
-  /**
-   * Decode a message, applying `onDecodeFailure` when it can't be decoded.
-   *
-   * @param message the received message
-   * @return `Some(value)` when decodable, or `None` to skip it (Discard); aborts with [[NatsError.Decode]]
-   *         under Surface
-   */
-  private def decode(message: Message): IO[NatsError, Option[A]] =
-    Serde[A].decode(message.getData) match
-      case Right(value) => ZIO.succeed(Some(value))
-      case Left(error)  =>
-        onDecodeFailure match
-          case DecodeFailurePolicy.Surface => ZIO.fail(NatsError.Decode(error))
-          case DecodeFailurePolicy.Discard => ZIO.succeed(None)
+  override def consume[E2 >: NatsError](logic: Message => IO[E2, Unit]): IO[E2, Unit] =
+    poll.one.flatMap(logic)
 
 
 object Consumer:
-
-  /**
-   * Tuning for a Core consumer.
-   *
-   * @param onDecodeFailure what to do when a payload can't be decoded (inmemory [[DecodeFailurePolicy.Surface]])
-   */
-  final case class Config(onDecodeFailure: DecodeFailurePolicy = DecodeFailurePolicy.Surface)
 
   /**
    * Convenience: a single ephemeral consumer on its own dispatcher. For many consumers sharing one dispatcher
@@ -69,30 +40,67 @@ object Consumer:
    *
    * @param connection the live connection
    * @param subject    the subject to subscribe to (may be a wildcard, e.g. `orders.*`)
-   * @param config     decode-failure tuning
-   * @tparam A the value consumed
-   * @return the consumer; aborts with [[NatsError.Connect]] if the dispatcher can't be created
+   * @return the message consumer; aborts with [[NatsError.Connect]] if the dispatcher can't be created
    */
-  def make[A: Serde](
+  def apply(
     connection: Connection,
     subject: String,
-    config: Config = Config(),
-  ): ZIO[Scope, NatsError, ConsumerContract[NatsError, A]] =
-    CoreSubscriber.make(connection).flatMap(make[A](_, subject, config))
+  ): ZIO[Scope, NatsError, ConsumerContract[NatsError, Message]] =
+    CoreSubscriber.make(connection).flatMap(apply(_, subject))
 
   /**
-   * Mint a consumer on an existing shared [[CoreSubscriber]] — the fan-out form (N consumers, one
+   * Mint a message consumer on an existing shared [[CoreSubscriber]] — the fan-out form (N consumers, one
    * dispatcher). The subscription is established lazily on the first `consume`.
    *
    * @param subscriber the shared subscriber to subscribe through
    * @param subject    the subject to subscribe to
-   * @param config     decode-failure tuning
-   * @tparam A the value consumed
-   * @return the consumer
+   * @return the message consumer
    */
-  def make[A: Serde](
+  def apply(
     subscriber: CoreSubscriber,
     subject: String,
-    config: Config,
+  ): ZIO[Scope, NatsError, ConsumerContract[NatsError, Message]] =
+    CorePoll.make(subscriber, subject).map(poll => new Consumer(poll))
+
+  /**
+   * A consumer of decoded values: the message consumer with `A`'s decoder layered over it.
+   *
+   * Core has nothing to settle, so an undecodable payload simply aborts `consume` with
+   * [[NatsError.Decode]] — the message is already gone either way. A caller that would rather skip such a
+   * message and carry on runs `consume(...).either` in its loop; that choice belongs to the caller here,
+   * not to a policy.
+   *
+   * @param connection the live connection
+   * @param subject    the subject to subscribe to
+   * @tparam A the value consumed, with a [[Decoder]] in scope
+   * @return the consumer; aborts with [[NatsError.Connect]] if the dispatcher can't be created
+   */
+  def make[A: Decoder](
+    connection: Connection,
+    subject: String,
   ): ZIO[Scope, NatsError, ConsumerContract[NatsError, A]] =
-    CorePoll.make(subscriber, subject).map(poll => new Consumer(poll, config.onDecodeFailure))
+    apply(connection, subject).map(_.mapZIO(decode[A]))
+
+  /**
+   * A consumer of decoded values on an existing shared [[CoreSubscriber]].
+   *
+   * @param subscriber the shared subscriber to subscribe through
+   * @param subject    the subject to subscribe to
+   * @tparam A the value consumed, with a [[Decoder]] in scope
+   * @return the consumer
+   */
+  def make[A: Decoder](
+    subscriber: CoreSubscriber,
+    subject: String,
+  ): ZIO[Scope, NatsError, ConsumerContract[NatsError, A]] =
+    apply(subscriber, subject).map(_.mapZIO(decode[A]))
+
+  /**
+   * Decode a message, lifting a malformed payload into the error channel.
+   *
+   * @param message the received message
+   * @tparam A the value decoded, with a [[Decoder]] in scope
+   * @return the decoded value; aborts with [[NatsError.Decode]] if the payload is malformed
+   */
+  private def decode[A: Decoder](message: Message): IO[NatsError, A] =
+    ZIO.fromEither(Decoder[A].decode(message)).mapError(NatsError.Decode(_))

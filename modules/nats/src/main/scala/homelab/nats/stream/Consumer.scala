@@ -2,70 +2,52 @@ package homelab.nats.stream
 
 
 import homelab.common.messaging.Consumer as ConsumerContract
-import homelab.nats.{ DecodeFailurePolicy, HandlerFailurePolicy, NatsError, Serde }
+import homelab.nats.Codec.Decoder
+import homelab.nats.{ HandlerFailurePolicy, NatsError }
 import io.nats.client.{ Connection, Message }
 import zio.*
 
 
 /**
- * A durable JetStream [[ConsumerContract]] over a [[StreamPoll]]. Each message is settled with '''explicit
- * ack''': `ack` on handler success, and on failure whatever `onHandlerFailure` dictates — `nak` (redeliver),
- * `term` (discard), or surface the error. An undecodable payload is settled per `onDecodeFailure`: Surface
- * leaves it un-acked (redelivered after `ackWait`, non-destructive) and fails `consume`; Discard `term`s it.
- * Redelivery is real, so '''handlers must be idempotent'''. An optional `heartbeat` pings `inProgress()`
- * while the handler runs so slow work isn't redelivered mid-flight.
+ * A durable JetStream [[ConsumerContract]] over messages, backed by a [[StreamPoll]]. Each message is settled
+ * with '''explicit ack''': `ack` when `logic` succeeds, and on failure whatever `onFailure` dictates — `nak`
+ * (redeliver), `term` (discard), or surface the error. Redelivery is real, so '''handlers must be
+ * idempotent'''. An optional `heartbeat` pings `inProgress()` while the handler runs so slow work isn't
+ * redelivered mid-flight.
  *
- * @param poll             the message source (subscribes lazily on first `consume`)
- * @param heartbeat        `inProgress()` keepalive interval while the handler runs, or `None` to disable
- * @param onDecodeFailure  what to do when a payload can't be decoded
- * @param onHandlerFailure what to do when the handler fails on a decoded message
- * @tparam A the value consumed
+ * It consumes `Message`, not a decoded value: decoding is layered on top by the `make[A]` factory. That is
+ * why there is a single failure policy here — settling happens below the decoder, so a malformed payload
+ * reaches this class as a failing handler and is settled the same way. See [[Consumer.make]].
+ *
+ * @param poll      the message source (subscribes lazily on first `consume`)
+ * @param heartbeat `inProgress()` keepalive interval while the handler runs, or `None` to disable
+ * @param onFailure what to do when processing a message fails
  */
-final class Consumer[A: Serde](
+final class Consumer(
   poll: StreamPoll,
   heartbeat: Option[Duration],
-  onDecodeFailure: DecodeFailurePolicy,
-  onHandlerFailure: HandlerFailurePolicy,
-) extends ConsumerContract[NatsError, A]:
+  onFailure: HandlerFailurePolicy,
+) extends ConsumerContract[NatsError, Message]:
 
   /**
-   * Take the next message, decode it, run `logic` (under the heartbeat), and settle. A message termed during
-   * decode (Discard) is fully handled there and not settled again. One call processes one message; a run loop
-   * calls it repeatedly.
+   * Take the next message, run `logic` on it (under the heartbeat), and settle by the outcome. One call
+   * processes one message; a run loop calls it repeatedly.
    *
-   * @param logic processes one consumed value
+   * @param logic processes one consumed message
    * @tparam E2 the widened error, admitting `logic`'s failures
-   * @return noop once the message is settled; aborts with [[NatsError.Decode]] under Surface on an
-   *         undecodable payload, with `E2` if `logic` fails under Surface, or with [[NatsError.Ack]] if a
-   *         settlement call fails
+   * @return noop once the message is settled; aborts with `E2` if `logic` fails under Surface, or with
+   *         [[NatsError.Ack]] if a settlement call fails
    */
-  override def consume[E2 >: NatsError](logic: A => IO[E2, Unit]): IO[E2, Unit] =
+  override def consume[E2 >: NatsError](logic: Message => IO[E2, Unit]): IO[E2, Unit] =
     for
       message <- poll.one
-      decoded <- decode(message)
-      _       <- decoded.fold(ZIO.unit): value =>
-                   Heartbeat
-                     .wrap(heartbeat, message :: Nil)(logic(value).either)
-                     .flatMap(handleResult(message, _))
+      _       <- Heartbeat
+                   .wrap(heartbeat, message :: Nil)(logic(message).either)
+                   .flatMap(handleResult(message, _))
     yield ()
 
   /**
-   * Decode a message, applying `onDecodeFailure` when it can't be decoded.
-   *
-   * @param message the received message
-   * @return `Some(value)` when decodable, or `None` when termed under Discard; aborts with
-   *         [[NatsError.Decode]] under Surface, or [[NatsError.Ack]] if the `term` fails
-   */
-  private def decode(message: Message): IO[NatsError, Option[A]] =
-    Serde[A].decode(message.getData) match
-      case Right(value) => ZIO.succeed(Some(value))
-      case Left(error)  =>
-        onDecodeFailure match
-          case DecodeFailurePolicy.Surface => ZIO.fail(NatsError.Decode(error))
-          case DecodeFailurePolicy.Discard => dismiss(message).as(None)
-
-  /**
-   * Settle a decoded message by its handler outcome: `ack` on success, else `onHandlerFailure`.
+   * Settle a message by its handler outcome: `ack` on success, else `onFailure`.
    *
    * @param message the message to settle
    * @param outcome the handler's result — `Right` on success, `Left` on failure
@@ -77,7 +59,7 @@ final class Consumer[A: Serde](
     outcome match
       case Right(_)    => ack(message)
       case Left(error) =>
-        onHandlerFailure match
+        onFailure match
           case HandlerFailurePolicy.Surface   => ZIO.fail(error)
           case HandlerFailurePolicy.Discard   => dismiss(message)
           case HandlerFailurePolicy.Redeliver => nack(message)
@@ -115,22 +97,20 @@ object Consumer:
   /**
    * Tuning for a JetStream consumer.
    *
-   * @param ackWait          how long the server waits for an ack before redelivering
-   * @param maxAckPending    the backpressure bound on un-acked in-flight messages
-   * @param heartbeat        `inProgress()` keepalive interval while the handler runs, or `None` to disable
-   * @param onDecodeFailure  what to do when a payload can't be decoded
-   * @param onHandlerFailure what to do when the handler fails on a decoded message
+   * @param ackWait       how long the server waits for an ack before redelivering
+   * @param maxAckPending the backpressure bound on un-acked in-flight messages
+   * @param heartbeat     `inProgress()` keepalive interval while the handler runs, or `None` to disable
+   * @param onFailure     what to do when processing a message fails — decoding included, see [[make]]
    */
   final case class Config(
     ackWait: Duration = 30.seconds,
     maxAckPending: Int = 256,
     heartbeat: Option[Duration] = None,
-    onDecodeFailure: DecodeFailurePolicy = DecodeFailurePolicy.Surface,
-    onHandlerFailure: HandlerFailurePolicy = HandlerFailurePolicy.Redeliver,
+    onFailure: HandlerFailurePolicy = HandlerFailurePolicy.Redeliver,
   )
 
   /**
-   * Convenience: a durable consumer on its own connection-backed subscriber. For fan-out, build a
+   * Convenience: a durable message consumer on its own connection-backed subscriber. For fan-out, build a
    * [[JetStreamSubscriber]] once and use the subscriber overload.
    *
    * @param connection the live connection
@@ -138,37 +118,89 @@ object Consumer:
    * @param durable    the durable consumer name (shared progress across restarts)
    * @param subject    the subject filter
    * @param config     ack / backpressure / heartbeat / failure tuning
-   * @tparam A the value consumed
-   * @return the consumer; aborts with [[NatsError.Connect]] if the consumer can't be set up
+   * @return the message consumer; aborts with [[NatsError.Connect]] if the consumer can't be set up
    */
-  def make[A: Serde](
+  def apply(
     connection: Connection,
     stream: String,
     durable: String,
     subject: String,
     config: Config = Config(),
-  ): ZIO[Scope, NatsError, ConsumerContract[NatsError, A]] =
-    make[A](JetStreamSubscriber.make(connection), stream, durable, subject, config)
+  ): ZIO[Scope, NatsError, ConsumerContract[NatsError, Message]] =
+    apply(JetStreamSubscriber.make(connection), stream, durable, subject, config)
 
   /**
-   * Attach a durable consumer through an existing [[JetStreamSubscriber]]. The subscription is established
-   * lazily on the first `consume`.
+   * Attach a durable message consumer through an existing [[JetStreamSubscriber]]. The subscription is
+   * established lazily on the first `consume`.
    *
    * @param subscriber the subscriber to attach the durable consumer through
    * @param stream     the (existing) stream name
    * @param durable    the durable consumer name
    * @param subject    the subject filter
    * @param config     ack / backpressure / heartbeat / failure tuning
-   * @tparam A the value consumed
+   * @return the message consumer
+   */
+  def apply(
+    subscriber: JetStreamSubscriber,
+    stream: String,
+    durable: String,
+    subject: String,
+    config: Config,
+  ): ZIO[Scope, NatsError, ConsumerContract[NatsError, Message]] =
+    StreamPoll
+      .make(subscriber, ContextConfig(stream, durable, subject, config.ackWait, config.maxAckPending))
+      .map(poll => new Consumer(poll, config.heartbeat, config.onFailure))
+
+  /**
+   * A consumer of decoded values: the message consumer with `A`'s decoder layered over it.
+   *
+   * Because settling happens below the decoder, an undecodable payload is settled exactly like a failing
+   * handler — `nak` under Redeliver, `term` under Discard, or surfaced (and left un-acked, so redelivered
+   * after `ackWait`) under Surface.
+   *
+   * @param connection the live connection
+   * @param stream     the (existing) stream name
+   * @param durable    the durable consumer name
+   * @param subject    the subject filter
+   * @param config     ack / backpressure / heartbeat / failure tuning
+   * @tparam A the value consumed, with a [[Decoder]] in scope
+   * @return the consumer; aborts with [[NatsError.Connect]] if the consumer can't be set up
+   */
+  def make[A: Decoder](
+    connection: Connection,
+    stream: String,
+    durable: String,
+    subject: String,
+    config: Config = Config(),
+  ): ZIO[Scope, NatsError, ConsumerContract[NatsError, A]] =
+    apply(connection, stream, durable, subject, config).map(_.mapZIO(decode[A]))
+
+  /**
+   * A consumer of decoded values through an existing [[JetStreamSubscriber]].
+   *
+   * @param subscriber the subscriber to attach the durable consumer through
+   * @param stream     the (existing) stream name
+   * @param durable    the durable consumer name
+   * @param subject    the subject filter
+   * @param config     ack / backpressure / heartbeat / failure tuning
+   * @tparam A the value consumed, with a [[Decoder]] in scope
    * @return the consumer
    */
-  def make[A: Serde](
+  def make[A: Decoder](
     subscriber: JetStreamSubscriber,
     stream: String,
     durable: String,
     subject: String,
     config: Config,
   ): ZIO[Scope, NatsError, ConsumerContract[NatsError, A]] =
-    StreamPoll
-      .make(subscriber, ContextConfig(stream, durable, subject, config.ackWait, config.maxAckPending))
-      .map(poll => new Consumer(poll, config.heartbeat, config.onDecodeFailure, config.onHandlerFailure))
+    apply(subscriber, stream, durable, subject, config).map(_.mapZIO(decode[A]))
+
+  /**
+   * Decode a message, lifting a malformed payload into the error channel so the consumer settles it.
+   *
+   * @param message the received message
+   * @tparam A the value decoded, with a [[Decoder]] in scope
+   * @return the decoded value; aborts with [[NatsError.Decode]] if the payload is malformed
+   */
+  private def decode[A: Decoder](message: Message): IO[NatsError, A] =
+    ZIO.fromEither(Decoder[A].decode(message)).mapError(NatsError.Decode(_))

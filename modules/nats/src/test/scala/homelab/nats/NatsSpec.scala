@@ -27,11 +27,9 @@ import java.nio.charset.StandardCharsets
  */
 object NatsSpec extends ZIOSpecDefault:
 
-  /** A `Serde[Int]` over decimal text — decoding fails on non-numeric payloads (the poison-message probe). */
-  private val intSerde: Serde[Int] = new Serde[Int]:
-    def encode(value: Int): Array[Byte]                 = value.toString.getBytes(StandardCharsets.UTF_8)
-    def decode(bytes: Array[Byte]): Either[String, Int] =
-      new String(bytes, StandardCharsets.UTF_8).toIntOption.toRight("not an int")
+  /** A `Decoder[Int]` over decimal text — decoding fails on non-numeric payloads (the poison-message probe). */
+  private val intDecoder: Codec.Decoder[Int] =
+    message => new String(message.getData, StandardCharsets.UTF_8).toIntOption.toRight("not an int")
 
   def spec = suite("NATS — Core + JetStream (integration)")(
     suite("core (ephemeral)")(
@@ -39,8 +37,8 @@ object NatsSpec extends ZIOSpecDefault:
         ZIO.scoped:
           for
             connection <- ZIO.service[Connection]
-            consumer   <- CoreConsumer.make[String](connection, "core.orders.*")(using Serde.utf8)
-            producer    = CoreProducer.make[String](connection)(order => s"core.orders.$order")(using Serde.utf8)
+            consumer   <- CoreConsumer.make[String](connection, "core.orders.*")(using Codec.Decoder.utf8)
+            producer    = CoreProducer.make[String](connection)(using Codec.Encoder.utf8(order => s"core.orders.$order"))
             received   <- Promise.make[Nothing, String]
             _          <- consumer.consume(message => received.succeed(message).unit).forever.forkScoped
             _          <- producer.emit("alpha").repeat(Schedule.spaced(100.millis)).forkScoped
@@ -52,8 +50,8 @@ object NatsSpec extends ZIOSpecDefault:
         ZIO.scoped:
           for
             connection <- ZIO.service[Connection]
-            consumer   <- CoreConsumer.make[String](connection, "core.events.*")(using Serde.utf8)
-            producer    = CoreProducer.make[String](connection)(event => s"core.events.$event")(using Serde.utf8)
+            consumer   <- CoreConsumer.make[String](connection, "core.events.*")(using Codec.Decoder.utf8)
+            producer    = CoreProducer.make[String](connection)(using Codec.Encoder.utf8(event => s"core.events.$event"))
             received   <- Ref.make(Set.empty[String])
             done       <- Promise.make[Nothing, Unit]
             _          <- consumer
@@ -65,15 +63,15 @@ object NatsSpec extends ZIOSpecDefault:
             out        <- received.get
           yield assertTrue(out == expected)
       },
-      test("Discard: an undecodable message is skipped and the consumer keeps delivering") {
+      test("an undecodable message aborts consume; a caller that ignores it keeps delivering") {
         ZIO.scoped:
           for
             connection <- ZIO.service[Connection]
-            consumer   <-
-              CoreConsumer.make[Int](connection, "core.skip.*", CoreConsumer.Config(onDecodeFailure = DecodeFailurePolicy.Discard))(using intSerde)
-            producer    = CoreProducer.make[String](connection)(_ => "core.skip.in")(using Serde.utf8)
+            consumer   <- CoreConsumer.make[Int](connection, "core.skip.*")(using intDecoder)
+            producer    = CoreProducer.make[String](connection)(using Codec.Encoder.utf8(_ => "core.skip.in"))
             got        <- Promise.make[Nothing, Int]
-            _          <- consumer.consume(value => got.succeed(value).unit).forever.forkScoped
+            // `.either` is where skipping lives now: Core has nothing to settle, so the loop owns the choice
+            _          <- consumer.consume(value => got.succeed(value).unit).either.forever.forkScoped
             _          <- (producer.emit("oops") *> producer.emit("42")).repeat(Schedule.spaced(100.millis)).forkScoped
             out        <- got.await
           yield assertTrue(out == 42)
@@ -83,8 +81,8 @@ object NatsSpec extends ZIOSpecDefault:
         ZIO.scoped:
           for
             connection <- ZIO.service[Connection]
-            consumer   <- CoreBatchConsumer.make[String](connection, "core.batch.*", CoreBatchConsumer.Config(batchSize = 10))(using Serde.utf8)
-            producer    = CoreProducer.make[String](connection)(value => s"core.batch.$value")(using Serde.utf8)
+            consumer   <- CoreBatchConsumer.make[String](connection, "core.batch.*", CoreBatchConsumer.Config(batchSize = 10))(using Codec.Decoder.utf8)
+            producer    = CoreProducer.make[String](connection)(using Codec.Encoder.utf8(value => s"core.batch.$value"))
             received   <- Ref.make(Set.empty[String])
             done       <- Promise.make[Nothing, Unit]
             _          <- consumer
@@ -96,20 +94,18 @@ object NatsSpec extends ZIOSpecDefault:
             out        <- received.get
           yield assertTrue(out == expected)
       },
-      test("core batched Discard: drops undecodable messages and delivers the rest") {
+      test("core batched: a poison batch aborts consume; a caller that ignores it gets the rest") {
         ZIO.scoped:
           for
             connection <- ZIO.service[Connection]
-            consumer   <- CoreBatchConsumer.make[Int](
-                            connection,
-                            "core.skipbatch.*",
-                            CoreBatchConsumer.Config(batchSize = 10, onDecodeFailure = DecodeFailurePolicy.Discard),
-                          )(using intSerde)
-            producer    = CoreProducer.make[String](connection)(payload => s"core.skipbatch.$payload")(using Serde.utf8)
+            consumer   <- CoreBatchConsumer.make[Int](connection, "core.skipbatch.*", CoreBatchConsumer.Config(batchSize = 10))(using intDecoder)
+            producer    = CoreProducer.make[String](connection)(using Codec.Encoder.utf8(payload => s"core.skipbatch.$payload"))
             received   <- Ref.make(Set.empty[Int])
             done       <- Promise.make[Nothing, Unit]
+            // a batch holding the poison fails whole; republishing means 1 and 2 eventually land in clean ones
             _          <- consumer
                             .consume(batch => received.updateAndGet(_ ++ batch).flatMap(seen => ZIO.when(seen == Set(1, 2))(done.succeed(())).unit))
+                            .either
                             .forever
                             .forkScoped
             _          <- (producer.emit("1") *> producer.emit("oops") *> producer.emit("2")).repeat(Schedule.spaced(100.millis)).forkScoped
@@ -125,11 +121,11 @@ object NatsSpec extends ZIOSpecDefault:
             subscriber <- CoreSubscriber.make(connection)
             promises   <- ZIO.foreach((1 to count).toList): i =>
                             for
-                              consumer <- CoreConsumer.make[String](subscriber, s"core.shard.$i", CoreConsumer.Config())(using Serde.utf8)
+                              consumer <- CoreConsumer.make[String](subscriber, s"core.shard.$i")(using Codec.Decoder.utf8)
                               promise  <- Promise.make[Nothing, String]
                               _        <- consumer.consume(message => promise.succeed(message).unit).forever.forkScoped
                             yield promise
-            producer    = CoreProducer.make[String](connection)(payload => s"core.shard.$payload")(using Serde.utf8)
+            producer    = CoreProducer.make[String](connection)(using Codec.Encoder.utf8(payload => s"core.shard.$payload"))
             _          <- ZIO.foreachDiscard(1 to count)(i => producer.emit(i.toString)).repeat(Schedule.spaced(100.millis)).forkScoped
             received   <- ZIO.foreach(promises)(_.await)
           yield assertTrue(received.toSet == (1 to count).map(_.toString).toSet)
@@ -141,8 +137,8 @@ object NatsSpec extends ZIOSpecDefault:
           for
             connection <- ZIO.service[Connection]
             _          <- NatsSpecLayers.stream(connection, "ORDERS", "orders.>")
-            producer   <- StreamProducer.make[String](connection)(order => s"orders.$order")(using Serde.utf8)
-            consumer   <- StreamConsumer.make[String](connection, "ORDERS", "worker", "orders.>")(using Serde.utf8)
+            producer   <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(order => s"orders.$order"))
+            consumer   <- StreamConsumer.make[String](connection, "ORDERS", "worker", "orders.>")(using Codec.Decoder.utf8)
             _          <- producer.emit("alpha") // durable — publish before consume is fine
             received   <- Ref.make(Option.empty[String])
             _          <- consumer.consume(message => received.set(Some(message)))
@@ -154,9 +150,9 @@ object NatsSpec extends ZIOSpecDefault:
           for
             connection <- ZIO.service[Connection]
             _          <- NatsSpecLayers.stream(connection, "REDELIVER", "redeliver.>")
-            producer   <- StreamProducer.make[String](connection)(value => s"redeliver.$value")(using Serde.utf8)
+            producer   <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(value => s"redeliver.$value"))
             consumer   <- StreamConsumer.make[String](connection, "REDELIVER", "worker", "redeliver.>", StreamConsumer.Config(ackWait = 2.seconds))(
-                            using Serde.utf8
+                            using Codec.Decoder.utf8
                           )
             attempts   <- Ref.make(0)
             done       <- Promise.make[Nothing, Unit]
@@ -172,37 +168,42 @@ object NatsSpec extends ZIOSpecDefault:
             count      <- attempts.get
           yield assertTrue(count >= 2)
       },
-      test("an undecodable payload fails the consumer by inmemory (Surface — non-destructive)") {
+      test("under Surface an undecodable payload fails the consumer, un-acked (non-destructive)") {
         ZIO.scoped:
           for
             connection <- ZIO.service[Connection]
             _          <- NatsSpecLayers.stream(connection, "POISON_SURFACE", "surface.>")
-            producer   <- StreamProducer.make[String](connection)(_ => "surface.in")(using Serde.utf8)
-            consumer   <- StreamConsumer.make[Int](connection, "POISON_SURFACE", "worker", "surface.>")(using intSerde)
+            producer   <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(_ => "surface.in"))
+            consumer   <- StreamConsumer.make[Int](
+                            connection,
+                            "POISON_SURFACE",
+                            "worker",
+                            "surface.>",
+                            StreamConsumer.Config(onFailure = HandlerFailurePolicy.Surface),
+                          )(using intDecoder)
             _          <- producer.emit("oops")
             outcome    <- consumer.consume(_ => ZIO.unit).either
           yield assertTrue(outcome match { case Left(NatsError.Decode(_)) => true; case _ => false })
       },
-      test("with DecodeFailurePolicy.Discard a poison message is termed once and the consumer continues") {
-        val decodeCount               = new java.util.concurrent.atomic.AtomicInteger(0)
-        val countingSerde: Serde[Int] = new Serde[Int]:
-          def encode(value: Int): Array[Byte]                 = value.toString.getBytes(StandardCharsets.UTF_8)
-          def decode(bytes: Array[Byte]): Either[String, Int] =
-            val _ = decodeCount.incrementAndGet()
-            new String(bytes, StandardCharsets.UTF_8).toIntOption.toRight("not an int")
+      test("with Discard a poison message is termed once and the consumer continues") {
+        val decodeCount                         = new java.util.concurrent.atomic.AtomicInteger(0)
+        val countingDecoder: Codec.Decoder[Int] = message => {
+          val _ = decodeCount.incrementAndGet()
+          new String(message.getData, StandardCharsets.UTF_8).toIntOption.toRight("not an int")
+        }
 
         ZIO.scoped:
           for
             connection <- ZIO.service[Connection]
             _          <- NatsSpecLayers.stream(connection, "POISON_DLQ", "dlq.>")
-            producer   <- StreamProducer.make[String](connection)(_ => "dlq.in")(using Serde.utf8)
+            producer   <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(_ => "dlq.in"))
             consumer   <- StreamConsumer.make[Int](
                             connection,
                             "POISON_DLQ",
                             "worker",
                             "dlq.>",
-                            StreamConsumer.Config(onDecodeFailure = DecodeFailurePolicy.Discard),
-                          )(using countingSerde)
+                            StreamConsumer.Config(onFailure = HandlerFailurePolicy.Discard),
+                          )(using countingDecoder)
             good       <- Promise.make[Nothing, Int]
             _          <- producer.emit("oops") // undecodable → term (dropped, not redelivered)
             _          <- producer.emit("42")   // decodable → delivered next
@@ -215,14 +216,14 @@ object NatsSpec extends ZIOSpecDefault:
           for
             connection <- ZIO.service[Connection]
             _          <- NatsSpecLayers.stream(connection, "HANDLER_SURFACE", "hsurface.>")
-            producer   <- StreamProducer.make[String](connection)(_ => "hsurface.in")(using Serde.utf8)
+            producer   <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(_ => "hsurface.in"))
             consumer   <- StreamConsumer.make[String](
                             connection,
                             "HANDLER_SURFACE",
                             "worker",
                             "hsurface.>",
-                            StreamConsumer.Config(onHandlerFailure = HandlerFailurePolicy.Surface),
-                          )(using Serde.utf8)
+                            StreamConsumer.Config(onFailure = HandlerFailurePolicy.Surface),
+                          )(using Codec.Decoder.utf8)
             _          <- producer.emit("x")
             outcome    <- consumer.consume(_ => ZIO.fail(NatsError.Decode("handler boom"))).either
           yield assertTrue(outcome match { case Left(NatsError.Decode("handler boom")) => true; case _ => false })
@@ -232,14 +233,14 @@ object NatsSpec extends ZIOSpecDefault:
           for
             connection <- ZIO.service[Connection]
             _          <- NatsSpecLayers.stream(connection, "HANDLER_DLQ", "hdlq.>")
-            producer   <- StreamProducer.make[String](connection)(payload => s"hdlq.$payload")(using Serde.utf8)
+            producer   <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(payload => s"hdlq.$payload"))
             consumer   <- StreamConsumer.make[String](
                             connection,
                             "HANDLER_DLQ",
                             "worker",
                             "hdlq.>",
-                            StreamConsumer.Config(ackWait = 2.seconds, onHandlerFailure = HandlerFailurePolicy.Discard),
-                          )(using Serde.utf8)
+                            StreamConsumer.Config(ackWait = 2.seconds, onFailure = HandlerFailurePolicy.Discard),
+                          )(using Codec.Decoder.utf8)
             attempts   <- Ref.make(0)
             good       <- Promise.make[Nothing, String]
             logic       = (message: String) =>
@@ -258,8 +259,8 @@ object NatsSpec extends ZIOSpecDefault:
           for
             connection <- ZIO.service[Connection]
             _          <- NatsSpecLayers.stream(connection, "SHARDED", "sharded.>")
-            producer   <- StreamProducer.make[String](connection)(value => s"sharded.$value")(using Serde.utf8)
-            consumer   <- StreamConsumer.make[String](connection, "SHARDED", "worker", "sharded.>")(using Serde.utf8)
+            producer   <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(value => s"sharded.$value"))
+            consumer   <- StreamConsumer.make[String](connection, "SHARDED", "worker", "sharded.>")(using Codec.Decoder.utf8)
             _          <- ZIO.foreachDiscard(1 to 20)(i => producer.emit(i.toString))
             received   <- Ref.make(Set.empty[String])
             done       <- Promise.make[Nothing, Unit]
@@ -276,14 +277,14 @@ object NatsSpec extends ZIOSpecDefault:
           for
             connection <- ZIO.service[Connection]
             _          <- NatsSpecLayers.stream(connection, "HEARTBEAT", "heartbeat.>")
-            producer   <- StreamProducer.make[String](connection)(_ => "heartbeat.in")(using Serde.utf8)
+            producer   <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(_ => "heartbeat.in"))
             consumer   <- StreamConsumer.make[String](
                             connection,
                             "HEARTBEAT",
                             "worker",
                             "heartbeat.>",
                             StreamConsumer.Config(ackWait = 2.seconds, heartbeat = Some(500.millis)),
-                          )(using Serde.utf8)
+                          )(using Codec.Decoder.utf8)
             attempts   <- Ref.make(0)
             done       <- Promise.make[Nothing, Unit]
             // the handler runs longer than ackWait; the heartbeat should keep it from redelivering
@@ -299,7 +300,7 @@ object NatsSpec extends ZIOSpecDefault:
         ZIO.scoped:
           for
             connection <- ZIO.service[Connection]
-            producer   <- StreamProducer.make[String](connection)(_ => "nostream.subject")(using Serde.utf8)
+            producer   <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(_ => "nostream.subject"))
             outcome    <- producer.emit("x").either
           yield assertTrue(outcome match { case Left(NatsError.Publish(_)) => true; case _ => false })
       },
@@ -308,20 +309,20 @@ object NatsSpec extends ZIOSpecDefault:
           for
             connection <- ZIO.service[Connection]
             _          <- NatsSpecLayers.stream(connection, "RESUME", "resume.>")
-            producer   <- StreamProducer.make[String](connection)(value => s"resume.$value")(using Serde.utf8)
+            producer   <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(value => s"resume.$value"))
             _          <- ZIO.foreachDiscard(1 to 6)(i => producer.emit(i.toString))
             firstSeen  <- Ref.make(List.empty[String])
             // first instance consumes and acks 3, then is torn down — releasing the rest
             _          <- ZIO.scoped:
                             for
-                              first <- StreamConsumer.make[String](connection, "RESUME", "worker", "resume.>")(using Serde.utf8)
+                              first <- StreamConsumer.make[String](connection, "RESUME", "worker", "resume.>")(using Codec.Decoder.utf8)
                               _     <- ZIO.foreachDiscard(1 to 3)(_ => first.consume(message => firstSeen.update(_ :+ message)))
                             yield ()
             secondSeen <- Ref.make(List.empty[String])
             // a fresh instance with the SAME durable name picks up where the first left off
             _          <- ZIO.scoped:
                             for
-                              second <- StreamConsumer.make[String](connection, "RESUME", "worker", "resume.>")(using Serde.utf8)
+                              second <- StreamConsumer.make[String](connection, "RESUME", "worker", "resume.>")(using Codec.Decoder.utf8)
                               _      <- ZIO.foreachDiscard(1 to 3)(_ => second.consume(message => secondSeen.update(_ :+ message)))
                             yield ()
             one        <- firstSeen.get
@@ -333,7 +334,7 @@ object NatsSpec extends ZIOSpecDefault:
           for
             connection <- ZIO.service[Connection]
             _          <- NatsSpecLayers.stream(connection, "BACKPRESSURE", "backpressure.>")
-            producer   <- StreamProducer.make[String](connection)(value => s"backpressure.$value")(using Serde.utf8)
+            producer   <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(value => s"backpressure.$value"))
             _          <- ZIO.foreachDiscard(1 to 10)(i => producer.emit(i.toString))
             consumer   <- StreamConsumer.make[String](
                             connection,
@@ -341,7 +342,7 @@ object NatsSpec extends ZIOSpecDefault:
                             "worker",
                             "backpressure.>",
                             StreamConsumer.Config(maxAckPending = 2),
-                          )(using Serde.utf8)
+                          )(using Codec.Decoder.utf8)
             gate       <- Promise.make[Nothing, Unit]       // never completed → handlers never ack
             delivered  <- Ref.make(0)
             // many concurrent consumes; each takes a message and blocks it unacked
@@ -359,9 +360,11 @@ object NatsSpec extends ZIOSpecDefault:
           for
             connection <- ZIO.service[Connection]
             _          <- NatsSpecLayers.stream(connection, "BATCH", "batch.>")
-            producer   <- StreamProducer.make[String](connection)(value => s"batch.$value")(using Serde.utf8)
+            producer   <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(value => s"batch.$value"))
             consumer   <-
-              StreamBatchConsumer.make[String](connection, "BATCH", "worker", "batch.>", StreamBatchConsumer.Config(batchSize = 10))(using Serde.utf8)
+              StreamBatchConsumer.make[String](connection, "BATCH", "worker", "batch.>", StreamBatchConsumer.Config(batchSize = 10))(
+                using Codec.Decoder.utf8
+              )
             _          <- ZIO.foreachDiscard(1 to 10)(i => producer.emit(i.toString))
             received   <- Ref.make(Set.empty[String])
             done       <- Promise.make[Nothing, Unit]
@@ -373,28 +376,32 @@ object NatsSpec extends ZIOSpecDefault:
             out        <- received.get
           yield assertTrue(out == expected)
       },
-      test("batched Discard: an undecodable message is termed, the rest delivered") {
+      test("batched Discard: a poison message terms its whole batch, and the consumer continues") {
         ZIO.scoped:
           for
             connection <- ZIO.service[Connection]
             _          <- NatsSpecLayers.stream(connection, "BATCH_DLQ", "batchdlq.>")
-            producer   <- StreamProducer.make[String](connection)(_ => "batchdlq.in")(using Serde.utf8)
+            producer   <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(_ => "batchdlq.in"))
             consumer   <- StreamBatchConsumer.make[Int](
                             connection,
                             "BATCH_DLQ",
                             "worker",
                             "batchdlq.>",
-                            StreamBatchConsumer.Config(batchSize = 10, onDecodeFailure = DecodeFailurePolicy.Discard),
-                          )(using intSerde)
+                            StreamBatchConsumer.Config(batchSize = 10, onFailure = HandlerFailurePolicy.Discard),
+                          )(using intDecoder)
             received   <- Ref.make(Set.empty[Int])
             done       <- Promise.make[Nothing, Unit]
+            // Publish the poison alone and drain it first, so it is a batch of its own: under Discard the
+            // whole batch is termed, which is now the unit of blast radius. Good messages published after it
+            // are then delivered, proving the consumer carried on rather than wedging.
+            _          <- producer.emit("oops")
+            _          <- consumer.consume(_ => ZIO.unit) // drains and terms the poison batch, without failing
+            _          <- producer.emit("1")
+            _          <- producer.emit("2")
             _          <- consumer
                             .consume(batch => received.updateAndGet(_ ++ batch).flatMap(seen => ZIO.when(seen == Set(1, 2))(done.succeed(())).unit))
                             .forever
                             .forkScoped
-            _          <- producer.emit("1")
-            _          <- producer.emit("oops") // undecodable → termed, excluded from the batch
-            _          <- producer.emit("2")
             _          <- done.await
             out        <- received.get
           yield assertTrue(out == Set(1, 2))
@@ -404,10 +411,16 @@ object NatsSpec extends ZIOSpecDefault:
           for
             connection <- ZIO.service[Connection]
             _          <- NatsSpecLayers.stream(connection, "BATCH_SURFACE", "batchsurface.>")
-            producer   <- StreamProducer.make[String](connection)(_ => "batchsurface.in")(using Serde.utf8)
+            producer   <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(_ => "batchsurface.in"))
             consumer   <-
-              StreamBatchConsumer.make[Int](connection, "BATCH_SURFACE", "worker", "batchsurface.>", StreamBatchConsumer.Config(batchSize = 3))(
-                using intSerde
+              StreamBatchConsumer.make[Int](
+                connection,
+                "BATCH_SURFACE",
+                "worker",
+                "batchsurface.>",
+                StreamBatchConsumer.Config(batchSize = 3, onFailure = HandlerFailurePolicy.Surface),
+              )(
+                using intDecoder
               )
             _          <- producer.emit("1")
             _          <- producer.emit("oops")

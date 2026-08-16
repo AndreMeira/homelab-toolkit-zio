@@ -2,82 +2,56 @@ package homelab.nats.stream
 
 
 import homelab.common.messaging.Consumer as ConsumerContract
-import homelab.nats.{ DecodeFailurePolicy, HandlerFailurePolicy, NatsError, Serde }
+import homelab.nats.Codec.Decoder
+import homelab.nats.{ HandlerFailurePolicy, NatsError }
 import io.nats.client.{ Connection, Message }
 import zio.*
 
-import scala.util.chaining.scalaUtilChainingOps
-
 
 /**
- * A durable JetStream batched [[ConsumerContract.Batched]] over a [[StreamPoll]]. Drains up to `batchSize`
- * buffered messages, decodes them, runs `logic` on the decoded batch (under the heartbeat), and settles the
- * '''decodable''' messages together: `ackAll` on success, else `onHandlerFailure` (`nak` / `term` / surface).
- * Undecodable messages are settled per `onDecodeFailure` before the handler runs — Discard `term`s them and
- * excludes them from the batch; Surface leaves the whole batch un-acked and fails `consume`. Redelivery is
- * real, so '''handlers must be idempotent'''.
+ * A durable JetStream batched [[ConsumerContract.Batched]] over messages, backed by a [[StreamPoll]]. Drains
+ * up to `batchSize` buffered messages, runs `logic` on them (under the heartbeat), and settles them
+ * '''together''': `ackAll` on success, else `onFailure` (`nak` / `term` / surface). Redelivery is real, so
+ * '''handlers must be idempotent'''.
  *
- * @param batchSize        the maximum messages drained per `consume`
- * @param heartbeat        `inProgress()` keepalive interval while the handler runs, or `None` to disable
- * @param poll             the message source (subscribes lazily on first `consume`)
- * @param onDecodeFailure  what to do when a payload can't be decoded
- * @param onHandlerFailure what to do when the handler fails on the batch
- * @tparam A the value consumed
+ * It consumes `Message`, not decoded values: decoding is layered on top by the `make[A]` factory. Settling
+ * happens below the decoder and per batch, so a malformed payload reaches this class as a failing handler and
+ * takes its whole batch with it. See [[BatchConsumer.make]].
+ *
+ * @param batchSize the maximum messages drained per `consume`
+ * @param heartbeat `inProgress()` keepalive interval while the handler runs, or `None` to disable
+ * @param poll      the message source (subscribes lazily on first `consume`)
+ * @param onFailure what to do when processing a batch fails
  */
-final class BatchConsumer[A: Serde](
+final class BatchConsumer(
   batchSize: Int,
   heartbeat: Option[Duration],
   poll: StreamPoll,
-  onDecodeFailure: DecodeFailurePolicy,
-  onHandlerFailure: HandlerFailurePolicy,
-) extends ConsumerContract.Batched[NatsError, A]:
+  onFailure: HandlerFailurePolicy,
+) extends ConsumerContract.Batched[NatsError, Message]:
 
   /**
-   * Drain a batch, decode it, run `logic` on the decoded values (under the heartbeat), and settle only those
-   * messages. Undecodable messages are already terminally handled in [[decode]]. One call processes one
-   * batch; a run loop calls it repeatedly.
+   * Drain a batch, run `logic` on it (under the heartbeat), and settle it. One call processes one batch; a run
+   * loop calls it repeatedly.
    *
-   * @param logic processes one batch of consumed values
+   * @param logic processes one batch of consumed messages
    * @tparam E2 the widened error, admitting `logic`'s failures
-   * @return noop once the batch is settled; aborts with [[NatsError.Decode]] under Surface on an undecodable
-   *         payload, with `E2` if `logic` fails under Surface, or with [[NatsError.Ack]] if a settlement call
-   *         fails
+   * @return noop once the batch is settled; aborts with `E2` if `logic` fails under Surface, or with
+   *         [[NatsError.Ack]] if a settlement call fails
    */
-  override def consume[E2 >: NatsError](logic: List[A] => IO[E2, Unit]): IO[E2, Unit] =
-    poll.many(batchSize).flatMap(decode).flatMap {
-      case Nil   => ZIO.unit // all undecodable and termed in decode (Discard) — nothing to settle
-      case pairs =>
-        val (validMessages, values) = pairs.unzip
-        Heartbeat.wrap(heartbeat, validMessages)(logic(values).either).flatMap(handleResult(validMessages, _))
+  override def consume[E2 >: NatsError](logic: List[Message] => IO[E2, Unit]): IO[E2, Unit] =
+    poll.many(batchSize).flatMap {
+      case Nil      => ZIO.unit
+      case messages =>
+        Heartbeat
+          .wrap(heartbeat, messages)(logic(messages).either)
+          .flatMap(handleResult(messages, _))
     }
 
   /**
-   * Split the batch into decodable `(message, value)` pairs and undecodable ones, settling the undecodable
-   * per `onDecodeFailure`: Discard `term`s them and returns the decodable rest; Surface fails the whole batch.
+   * Settle the batch by the handler outcome: `ackAll` on success, else `onFailure`.
    *
-   * @param messages the received messages
-   * @return the decodable message/value pairs (empty if none decode); aborts with [[NatsError.Decode]] under
-   *         Surface when any message is undecodable, or [[NatsError.Ack]] if a `term` fails
-   */
-  private def decode(messages: List[Message]): IO[NatsError, List[(Message, A)]] = {
-    val (failed, valid) = messages.partitionMap: message =>
-      Serde[A].decode(message.getData) match
-        case Right(value) => Right(message -> value)
-        case Left(error)  => Left(message -> error)
-
-    val (invalid, errors) = failed.unzip
-      .pipe((messages, errors) => messages -> errors.mkString(", "))
-
-    onDecodeFailure match
-      case DecodeFailurePolicy.Discard if invalid.nonEmpty => dismissAll(invalid) *> ZIO.succeed(valid)
-      case DecodeFailurePolicy.Surface if invalid.nonEmpty => ZIO.fail(NatsError.Decode(errors))
-      case _                                               => ZIO.succeed(valid)
-  }
-
-  /**
-   * Settle the decodable messages by the handler outcome: `ackAll` on success, else `onHandlerFailure`.
-   *
-   * @param messages the decodable messages to settle
+   * @param messages the messages to settle
    * @param outcome  the handler's result — `Right` on success, `Left` on failure
    * @tparam E2 the handler's error
    * @return noop once settled; aborts with `E2` under Surface (re-raising the handler error), or with
@@ -87,7 +61,7 @@ final class BatchConsumer[A: Serde](
     outcome match
       case Right(_)    => ackAll(messages)
       case Left(error) =>
-        onHandlerFailure match
+        onFailure match
           case HandlerFailurePolicy.Discard   => dismissAll(messages)
           case HandlerFailurePolicy.Redeliver => nackAll(messages)
           case HandlerFailurePolicy.Surface   => ZIO.fail(error)
@@ -99,7 +73,8 @@ final class BatchConsumer[A: Serde](
    * @return noop once all are acked; aborts with [[NatsError.Ack]] on the first failure
    */
   private def ackAll(messages: List[Message]): IO[NatsError, Unit] =
-    ZIO.foreachDiscard(messages)(message => ZIO.attemptBlocking(message.ack()).mapError(NatsError.Ack(_)))
+    ZIO.foreachDiscard(messages): message =>
+      ZIO.attemptBlocking(message.ack()).mapError(NatsError.Ack(_))
 
   /**
    * `nak` every message (redeliver).
@@ -108,7 +83,8 @@ final class BatchConsumer[A: Serde](
    * @return noop once all are naked; aborts with [[NatsError.Ack]] on the first failure
    */
   private def nackAll(messages: List[Message]): IO[NatsError, Unit] =
-    ZIO.foreachDiscard(messages)(message => ZIO.attemptBlocking(message.nak()).mapError(NatsError.Ack(_)))
+    ZIO.foreachDiscard(messages): message =>
+      ZIO.attemptBlocking(message.nak()).mapError(NatsError.Ack(_))
 
   /**
    * `term` every message (stop redelivery).
@@ -117,7 +93,8 @@ final class BatchConsumer[A: Serde](
    * @return noop once all are termed; aborts with [[NatsError.Ack]] on the first failure
    */
   private def dismissAll(messages: List[Message]): IO[NatsError, Unit] =
-    ZIO.foreachDiscard(messages)(message => ZIO.attemptBlocking(message.term()).mapError(NatsError.Ack(_)))
+    ZIO.foreachDiscard(messages): message =>
+      ZIO.attemptBlocking(message.term()).mapError(NatsError.Ack(_))
 
 
 object BatchConsumer:
@@ -125,45 +102,42 @@ object BatchConsumer:
   /**
    * Tuning for a JetStream batched consumer.
    *
-   * @param batchSize        the maximum messages drained per `consume`
-   * @param ackWait          how long the server waits for an ack before redelivering
-   * @param maxAckPending    the backpressure bound on un-acked in-flight messages
-   * @param heartbeat        `inProgress()` keepalive interval while the handler runs, or `None` to disable
-   * @param onDecodeFailure  what to do when a payload can't be decoded
-   * @param onHandlerFailure what to do when the handler fails on the batch
+   * @param batchSize     the maximum messages drained per `consume`
+   * @param ackWait       how long the server waits for an ack before redelivering
+   * @param maxAckPending the backpressure bound on un-acked in-flight messages
+   * @param heartbeat     `inProgress()` keepalive interval while the handler runs, or `None` to disable
+   * @param onFailure     what to do when processing a batch fails — decoding included, see [[make]]
    */
   final case class Config(
     batchSize: Int = 100,
     ackWait: Duration = 30.seconds,
     maxAckPending: Int = 256,
     heartbeat: Option[Duration] = None,
-    onDecodeFailure: DecodeFailurePolicy = DecodeFailurePolicy.Surface,
-    onHandlerFailure: HandlerFailurePolicy = HandlerFailurePolicy.Redeliver,
+    onFailure: HandlerFailurePolicy = HandlerFailurePolicy.Redeliver,
   )
 
   /**
-   * Convenience: a durable batched consumer on its own connection-backed subscriber. For fan-out, build a
-   * [[JetStreamSubscriber]] once and use the subscriber overload.
+   * Convenience: a durable batched message consumer on its own connection-backed subscriber. For fan-out,
+   * build a [[JetStreamSubscriber]] once and use the subscriber overload.
    *
    * @param connection the live connection
    * @param stream     the (existing) stream name
    * @param durable    the durable consumer name (shared progress across restarts)
    * @param subject    the subject filter
    * @param config     batch / ack / backpressure / heartbeat / failure tuning
-   * @tparam A the value consumed
-   * @return the consumer; aborts with [[NatsError.Connect]] if the consumer can't be set up
+   * @return the message consumer; aborts with [[NatsError.Connect]] if the consumer can't be set up
    */
-  def make[A: Serde](
+  def apply(
     connection: Connection,
     stream: String,
     durable: String,
     subject: String,
     config: Config = Config(),
-  ): ZIO[Scope, NatsError, ConsumerContract.Batched[NatsError, A]] =
-    make[A](JetStreamSubscriber.make(connection), stream, durable, subject, config)
+  ): ZIO[Scope, NatsError, ConsumerContract.Batched[NatsError, Message]] =
+    apply(JetStreamSubscriber.make(connection), stream, durable, subject, config)
 
   /**
-   * Attach a durable batched consumer through an existing [[JetStreamSubscriber]]. The subscription is
+   * Attach a durable batched message consumer through an existing [[JetStreamSubscriber]]. The subscription is
    * established lazily on the first `consume`.
    *
    * @param subscriber the subscriber to attach the durable consumer through
@@ -171,16 +145,84 @@ object BatchConsumer:
    * @param durable    the durable consumer name
    * @param subject    the subject filter
    * @param config     batch / ack / backpressure / heartbeat / failure tuning
-   * @tparam A the value consumed
+   * @return the message consumer
+   */
+  def apply(
+    subscriber: JetStreamSubscriber,
+    stream: String,
+    durable: String,
+    subject: String,
+    config: Config,
+  ): ZIO[Scope, NatsError, ConsumerContract.Batched[NatsError, Message]] =
+    StreamPoll
+      .make(subscriber, ContextConfig(stream, durable, subject, config.ackWait, config.maxAckPending))
+      .map(poll => new BatchConsumer(config.batchSize, config.heartbeat, poll, config.onFailure))
+
+  /**
+   * A batched consumer of decoded values: the message consumer with `A`'s decoder layered over it.
+   *
+   * Because settling happens below the decoder and covers the whole batch, one undecodable payload settles
+   * '''its batch-mates with it''' — `nak` under Redeliver, `term` under Discard, or surfaced (leaving the
+   * batch un-acked, so redelivered after `ackWait`) under Surface. That blast radius is the price of batching;
+   * the per-item [[Consumer]] confines it to the one message.
+   *
+   * @param connection the live connection
+   * @param stream     the (existing) stream name
+   * @param durable    the durable consumer name
+   * @param subject    the subject filter
+   * @param config     batch / ack / backpressure / heartbeat / failure tuning
+   * @tparam A the value consumed, with a [[Decoder]] in scope
+   * @return the consumer; aborts with [[NatsError.Connect]] if the consumer can't be set up
+   */
+  def make[A: Decoder](
+    connection: Connection,
+    stream: String,
+    durable: String,
+    subject: String,
+    config: Config = Config(),
+  ): ZIO[Scope, NatsError, ConsumerContract.Batched[NatsError, A]] =
+    apply(connection, stream, durable, subject, config).map(decoded[A])
+
+  /**
+   * A batched consumer of decoded values through an existing [[JetStreamSubscriber]].
+   *
+   * @param subscriber the subscriber to attach the durable consumer through
+   * @param stream     the (existing) stream name
+   * @param durable    the durable consumer name
+   * @param subject    the subject filter
+   * @param config     batch / ack / backpressure / heartbeat / failure tuning
+   * @tparam A the value consumed, with a [[Decoder]] in scope
    * @return the consumer
    */
-  def make[A: Serde](
+  def make[A: Decoder](
     subscriber: JetStreamSubscriber,
     stream: String,
     durable: String,
     subject: String,
     config: Config,
   ): ZIO[Scope, NatsError, ConsumerContract.Batched[NatsError, A]] =
-    StreamPoll
-      .make(subscriber, ContextConfig(stream, durable, subject, config.ackWait, config.maxAckPending))
-      .map(poll => new BatchConsumer(config.batchSize, config.heartbeat, poll, config.onDecodeFailure, config.onHandlerFailure))
+    apply(subscriber, stream, durable, subject, config).map(decoded[A])
+
+  /**
+   * Layer a decoder over a batched message consumer, keeping the batched shape that `mapZIO` erases.
+   *
+   * @param consumer the batched message consumer to decode for
+   * @tparam A the value consumed, with a [[Decoder]] in scope
+   * @return a batched consumer of decoded values
+   */
+  private def decoded[A: Decoder](
+    consumer: ConsumerContract.Batched[NatsError, Message]
+  ): ConsumerContract.Batched[NatsError, A] =
+    val values = consumer.mapZIO(decode[A])
+    new ConsumerContract.Batched[NatsError, A]:
+      override def consume[E2 >: NatsError](logic: List[A] => IO[E2, Unit]): IO[E2, Unit] = values.consume(logic)
+
+  /**
+   * Decode a batch, lifting the first malformed payload into the error channel so the batch is settled.
+   *
+   * @param messages the received messages
+   * @tparam A the value decoded, with a [[Decoder]] in scope
+   * @return the decoded values; aborts with [[NatsError.Decode]] on the first malformed payload
+   */
+  private def decode[A: Decoder](messages: List[Message]): IO[NatsError, List[A]] =
+    ZIO.foreach(messages)(message => ZIO.fromEither(Decoder[A].decode(message)).mapError(NatsError.Decode(_)))
