@@ -1,10 +1,9 @@
-package homelab.incubator.processing.v7
-
+package homelab.incubator.processing.actor.v7
 
 import homelab.common.error.ApplicationError.AdapterError
 import homelab.common.flow.Permit
 import homelab.common.messaging.Partitioner
-import homelab.incubator.processing.v7.Actor.{ Next, Running, Self, Terminated }
+import Actor.{ Next, Running, Self, Terminated }
 import zio.*
 
 

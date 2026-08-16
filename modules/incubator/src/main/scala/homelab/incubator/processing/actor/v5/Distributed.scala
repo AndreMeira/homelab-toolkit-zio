@@ -1,13 +1,12 @@
-package homelab.incubator.processing.v5
-
+package homelab.incubator.processing.actor.v5
 
 import homelab.common.error.ApplicationError.AdapterError
 import homelab.common.flow.Permit
 import homelab.common.messaging.Partitioner
 import homelab.common.store.Bucket
-import homelab.incubator.processing.v5.Actor.{ Next, Running, Self, Terminated }
+import Actor.{Next, Running, Self, Terminated}
+import homelab.incubator.processing.actor.v5
 // Explicit: `zio.Runtime` would otherwise win over this package's own via the wildcard below.
-import homelab.incubator.processing.v5.Runtime
 import zio.*
 
 import scala.collection.immutable.Queue
@@ -77,7 +76,7 @@ object Distributed {
     for
       permit  <- Permit.make(maxInFlight)
       // One runtime for the whole pool: the distributor takes a slot on it, and so does every entity.
-      runtime <- Runtime.make
+      runtime <- v5.Runtime.make
       // The routing table lives in a slot this factory owns rather than one the entity allocates for itself,
       // so the shutdown hook can read it. It is still the distributor's state; nothing else writes it.
       table   <- Bucket.inmemory[Table[E, I, K, O]]
@@ -188,7 +187,7 @@ object Distributed {
    * @param permit    the in-flight bound; released as each message is answered
    */
   final private class Distributor[E >: AdapterError, I, K, S, O](
-    runtime: Runtime,
+    runtime: v5.Runtime,
     behaviour: Actor[E, I, S, O],
     partition: I => K,
     permit: Permit,

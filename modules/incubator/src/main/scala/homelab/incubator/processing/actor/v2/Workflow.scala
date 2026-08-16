@@ -1,4 +1,4 @@
-package homelab.incubator.processing.v2
+package homelab.incubator.processing.actor.v2
 
 import homelab.common.error.ApplicationError.{ AdapterError, DecodingError }
 import homelab.common.flow.Loop.Next.*

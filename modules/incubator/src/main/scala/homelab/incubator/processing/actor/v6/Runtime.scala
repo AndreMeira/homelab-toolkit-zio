@@ -1,4 +1,4 @@
-package homelab.incubator.processing.v6
+package homelab.incubator.processing.actor.v6
 
 import zio.*
 

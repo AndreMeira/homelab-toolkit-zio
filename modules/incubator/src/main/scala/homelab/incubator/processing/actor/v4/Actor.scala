@@ -1,4 +1,4 @@
-package homelab.incubator.processing.v4
+package homelab.incubator.processing.actor.v4
 
 import homelab.common.error.ApplicationError.AdapterError
 import homelab.common.flow.KeyedQueue

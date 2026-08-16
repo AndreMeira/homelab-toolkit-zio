@@ -56,11 +56,12 @@ final class OtelMonitor private (
   def start[R, E, A](name: String, tags: (String, String)*)(effect: => ZIO[R, E, A]): ZIO[R, E, A] =
     val attributes = attributesOf(name, tags)
     for
-      _       <- hits.inc(attributes)
-      outcome <- (effect.onError(recordError(name, attributes, _))
-                   @@ span(name, spanKind = SpanKind.SERVER, attributes = attributes)).timed
-      _       <- latency.record(outcome._1.toMillis.toDouble, attributes)
-    yield outcome._2
+      _          <- hits.inc(attributes)
+      outcome    <- (effect.onError(recordError(name, attributes, _))
+                      @@ span(name, spanKind = SpanKind.SERVER, attributes = attributes)).timed
+      (time, res) = outcome
+      _          <- latency.record(time.toMillis.toDouble, attributes)
+    yield res
 
   /**
    * Observe a nested step as an `INTERNAL`-kind child span under the current one, recording the shared

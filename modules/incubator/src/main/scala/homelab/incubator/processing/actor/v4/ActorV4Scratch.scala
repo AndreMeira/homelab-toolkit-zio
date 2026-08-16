@@ -1,9 +1,8 @@
-package homelab.incubator.processing.v4
-
+package homelab.incubator.processing.actor.v4
 
 import homelab.common.error.ApplicationError.AdapterError
 import homelab.common.store.KeyValueStore
-import homelab.incubator.processing.v4.Actor.{ ask, tell }
+import Actor.{ ask, tell }
 import zio.*
 
 

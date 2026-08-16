@@ -1,10 +1,9 @@
-package homelab.incubator.processing.v5
-
+package homelab.incubator.processing.actor.v5
 
 import homelab.common.error.ApplicationError.AdapterError
 import homelab.common.store.Bucket
+import homelab.incubator.processing.actor.v5
 // Explicit: `zio.Runtime` would otherwise win over this package's own via the wildcard below.
-import homelab.incubator.processing.v5.Runtime
 import zio.*
 
 
@@ -44,7 +43,7 @@ object Actor {
   type Terminated = Terminated.type
 
   /**
-   * Start `behaviour` over `state` on a [[Runtime]] of its own, provisioned in the calling scope — the root
+   * Start `behaviour` over `state` on a [[v5.Runtime]] of its own, provisioned in the calling scope — the root
    * case, for an entity that answers to nobody. Nothing runs until the first message: the entity is dormant,
    * and closing the scope takes it and its runtime down together.
    *
@@ -73,7 +72,7 @@ object Actor {
     behaviour: Actor[E, I, S, O],
     state: Option[Bucket[S]] = None,
   ): ZIO[Scope, Nothing, Running[E, I, O]] =
-    Runtime.make.flatMap(runtime => spawnIn(runtime)(behaviour, state)(ZIO.unit))
+    v5.Runtime.make.flatMap(runtime => spawnIn(runtime)(behaviour, state)(ZIO.unit))
 
   /**
    * [[spawn]], with an owner watching the entity's lifecycle: `onDone` runs when it finishes, so the watcher
@@ -99,7 +98,7 @@ object Actor {
   )(
     onDone: UIO[Unit]
   ): ZIO[Scope, Nothing, Running[E, I, O]] =
-    Runtime.make.flatMap(runtime => spawnIn(runtime)(behaviour, state)(onDone))
+    v5.Runtime.make.flatMap(runtime => spawnIn(runtime)(behaviour, state)(onDone))
 
   /**
    * Start `behaviour` on `runtime`, sharing it with whatever else that runtime carries. The entity takes a
@@ -120,7 +119,7 @@ object Actor {
    * @return the live entity, inert until its first message
    */
   def spawnIn[E >: AdapterError, I, S, O](
-    runtime: Runtime
+    runtime: v5.Runtime
   )(
     behaviour: Actor[E, I, S, O],
     state: Option[Bucket[S]] = None,
@@ -134,11 +133,11 @@ object Actor {
       // An entity torn down with the runtime never finishes, so release anyone waiting on it rather than
       // leaving them parked for the life of their fiber. Finishing normally closes this scope itself.
       _        <- owned.addFinalizer(finished.interrupt)
-    yield new Running.Live(runtime, new Runtime.Key, owned, behaviour, held, onDone, finished)
+    yield new Running.Live(runtime, new v5.Runtime.Key, owned, behaviour, held, onDone, finished)
 
 
   /**
-   * A live entity: an [[Actor]] bound to its state and to the [[Runtime]] that serialises it. This is the
+   * A live entity: an [[Actor]] bound to its state and to the [[v5.Runtime]] that serialises it. This is the
    * handle a caller holds — messages go in, replies come out, and the behaviour, the state and the scheduling
    * are all closed over. Every message routed through one `Running` is processed strictly in order.
    *
@@ -239,8 +238,8 @@ object Actor {
      *                  is refused
      */
     private[Actor] final class Live[E >: AdapterError, I, S, O](
-      runtime: Runtime,
-      key: Runtime.Key,
+      runtime: v5.Runtime,
+      key: v5.Runtime.Key,
       owned: Scope.Closeable,
       behaviour: Actor[E, I, S, O],
       state: Bucket[S],
@@ -284,7 +283,7 @@ object Actor {
         runtime.submit(key)(task(message, replyTo))
 
       /**
-       * The [[Runtime.Task]] for one message: refuse it outright if the entity has finished, else [[step]]
+       * The [[v5.Runtime.Task]] for one message: refuse it outright if the entity has finished, else [[step]]
        * wrapped so it can never fail the drain. The reply is routed from an *uninterruptible* `onExit`, so a
        * failed, defective or interrupted step settles the caller's promise rather than the drain; a typed
        * failure is then swallowed to keep the backlog moving, and only an interrupt is re-raised, to stop the
@@ -294,8 +293,8 @@ object Actor {
        * @param replyTo the promise to settle, if any
        * @return the task the runtime will run — or drop — for this message
        */
-      private def task(message: I, replyTo: Option[Promise[Err, O]]): Runtime.Task =
-        new Runtime.Task:
+      private def task(message: I, replyTo: Option[Promise[Err, O]]): v5.Runtime.Task =
+        new v5.Runtime.Task:
           def run: UIO[Unit] =
             finished.isDone.flatMap:
               case true  => ZIO.foreachDiscard(replyTo)(_.fail(Terminated).unit)
@@ -322,7 +321,7 @@ object Actor {
        * ([[Next.Done]]) — emptying the slot, marking it [[finished]], and running `onDone`.
        *
        * The hook runs on this drain fiber, so no message is processed while it is in flight and the last
-       * reply waits on it; work that must not hold the entity up belongs in [[Runtime.background]].
+       * reply waits on it; work that must not hold the entity up belongs in [[v5.Runtime.background]].
        *
        * @param message the message to process
        * @return the transition's reply; aborts with `E` if seeding, the step, or the store fails

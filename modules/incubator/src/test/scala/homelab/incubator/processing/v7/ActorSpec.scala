@@ -3,7 +3,8 @@ package homelab.incubator.processing.v7
 
 import homelab.common.error.ApplicationError.AdapterError
 import homelab.common.store.Bucket
-import homelab.incubator.processing.v7.Actor.{ Next, Running, Self, Terminated }
+import homelab.incubator.processing.actor.v7.Actor
+import homelab.incubator.processing.actor.v7.Actor.{Next, Running, Self, Terminated}
 import zio.*
 import zio.test.*
 

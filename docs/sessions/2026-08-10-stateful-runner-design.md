@@ -12,7 +12,7 @@ The redesign that supersedes `ActorWorker`. Same actor semantics (keyed, statefu
 `pipeToSelf`, passivation), but restructured so the **behaviour is decoupled from the machinery that runs it**,
 following the `Workflow` / `Workflow.Runner` model.
 
-Code: `modules/incubator/src/main/scala/homelab/incubator/processing/v5/Stateful.scala`
+Code: `../../modules/incubator/src/main/scala/homelab/incubator/processing/actor/v5/Stateful.scala`
 Spec: `modules/incubator/src/test/scala/homelab/incubator/processing/v5/StatefulSpec.scala` (6 tests, green)
 
 ## The shape

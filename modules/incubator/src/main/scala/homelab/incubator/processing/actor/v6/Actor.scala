@@ -1,8 +1,7 @@
-package homelab.incubator.processing.v6
+package homelab.incubator.processing.actor.v6
 
-
-import homelab.incubator.processing.v5.{Actor, Distributed}
-import homelab.incubator.processing.v5.Actor.{Next, Terminated}
+import homelab.incubator.processing.actor.v5.Actor.{Next, Terminated}
+import homelab.incubator.processing.actor.v5.{Actor, Distributed}
 import zio.*
 
 
