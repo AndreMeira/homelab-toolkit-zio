@@ -145,6 +145,13 @@ lazy val incubator = project
       "org.testcontainers"             % "testcontainers" % testcontainersVersion % Test, // NATS via GenericContainer
     ),
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
+    // Sketches are not gated by CI. They still *compile* — that is what catches an experiment rotting
+    // against a change in `common` — but running them is on demand (`incubator/testOnly …`), because they
+    // spin up brokers, race on timing, and are abandoned in place rather than maintained.
+    Test / test := {
+      val _ = (Test / compile).value
+      streams.value.log.info("incubator: sketches compiled, not run — use `incubator/testOnly <spec>`")
+    },
   )
 
 
