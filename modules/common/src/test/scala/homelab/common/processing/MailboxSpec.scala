@@ -19,7 +19,7 @@ import java.time.Instant
 // durations where time itself is under test; a suite timeout turns a wedged expectation into a failure.
 object MailboxSpec extends ZIOSpecDefault:
 
-  private final case class Broken(reason: String) extends ApplicationError.DecodingError:
+  final private case class Broken(reason: String) extends ApplicationError.DecodingError:
     override def message: String = reason
 
   private given Encoder[String] with
@@ -34,7 +34,7 @@ object MailboxSpec extends ZIOSpecDefault:
       new String(value).toIntOption.toRight(Broken(s"not a number: ${new String(value)}"))
 
   /** Everything a test needs: the inbox, the pipe feeding it, and whatever it could not match. */
-  private final case class Fixture(
+  final private case class Fixture(
     inbox: Incoming[AdapterError],
     pipe: Pipe[Nothing, Message],
     forwarded: Ref[List[Message]],
@@ -42,7 +42,7 @@ object MailboxSpec extends ZIOSpecDefault:
 
   /** Addresses are minted in order, so a test can tell two expectations apart by name. */
   private def location(counter: Ref[Int]): Location[AdapterError] = new Location[AdapterError]:
-    override def get: IO[AdapterError, Address]        = ZIO.succeed(Address("inbox"))
+    override def get: IO[AdapterError, Address]         = ZIO.succeed(Address("inbox"))
     override def droppoff[A]: IO[AdapterError, Address] = counter.updateAndGet(_ + 1).map(n => Address(s"drop-$n"))
 
   /** A producer that keeps what it is given, in arrival order. */
@@ -145,6 +145,33 @@ object MailboxSpec extends ZIOSpecDefault:
         ended   <- Clock.nanoTime
       yield assertTrue(first.isEmpty, second.isEmpty, Duration.fromNanos(ended - started) < 100.millis)
     },
+    test("hands one outcome to every fiber awaiting the receipt, decoding it once") {
+      // Two holders of the same receipt must both see the reply — and the memo means the wait, and the decode
+      // it ends with, happen once however many fibers are queued on it.
+      val decodes                   = new java.util.concurrent.atomic.AtomicInteger(0)
+      val counting: Decoder[String] = value => {
+        val _ = decodes.incrementAndGet()
+        Right(new String(value))
+      }
+      for
+        f      <- fixture()
+        rcpt   <- f.inbox.expect[String](5.seconds)(using counting)
+        first  <- rcpt.await.fork
+        second <- rcpt.await.fork
+        _      <- parked(first) *> parked(second) // one holds the memo, the other queues behind it
+        _      <- f.inbox.process(Message(rcpt.address, "pong".getBytes))
+        one    <- first.join
+        two    <- second.join
+        later  <- rcpt.await                      // and a third, long after it settled
+        table  <- f.inbox.pending.get
+      yield assertTrue(
+        one.contains("pong"),
+        two.contains("pong"),
+        later.contains("pong"),
+        decodes.get == 1,
+        table.isEmpty,
+      )
+    },
     test("retires its entry when the holder is interrupted out of the wait") {
       for
         f       <- fixture()
@@ -185,14 +212,14 @@ object MailboxSpec extends ZIOSpecDefault:
       // Nothing awaits this one, so only the sweeper can reclaim it — the case that motivates having a
       // sweeper at all. It must survive an `expect` inside the interval and be gone after one beyond it.
       for
-        f        <- fixture(sweepInterval = 200.millis)
+        f         <- fixture(sweepInterval = 200.millis)
         abandoned <- f.inbox.expect[String](1.milli)
-        _        <- ZIO.sleep(50.millis)
-        _        <- f.inbox.expect[String](10.seconds) // within the interval: no sweep
-        early    <- f.inbox.pending.get
-        _        <- ZIO.sleep(250.millis)
-        _        <- f.inbox.expect[String](10.seconds) // past the interval: sweeps
-        late     <- f.inbox.pending.get
+        _         <- ZIO.sleep(50.millis)
+        _         <- f.inbox.expect[String](10.seconds) // within the interval: no sweep
+        early     <- f.inbox.pending.get
+        _         <- ZIO.sleep(250.millis)
+        _         <- f.inbox.expect[String](10.seconds) // past the interval: sweeps
+        late      <- f.inbox.pending.get
       yield assertTrue(early.contains(abandoned.address), !late.contains(abandoned.address), late.size == 2)
     },
     test("runs as a processor, resolving expectations from its own intake") {

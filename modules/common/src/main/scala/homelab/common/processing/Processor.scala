@@ -8,9 +8,10 @@ import zio.*
 
 /**
  * A [[Node]] with an input: it consumes `A` and emits however it likes — to zero, one, or many
- * [[Producer]]s held as its own fields. Emission is intentionally unspecified here; the common
- * 1-in/1-out case is [[Through]], which also supplies the run loop. A worker that fans out to several
- * outputs (success + dead-letter, say) extends `Processor` directly and writes its own `run`.
+ * [[Producer]]s held as its own fields. Emission is intentionally unspecified here: what a processor does
+ * with a value is its own business, and the shapes worth naming are named ([[Worker]] replies to its caller,
+ * [[Stateful]] advances a keyed state). One that fans out to several outputs — success plus dead-letter,
+ * say — holds those producers itself, and overrides `run` only if the standard loop does not suit.
  *
  * Its failures are [[ApplicationError]]s: a processor is something a [[Graph]] runs, and a graph has one
  * error channel for everything in it. Wrap whatever a library throws at the adapter edge, as everything else
@@ -28,7 +29,7 @@ trait Processor[+E <: ApplicationError, A] {
    * different pipes are two processors.
    */
   private[processing] val key: Processor.Key = new Processor.Key
-  
+
   /**
    * The intake this processor consumes from.
    *
@@ -55,7 +56,7 @@ trait Processor[+E <: ApplicationError, A] {
 
 
 object Processor {
-  
+
   /** A processor's identity, compared by reference — see [[Processor.key]]. */
   private[processing] class Key
 

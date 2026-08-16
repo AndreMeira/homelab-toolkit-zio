@@ -164,19 +164,19 @@ object BatcherSpec extends ZIOSpecDefault:
             gate    <- Promise.make[Nothing, Unit]
             b       <- dedup(_ => 0, recordingGatedLogic(seen, entered, gate))
             leader  <- b.run(1).fork
-            _       <- entered.await                             // the key is now in flight
+            _       <- entered.await            // the key is now in flight
             others  <- ZIO.foreachPar((2 to 101).toList)(b.run).fork
-            _       <- ZIO.yieldNow.repeatN(50)                   // let all 100 arrive and share one slot
+            _       <- ZIO.yieldNow.repeatN(50) // let all 100 arrive and share one slot
             _       <- gate.succeed(())
             first   <- leader.join
             rest    <- others.join
             batches <- seen.get
           yield assertTrue(
-            batches.size == 2,                        // the in-flight call, then one for all 100
-            batches.forall(_.size == 1),              // each carrying a single value, not a hundred
-            first == 10,                              // the leader gets its own
-            rest.distinct.size == 1,                  // the hundred share one result…
-            rest.head != first,                       // …computed after they asked, not the leader's
+            batches.size == 2,           // the in-flight call, then one for all 100
+            batches.forall(_.size == 1), // each carrying a single value, not a hundred
+            first == 10,                 // the leader gets its own
+            rest.distinct.size == 1,     // the hundred share one result…
+            rest.head != first,          // …computed after they asked, not the leader's
           )
       },
       test("dedup is per in-flight window, not a cache") {
@@ -199,16 +199,16 @@ object BatcherSpec extends ZIOSpecDefault:
             gate    <- Promise.make[Nothing, Unit]
             b       <- dedupSized(2, identity, recordingGatedLogic(seen, entered, gate))
             leader  <- b.run(0).fork
-            _       <- entered.await                             // holds the first call open
+            _       <- entered.await            // holds the first call open
             queued  <- ZIO.foreachPar((1 to 6).toList)(b.run).fork
-            _       <- ZIO.yieldNow.repeatN(50)                   // six distinct keys pile up behind it
+            _       <- ZIO.yieldNow.repeatN(50) // six distinct keys pile up behind it
             _       <- gate.succeed(())
             _       <- leader.join
             out     <- queued.join
             batches <- seen.get
           yield assertTrue(
             batches.forall(_.size <= 2),
-            batches.flatten.sorted == (0 to 6).toList,            // every key ran exactly once
+            batches.flatten.sorted == (0 to 6).toList, // every key ran exactly once
             out == (1 to 6).map(_ * 10).toList,
           )
       },
@@ -223,7 +223,7 @@ object BatcherSpec extends ZIOSpecDefault:
             _       <- entered.await
             sharer  <- b.run(2).fork
             _       <- ZIO.yieldNow.repeatN(20)
-            _       <- sharer.interrupt                           // one duplicate walks away
+            _       <- sharer.interrupt // one duplicate walks away
             _       <- gate.succeed(())
             result  <- leader.join
           yield assertTrue(result == 10)

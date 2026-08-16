@@ -9,5 +9,6 @@ object Partition {
     def get(value: A): Type
 }
 
+
 trait Actor[I, O, S](using val key: Partition.Key[I]):
   def store: KeyValueStore[key.Type, S]

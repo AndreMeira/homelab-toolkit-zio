@@ -1,5 +1,6 @@
 package homelab.incubator.processing.actor.v1
 
+
 import homelab.common.error.ApplicationError.AdapterError
 import homelab.common.flow.{ KeyedQueue, Loop, Permit }
 import homelab.common.messaging.{ Consumer, Partitioner }
@@ -103,9 +104,9 @@ object Actor {
                      .flatMap {
                        case Exit.Success(Step.Continue(next, out)) =>
                          Mailbox.reply(replyTo, Exit.succeed(out)).as(Loop.continue(next))
-                       case Exit.Success(Step.Stop(out)) =>
+                       case Exit.Success(Step.Stop(out))           =>
                          Mailbox.reply(replyTo, Exit.succeed(out)).as(Loop.done(()))
-                       case Exit.Failure(cause) =>
+                       case Exit.Failure(cause)                    =>
                          Mailbox.reply(replyTo, Exit.failCause(cause)).as(Loop.continue(state))
                      }
                  }
@@ -132,7 +133,8 @@ object Pool {
     store: KeyValueStore[key.Type, S],
     parallelism: Int,
     maxBuffer: Option[Int] = None,
-  )(using Tag[I]): ZIO[Scope & R, Permit.Error, Mailbox[E | AdapterError, I, O]] =
+  )(using Tag[I]
+  ): ZIO[Scope & R, Permit.Error, Mailbox[E | AdapterError, I, O]] =
     for
       env   <- ZIO.environment[R]
       queue <- KeyedQueue.make[key.Type, Mailbox.Envelope[E | AdapterError, I, O]](maxBuffer)
@@ -143,20 +145,22 @@ object Pool {
                    run: ((key.Type, Mailbox.Envelope[E | AdapterError, I, O])) => IO[E2, Unit]
                  ): IO[E2, Unit] =
                    queue.takeWith((k, envelope) => run((k, envelope)))
-      _     <- Processor.parallel(keyed, parallelism) {
-                 case (k, (input, replyTo)) =>
-                   val self = new Actor.Self[E, I]:
-                     def send(message: I): IO[E, Unit] = queue.offer(k, (message, None)).unit
-                   val process =
-                     for
-                       stored <- store.get(k)
-                       state  <- ZIO.succeed(stored.getOrElse(initial(input)))
-                       step   <- logic.next(input, state).provideEnvironment(env.add[Actor.Self[E, I]](self))
-                       output <- step match
-                                   case Actor.Step.Continue(s, o) => store.set(k, s).as(o) // persist
-                                   case Actor.Step.Stop(o)        => store.delete(k).as(o) // passivate
-                     yield output
-                   process.exit.flatMap(exit => Mailbox.reply(replyTo, exit))
-               }.forkScoped
+      _     <- Processor
+                 .parallel(keyed, parallelism) {
+                   case (k, (input, replyTo)) =>
+                     val self    = new Actor.Self[E, I]:
+                       def send(message: I): IO[E, Unit] = queue.offer(k, (message, None)).unit
+                     val process =
+                       for
+                         stored <- store.get(k)
+                         state  <- ZIO.succeed(stored.getOrElse(initial(input)))
+                         step   <- logic.next(input, state).provideEnvironment(env.add[Actor.Self[E, I]](self))
+                         output <- step match
+                                     case Actor.Step.Continue(s, o) => store.set(k, s).as(o) // persist
+                                     case Actor.Step.Stop(o)        => store.delete(k).as(o) // passivate
+                       yield output
+                     process.exit.flatMap(exit => Mailbox.reply(replyTo, exit))
+                 }
+                 .forkScoped
     yield Mailbox.facade(envelope => queue.offer(key.get(envelope._1), envelope))
 }

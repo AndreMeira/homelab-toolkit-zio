@@ -23,7 +23,7 @@ object WorkerSpec extends ZIOSpecDefault:
   private def build(handler: String => IO[AdapterError, Int]): UIO[Worker[AdapterError, String, Int]] =
     Queue.unbounded[Payload].map(Pipe.fromQueue).map { pipe =>
       new Worker[AdapterError, String, Int]:
-        override val input: Pipe[AdapterError, Payload]        = pipe
+        override val input: Pipe[AdapterError, Payload]       = pipe
         override val receive: String => IO[AdapterError, Int] = handler
     }
 
@@ -31,7 +31,7 @@ object WorkerSpec extends ZIOSpecDefault:
   private def buildParallel(limit: Int)(handler: String => IO[AdapterError, Int]): UIO[Worker[AdapterError, String, Int]] =
     Queue.unbounded[Payload].map(Pipe.fromQueue).map { pipe =>
       new Worker.Parallel[AdapterError, String, Int]:
-        override val input: Pipe[AdapterError, Payload]        = pipe
+        override val input: Pipe[AdapterError, Payload]       = pipe
         override val receive: String => IO[AdapterError, Int] = handler
         override val parallelism: Int                         = limit
     }
@@ -94,8 +94,8 @@ object WorkerSpec extends ZIOSpecDefault:
           worker    <- build(_ => started.succeed(()) *> gate.await *> completed.set(true).as(0))
           _         <- worker.run.forkScoped
           _         <- worker.send("slow")
-          _         <- started.await          // the handler is in flight…
-          pending   <- completed.get          // …and send has already returned
+          _         <- started.await // the handler is in flight…
+          pending   <- completed.get // …and send has already returned
           _         <- gate.succeed(())
         yield assertTrue(!pending)
       }

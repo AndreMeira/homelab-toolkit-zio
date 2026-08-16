@@ -9,7 +9,9 @@ tags: [mailbox, messaging, request-reply, processing, address, codec, zio]
 # Mailbox
 
 `homelab.common.processing.Mailbox` — point-to-point delivery to a minted address, and the request-reply
-idiom built on it. One file, one object, seven nested types.
+idiom built on it. One file, one object, seven nested types. Part of the family in
+[`processing.md`](./processing.md): `Incoming` is a `Processor`, so a `Graph` runs it like anything else, and
+it is the remote counterpart to `Worker`'s local request/reply.
 
 Supersedes [`research/library-design/mailbox-design.md`](../../../research/library-design/mailbox-design.md),
 whose §1–8 describe a different shape (a `Pipe` adapter presenting remote requests to `Worker`, correlation
@@ -17,7 +19,7 @@ carried in a receipt, `Serde` at the seam). What landed is smaller and does not 
 
 Code: `modules/common/src/main/scala/homelab/common/processing/Mailbox.scala`
 Codecs: `modules/common/src/main/scala/homelab/common/data/Codec.scala`
-Spec: `modules/common/src/test/scala/homelab/common/processing/MailboxSpec.scala` (12)
+Spec: `modules/common/src/test/scala/homelab/common/processing/MailboxSpec.scala` (13)
 
 ## The idea
 
@@ -109,27 +111,60 @@ server cannot call back — a gRPC-style bidirectional stream is the answer ther
 
 ## What the spec pins
 
-`MailboxSpec` (12, ~550ms, no sleeps except where time is the subject). Three of them were written against
-bugs found in review and were verified to fail when those bugs are reintroduced:
+`MailboxSpec` (13, ~550ms, no sleeps except where time is the subject). Four of them were verified to fail
+when the property they pin is removed from the code:
 
 | Test | Fails if |
 |---|---|
 | stays resolvable while the holder is waiting | the entry retires when the wait *starts* rather than ends |
 | dies at the instant set when it was minted | the budget is measured from the await instead of the mint |
 | resolves exactly once | the claim is a `get` + `update` instead of one `modify` |
+| hands one outcome to every fiber awaiting the receipt, decoding it once | `Receipt.make` stops memoising |
 
-Also covered: timeout leaves no entry, `forward` receives exactly the unmatched, `await` memoisation, the
-interrupted wait retiring its entry, the interval-gated sweep reclaiming abandoned expectations, distinct
-addresses under concurrency, decode failure, and the whole thing running as a `Processor` off its own intake.
+That last one counts decodes, which is what makes it discriminating: two fibers both get the reply either
+way, because `Promise.await` has many consumers — only the decode count tells a memo from a re-run. The
+sequential *"answers a second await from the first outcome"* test no longer proves the memo at all, since the
+absolute deadline already makes a late await return promptly; it now pins that deadline property instead.
+
+Also covered: timeout leaves no entry, `forward` receives exactly the unmatched, the interrupted wait retiring
+its entry, the interval-gated sweep reclaiming abandoned expectations, distinct addresses under concurrency,
+decode failure, and the whole thing running as a `Processor` off its own intake.
+
+## The NATS adapter
+
+`homelab.nats.mailbox` — `Mailbox.make(connection, prefix, forward)` returns `Endpoints(outgoing, incoming,
+location)`. It is a codec pair plus a `Location`, because a NATS subject already *is* an address: resolving an
+expectation is an ordinary publish, and nothing re-implements request-reply.
+
+- **One subscription, many droppoffs.** Addresses live under `prefix`; the inbox subscribes once to
+  `prefix.>`. That is what discharges the routes-back obligation — the wildcard already covers every address
+  it mints — and it removes the subscribe-per-request race by construction. Same muxed-inbox trick the NATS
+  client uses internally for `request`.
+- **`NUID.nextGlobal()`** discharges the never-repeats obligation: globally unique and restart-safe.
+- **`prefix` defaults to `__MAILBOX__`.** The wildcard claims *everything* beneath the root, so the root must
+  be one no application would publish to for its own reasons. Underscored tokens are legal and conventional
+  for client-internal subjects — but not `_INBOX` itself, which the NATS client uses for `request()` replies.
+- **`get` returns `prefix.inbox`**, matched by the same wildcard. A peer's request therefore lands in the same
+  stream, is claimed by no expectation, and leaves through `forward` — the request path falls out of the
+  existing seam rather than needing anything new.
+
+**Start the inbox before minting anything.** Core NATS subscribes lazily (on the first `consume`) and drops
+messages with no live subscriber, so a `Graph` must be running the `Incoming` before an expectation exists;
+a reply published earlier is gone, not buffered.
+
+`MessageCodec` is a separate object on purpose: a `given` resolved from inside the object defining it can put
+the compiler in a completion cycle, which shows up as a *cyclic reference* error under some compilation
+orders and not others.
+
+Covered by `modules/nats/src/test/scala/homelab/nats/mailbox/MailboxSpec.scala` (2, Testcontainers): the
+round trip through a real broker, and a message to the published address reaching `forward`.
 
 ## Open
 
-- **No transport adapter yet.** NATS is the intended first one, and cheaper than it was: `homelab.nats`
-  decoders now take the whole `io.nats.client.Message`, so a `Location` can mint an inbox subject and read a
-  reply-to straight off the message — see
-  [`../sessions/2026-08-16-mailbox-promotion-nats-codec.md`](../sessions/2026-08-16-mailbox-promotion-nats-codec.md).
-- **`Location.get` is unused** by `Incoming`. It exists for the Directory pattern — publishing this process's
-  address so peers can reach it.
+- **`Location.get` has meaning but no discovery.** The NATS adapter answers it (`prefix.inbox`, where requests
+  arrive), but nothing publishes or looks it up yet — that is the Directory pattern.
+- **The request side has no bridge.** Unclaimed messages reach `forward`; turning one into a handled request
+  and a reply means a `Worker` whose outcome is published to the requester's address.
 - **The sweep is O(table) per scan**, paid on a caller's `expect`. Fine while the table holds only in-flight
   expectations; a process holding thousands at once wants a deadline-ordered index instead.
 - **`Codec.Encoder`/`Decoder` in `common/data`** are the library default and will meet the `homelab-schemas`

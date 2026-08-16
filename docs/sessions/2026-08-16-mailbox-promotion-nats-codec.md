@@ -13,7 +13,7 @@ Two halves that turned out to be the same work. The Mailbox went from an incubat
 `io.nats.client.Message` — which is precisely what a future Mailbox adapter will need, because a reply-to
 lives in the message, not in the payload.
 
-State: `common` green at 99, `nats` green at 20 (integration, real broker via Testcontainers).
+State: `common` green at 100, `nats` green at 22 (integration, real broker via Testcontainers).
 
 Superseding doc: [`../architecture/mailbox.md`](../architecture/mailbox.md). The research note
 `research/library-design/mailbox-design.md` is now marked *superseded* — its §8 assumed a `Pipe` adapter
@@ -64,6 +64,12 @@ Now 3 runs out of 3 fail under the bug. The same fix went into the interrupt tes
 flakiness — it would have failed *spuriously* on correct code. **`yieldNow` is not a synchronisation
 primitive**; if a test turns on whether a fiber has parked, ask the fiber.
 
+A second gap came from asking "is there a test for two fibers awaiting one receipt?" — there wasn't, and the
+sequential memo test turned out not to prove the memo either: with the deadline absolute, a late await returns
+promptly whether or not the outcome was remembered. The new test counts *decodes*, because two fibers both get
+the reply regardless (`Promise.await` has many consumers) — one decode for two awaits is the only observable
+difference. Confirmed by removing the memo: only that test fails.
+
 ## NATS: `Serde` → `Codec`, fixed on `Message`
 
 `homelab.nats.Codec` replaces `Serde`, with both halves over `io.nats.client.Message` rather than
@@ -92,13 +98,37 @@ the type back.
 Six integration tests changed meaning and now pass against a real broker — including the whole-batch term,
 which needed the poison drained as a batch of its own to be deterministic.
 
+## The adapter, the same day
+
+`homelab.nats.mailbox` — sketched in the incubator, then promoted once it was clear how little there was to
+it. The prediction held exactly: a codec pair plus a `Location`, no new machinery, because a NATS subject
+already *is* an address and resolving an expectation is an ordinary publish. Both `Location` obligations are
+discharged by things NATS already has — one wildcard subscription on `prefix.>` for routes-back,
+`NUID.nextGlobal()` for never-repeats.
+
+Three things worth remembering from building it:
+
+- **The prefix is `__MAILBOX__` for a reason.** The wildcard claims everything beneath the root, so an
+  application publishing to a plausible-looking `mailbox.*` would have its traffic captured. Underscored
+  tokens are legal (verified against a broker) and conventional for client-internal subjects — but *not*
+  `_INBOX`, which the client uses for its own `request()` replies.
+- **The request seam came free.** `get` returns `prefix.inbox`, matched by the same wildcard, so a peer's
+  request lands unclaimed and leaves through `forward`. A test pins it.
+- **A cyclic-reference error in IntelliJ** (not in sbt) traced to an anonymous `given` resolved from inside
+  the object defining it, while a `val` in that object needed it to type. Fixed structurally: codecs in their
+  own object, both givens named. Order-dependent compiler cycles are worth fixing by construction, not by
+  perturbing the order until they go away.
+
+The promotion also renamed to the module's convention — `core`/`stream` name by role and alias the contract
+(`ProducerContract`), so the sketch's `NatsLocation`/`NatsOutgoing` became `Mailbox.Location`/`Mailbox.Outgoing`
+against `MailboxContract`. The nats module's strict `scalacOptions` were the first real check of the code; the
+incubator compiles with none.
+
 ## Next
 
-- **A NATS Mailbox adapter** — `Location` minting inbox + droppoff subjects, `Incoming` over a core consumer.
-  This is the cheap version of the work now.
 - **The request side**: one `Incoming` per request type, each with its own inbox address, so dispatch stays
   routing; the responder is a `Worker` and the gap is a bridge from its reply to `Outgoing`.
-- **`Location.get`** is still unused — it is there for the Directory pattern.
+- **Directory**: `Location.get` now answers, but nothing publishes or discovers it.
 - **Sweep cost** is O(table) per scan; fine while the table holds only in-flight expectations.
 - **Codecs vs `homelab-schemas`**: `Codec` in `common/data` is the library default and will have to meet the
   proto-as-source decision.

@@ -86,9 +86,9 @@ object WorkflowSpec extends ZIOSpecDefault:
           trace   <- seen.get
         yield assertTrue(
           exit1.isFailure,
-          mid.contains(2),                 // the state that failed to step, not the one before it
-          out2 == 4,                       // the second run finished
-          after.isEmpty,                   // slot released on completion
+          mid.contains(2), // the state that failed to step, not the one before it
+          out2 == 4,       // the second run finished
+          after.isEmpty,   // slot released on completion
           trace == List(0, 1, 2, 2, 3, 4), // resumed from 2 rather than re-seeding, and replayed it
         )
       },
@@ -137,13 +137,13 @@ object WorkflowSpec extends ZIOSpecDefault:
             }
 
         for
-          store  <- KeyValueStore.inmemory[(String, String), Int]
-          first   = crashing("first")
-          second  = crashing("second")
-          _      <- first.persisted(store.contramap(input => first.name -> input)).run("run").exit
-          _      <- second.persisted(store.contramap(input => second.name -> input)).run("run").exit
-          atOne  <- store.get(("first", "run"))
-          atTwo  <- store.get(("second", "run"))
+          store <- KeyValueStore.inmemory[(String, String), Int]
+          first  = crashing("first")
+          second = crashing("second")
+          _     <- first.persisted(store.contramap(input => first.name -> input)).run("run").exit
+          _     <- second.persisted(store.contramap(input => second.name -> input)).run("run").exit
+          atOne <- store.get(("first", "run"))
+          atTwo <- store.get(("second", "run"))
         yield assertTrue(atOne.contains(1), atTwo.contains(1)) // same input, two live checkpoints
       },
     ),

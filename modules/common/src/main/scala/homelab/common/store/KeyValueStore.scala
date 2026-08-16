@@ -137,5 +137,3 @@ object KeyValueStore:
    * @return the new, empty in-memory store
    */
   def inmemory[K, V]: UIO[InMemoryKeyValueStore[K, V]] = InMemoryKeyValueStore.make[K, V]
-  
-  

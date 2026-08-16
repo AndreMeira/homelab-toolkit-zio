@@ -1,5 +1,6 @@
 package homelab.incubator.processing.actor.v5
 
+
 import zio.{ Ref, Scope, UIO, ZIO }
 
 import scala.collection.immutable.Queue
@@ -103,7 +104,7 @@ private[v5] object Runtime:
    * @param scope   the scope drains and actors' own scopes are forked from
    * @param backlog per-key queues: a key present is in flight, absent is idle
    */
-  private final class Live(scope: Scope, backlog: Ref[Map[Key, Queue[Task]]]) extends Runtime:
+  final private class Live(scope: Scope, backlog: Ref[Map[Key, Queue[Task]]]) extends Runtime:
 
     /**
      * Enqueue and, if the key was idle, fork its drain. The pair is uninterruptible so an interrupt cannot
@@ -146,10 +147,12 @@ private[v5] object Runtime:
      */
     private def claim(key: Key): UIO[Option[Task]] =
       backlog.modify: map =>
-        map.get(key).fold(Option.empty[Task] -> map): queue =>
-          queue.dequeueOption match
-            case Some((task, rest)) => Some(task) -> map.updated(key, rest) // stay present, even if rest empty
-            case None               => None       -> (map - key)            // empty → release the key
+        map
+          .get(key)
+          .fold(Option.empty[Task] -> map): queue =>
+            queue.dequeueOption match
+              case Some((task, rest)) => Some(task) -> map.updated(key, rest) // stay present, even if rest empty
+              case None               => None       -> (map - key)            // empty → release the key
 
     /**
      * Run one key's backlog to exhaustion, one task at a time, then stop.

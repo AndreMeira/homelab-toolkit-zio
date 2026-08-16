@@ -64,7 +64,7 @@ object Mailbox {
    *
    * @tparam E the error naming aborts with
    */
-  trait Location[E]:
+  trait Location[+E]:
 
     /**
      * This process's own address — the one to publish so peers can send to it, and the root a directory
@@ -96,7 +96,7 @@ object Mailbox {
    *
    * @tparam E the error sending aborts with
    */
-  trait Outgoing[E <: ApplicationError]:
+  trait Outgoing[+E <: ApplicationError]:
 
     /**
      * The transport this sends through.
@@ -123,7 +123,7 @@ object Mailbox {
    *
    * @tparam E the error minting aborts with
    */
-  trait Inbox[E]:
+  trait Inbox[+E]:
     private type Error = E | ApplicationError.DecodingError
 
     /**
@@ -141,6 +141,10 @@ object Mailbox {
    * its [[Location]] and its intake. It is not itself an adapter, which is why it is not named after one.
    *
    * As a [[Processor]] it belongs to a [[Graph]], which drives its intake.
+   *
+   * Invariant in `E`, alone among the types here: the expectation table is a `Ref` (invariant), and
+   * [[forwardTo]] takes a `Producer[E, Message]` as a *parameter* (contravariant). Neither is worth
+   * contorting — widening is available where callers actually need it, on [[Inbox]].
    *
    * @tparam E the error the underlying transport aborts with
    */

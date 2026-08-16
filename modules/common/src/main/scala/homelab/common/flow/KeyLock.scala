@@ -2,6 +2,7 @@ package homelab.common.flow
 
 import zio.*
 
+
 /**
  * A lock keyed by `K`: [[withPermit]] serialises effects that share a key, while effects under different
  * keys run freely. Each key's mutual exclusion is a [[zio.Semaphore]] made on first use and evicted once no
@@ -25,6 +26,7 @@ trait KeyLock[K] {
    */
   def withPermit[R, E, A](key: K)(zio: ZIO[R, E, A]): ZIO[R, E, A]
 }
+
 
 object KeyLock:
 
@@ -75,7 +77,7 @@ object KeyLock:
     private def release(key: K): UIO[Unit] =
       ref.update { map =>
         map.get(key) match
-          case Some((s, 1)) => map - key            // last user → evict
+          case Some((s, 1)) => map - key // last user → evict
           case Some((s, n)) => map.updated(key, (s, n - 1))
           case None         => map
       }

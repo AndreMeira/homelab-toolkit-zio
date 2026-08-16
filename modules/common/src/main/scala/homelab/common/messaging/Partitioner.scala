@@ -1,6 +1,6 @@
 package homelab.common.messaging
 
-import zio.{UIO, ZIO}
+import zio.{ UIO, ZIO }
 
 
 /**
@@ -20,6 +20,7 @@ trait Partitioner[K, V] {
   def partition(value: V): UIO[K]
 }
 
+
 object Partitioner {
 
   /**
@@ -37,7 +38,7 @@ object Partitioner {
    * @return the partitioner
    */
   def pure[K, V](fn: V => K): Partitioner[K, V] = value => ZIO.succeed(fn(value))
-  
+
   /**
    * A type class computing a value's key, with the key type carried as an abstract member so a caller need
    * not name it.

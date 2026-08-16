@@ -1,5 +1,6 @@
 package homelab.incubator.processing.actor.v7
 
+
 import homelab.common.error.ApplicationError.AdapterError
 import homelab.common.flow.Permit
 import homelab.common.store.Bucket
@@ -206,7 +207,7 @@ object Actor {
    * @param finished completed with the final reply when the entity ends; every later message is refused
    * @param own      the entity's scope: its worker, its background work, its lifetime
    */
-  private final class Live[E >: AdapterError, I, S, O](
+  final private class Live[E >: AdapterError, I, S, O](
     worker: Worker,
     state: Bucket[S],
     behaviour: Actor[E, I, S, O],

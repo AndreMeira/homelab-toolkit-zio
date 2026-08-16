@@ -52,7 +52,6 @@ object Pipe:
    */
   trait KeySafe[+E, A] extends Pipe[E, A]
 
-
   /**
    * A [[Pipe]] over an unbounded [[Queue]]: `emit` offers, `consume` takes one value. Emission never fails,
    * so the pipe's error is `Nothing`.

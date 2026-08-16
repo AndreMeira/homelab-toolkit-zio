@@ -10,6 +10,7 @@ import zio.*
 import zio.json.*
 import zio.stream.*
 
+
 /**
  * Streaming consumption of an OpenRouter (OpenAI-compatible) chat-completions response, structured
  * so that the party who *opens* the connection is not the party who *drains* it.
@@ -67,15 +68,15 @@ object sketchOne:
   // ── Wire model (subset of the OpenRouter streaming chunk we consume) ────────
   // Named `ChatChunk` (not `Chunk`) to avoid collision with zio.Chunk.
 
-  private final case class ChatChunk(choices: List[Choice])
-  private final case class Choice(delta: Delta, finish_reason: Option[String])
-  private final case class Delta(
+  final private case class ChatChunk(choices: List[Choice])
+  final private case class Choice(delta: Delta, finish_reason: Option[String])
+  final private case class Delta(
     content: Option[String],
     reasoning: Option[String],
     tool_calls: Option[List[ToolCallDelta]],
   )
-  private final case class ToolCallDelta(index: Int, id: Option[String], function: Option[FunctionDelta])
-  private final case class FunctionDelta(name: Option[String], arguments: Option[String])
+  final private case class ToolCallDelta(index: Int, id: Option[String], function: Option[FunctionDelta])
+  final private case class FunctionDelta(name: Option[String], arguments: Option[String])
 
   private given JsonDecoder[FunctionDelta] = DeriveJsonDecoder.gen
   private given JsonDecoder[ToolCallDelta] = DeriveJsonDecoder.gen
@@ -99,8 +100,8 @@ object sketchOne:
       for
         response <- request.send(backend).mapError(LlmError.Transport(_))
         body     <- response.body match
-          case Right(s)  => ZIO.succeed(s)
-          case Left(err) => ZIO.fail(LlmError.Http(response.code.code, err))
+                      case Right(s)  => ZIO.succeed(s)
+                      case Left(err) => ZIO.fail(LlmError.Http(response.code.code, err))
         // Unmanaged connection: bind release to this scope so partial consumption / interruption
         // still closes it. (Fully draining `body` also closes it; the finalizer is the safety net.)
         _        <- ZIO.addFinalizer(closeQuietly(body))
@@ -122,10 +123,10 @@ object sketchOne:
     // as soon as `rest` is done, not when the (possibly long-lived) caller scope closes. The child is
     // bounded by the caller's scope, so an abandoned `rest` still releases (backstop, no leak).
     for
-      parent         <- ZIO.scope
-      child          <- parent.fork
-      result         <- child.extend[Any](messageStream(request, backend).peel(ZSink.collectAllWhile[Message](isFirst)))
-      (prefix, rest)  = result
+      parent        <- ZIO.scope
+      child         <- parent.fork
+      result        <- child.extend[Any](messageStream(request, backend).peel(ZSink.collectAllWhile[Message](isFirst)))
+      (prefix, rest) = result
     yield Peeled(prefix.toList, rest.ensuring(child.close(Exit.unit)))
 
   /** Default boundary: everything that is not user-facing text is "first"; text begins the answer. */
@@ -137,11 +138,11 @@ object sketchOne:
 
   private def decode(bytes: ZioStreams.BinaryStream): ZStream[Any, LlmError, Message] =
     ZioServerSentEvents
-      .parse(bytes)                            // bytes -> complete ServerSentEvents (buffered)
+      .parse(bytes) // bytes -> complete ServerSentEvents (buffered)
       .mapError(LlmError.Transport(_))
-      .takeUntil(isDoneMarker)                 // include up to, then stop at, the [DONE] sentinel
+      .takeUntil(isDoneMarker) // include up to, then stop at, the [DONE] sentinel
       .filterNot(isDoneMarker)
-      .via(accumulateToolCalls)                // fold deltas -> complete Messages
+      .via(accumulateToolCalls) // fold deltas -> complete Messages
 
   private def isDoneMarker(e: ServerSentEvent): Boolean =
     e.data.exists(_.trim == "[DONE]")
@@ -169,14 +170,14 @@ object sketchOne:
   // flush. `accumulateToolCalls` is kept for the per-event fold; `flush` is applied in `decode`.
 
   /** Accumulator holding at most one open tool call (the common single-call-at-a-time case). */
-  private final case class ToolAcc(open: Option[PartialTool]):
+  final private case class ToolAcc(open: Option[PartialTool]):
     def flush: Chunk[Message] =
       Chunk.fromIterable(open.map(_.toMessage))
 
   private object ToolAcc:
     val empty: ToolAcc = ToolAcc(None)
 
-  private final case class PartialTool(index: Int, id: String, name: String, args: String):
+  final private case class PartialTool(index: Int, id: String, name: String, args: String):
     def toMessage: Message.ToolCall = Message.ToolCall(id, name, args)
 
   private def decodeEvent(evt: ServerSentEvent): Option[ChatChunk] =
@@ -193,7 +194,7 @@ object sketchOne:
    */
   private def foldChunk(chunk: ChatChunk, acc: ToolAcc): (ToolAcc, Chunk[Message]) =
     chunk.choices.headOption match
-      case None => (acc, Chunk.empty)
+      case None         => (acc, Chunk.empty)
       case Some(choice) =>
         val delta = choice.delta
         val out   = scala.collection.mutable.ArrayBuffer.empty[Message]
@@ -213,22 +214,30 @@ object sketchOne:
               val args = p.args + tc.function.flatMap(_.arguments).getOrElse("")
               val id   = tc.id.getOrElse(p.id)
               st = ToolAcc(Some(PartialTool(p.index, id, name, args)))
-            case Some(p) =>
+            case Some(p)                        =>
               // new index: flush the previous, open a new one
               out += p.toMessage
-              st = ToolAcc(Some(PartialTool(
-                tc.index,
-                tc.id.getOrElse(""),
-                tc.function.flatMap(_.name).getOrElse(""),
-                tc.function.flatMap(_.arguments).getOrElse(""),
-              )))
-            case None =>
-              st = ToolAcc(Some(PartialTool(
-                tc.index,
-                tc.id.getOrElse(""),
-                tc.function.flatMap(_.name).getOrElse(""),
-                tc.function.flatMap(_.arguments).getOrElse(""),
-              )))
+              st = ToolAcc(
+                Some(
+                  PartialTool(
+                    tc.index,
+                    tc.id.getOrElse(""),
+                    tc.function.flatMap(_.name).getOrElse(""),
+                    tc.function.flatMap(_.arguments).getOrElse(""),
+                  )
+                )
+              )
+            case None                           =>
+              st = ToolAcc(
+                Some(
+                  PartialTool(
+                    tc.index,
+                    tc.id.getOrElse(""),
+                    tc.function.flatMap(_.name).getOrElse(""),
+                    tc.function.flatMap(_.arguments).getOrElse(""),
+                  )
+                )
+              )
         }
 
         // finish reason: flush open call, emit Done

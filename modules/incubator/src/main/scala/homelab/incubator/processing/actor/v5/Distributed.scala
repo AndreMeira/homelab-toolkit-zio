@@ -1,10 +1,11 @@
 package homelab.incubator.processing.actor.v5
 
+
 import homelab.common.error.ApplicationError.AdapterError
 import homelab.common.flow.Permit
 import homelab.common.messaging.Partitioner
 import homelab.common.store.Bucket
-import Actor.{Next, Running, Self, Terminated}
+import Actor.{ Next, Running, Self, Terminated }
 import homelab.incubator.processing.actor.v5
 // Explicit: `zio.Runtime` would otherwise win over this package's own via the wildcard below.
 import zio.*
@@ -74,13 +75,13 @@ object Distributed {
     key: Partitioner.Key[I] { type Type = K }
   ): ZIO[Scope, Permit.Error, Running[E, I, O]] =
     for
-      permit  <- Permit.make(maxInFlight)
+      permit      <- Permit.make(maxInFlight)
       // One runtime for the whole pool: the distributor takes a slot on it, and so does every entity.
-      runtime <- v5.Runtime.make
+      runtime     <- v5.Runtime.make
       // The routing table lives in a slot this factory owns rather than one the entity allocates for itself,
       // so the shutdown hook can read it. It is still the distributor's state; nothing else writes it.
-      table   <- Bucket.inmemory[Table[E, I, K, O]]
-      _       <- ZIO.addFinalizer(shutdown(table))
+      table       <- Bucket.inmemory[Table[E, I, K, O]]
+      _           <- ZIO.addFinalizer(shutdown(table))
       distributor <- Actor.spawnIn(runtime)(new Distributor(runtime, behaviour, key.get, permit), Some(table))(ZIO.unit)
     yield new Handle(distributor, permit)
 

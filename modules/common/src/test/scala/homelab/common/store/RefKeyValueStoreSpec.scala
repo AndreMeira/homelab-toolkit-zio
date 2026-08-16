@@ -57,11 +57,11 @@ object RefKeyValueStoreSpec extends ZIOSpecDefault:
     },
     test("contramap re-keys the store, reading and writing through the mapping") {
       for
-        store    <- InMemoryKeyValueStore.make[Int, String]
-        byLength  = store.contramap[String](_.length)
-        _        <- byLength.set("abc", "three") // stored under key 3
-        viaString <- byLength.get("xyz")         // also length 3
-        viaInt   <- store.get(3)
+        store     <- InMemoryKeyValueStore.make[Int, String]
+        byLength   = store.contramap[String](_.length)
+        _         <- byLength.set("abc", "three") // stored under key 3
+        viaString <- byLength.get("xyz")          // also length 3
+        viaInt    <- store.get(3)
       yield assertTrue(viaString == Some("three"), viaInt == Some("three"))
     },
     test("concurrent sets to distinct keys all land") {

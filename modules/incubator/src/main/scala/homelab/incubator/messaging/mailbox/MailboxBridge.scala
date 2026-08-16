@@ -66,8 +66,8 @@ object MailboxBridge {
     mailbox: Mailbox[E],
     target: Worker[E, A, B],
     override val parallelism: Int,
-  )(using Serde[Reply[B]])
-      extends Processor.Parallel[E, Request[A]] {
+  )(using Serde[Reply[B]]
+  ) extends Processor.Parallel[E, Request[A]] {
 
     /**
      * Handle one remote request.
@@ -103,7 +103,8 @@ object MailboxBridge {
     requests: Producer[E, Request[A]],
     payload: A,
     timeout: Duration,
-  )(using Serde[Reply[B]]): IO[E, Option[Reply[B]]] =
+  )(using Serde[Reply[B]]
+  ): IO[E, Option[Reply[B]]] =
     for
       receipt <- mailbox.expect[Reply[B]](timeout)
       _       <- requests.emit(Request(payload, receipt.address))

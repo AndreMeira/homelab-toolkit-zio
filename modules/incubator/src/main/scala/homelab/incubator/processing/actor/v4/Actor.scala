@@ -1,5 +1,6 @@
 package homelab.incubator.processing.actor.v4
 
+
 import homelab.common.error.ApplicationError.AdapterError
 import homelab.common.flow.KeyedQueue
 import homelab.common.messaging.{ Consumer, Partitioner, Producer }
@@ -130,9 +131,12 @@ object Actor:
           def send(input: I): UIO[Unit] = enqueue(input)
 
           def pipeToSelf(message: UIO[I]): UIO[Unit] =
-            ids.getAndUpdate(_ + 1).flatMap { id =>
-              message.flatMap(enqueue).ensuring(pipes.update(_ - id)).forkDaemon.flatMap(f => pipes.update(_ + (id -> f)))
-            }.unit
+            ids
+              .getAndUpdate(_ + 1)
+              .flatMap { id =>
+                message.flatMap(enqueue).ensuring(pipes.update(_ - id)).forkDaemon.flatMap(f => pipes.update(_ + (id -> f)))
+              }
+              .unit
 
     /**
      * A single entity: one unbounded queue drained by one fiber, under the unit key.
@@ -149,7 +153,7 @@ object Actor:
             self    = mkSelf(input => queue.offer(input).unit)
             _      <- Processor
                         // A failed transition should have replied in-band; swallow so the drain keeps going.
-                        .serial(Consumer.fromQueue(queue)) { input => process((), input, self).exit.unit }
+                        .serial(Consumer.fromQueue(queue))(input => process((), input, self).exit.unit)
                         .forkScoped
           yield new Producer[E, I]:
             def emit(value: I): IO[E, Unit] = queue.offer(value).unit

@@ -74,7 +74,6 @@ object Graph {
       case node: Node => node.children.flatMap(expand) :+ processor
       case leaf       => List(leaf)
 
-  
   /**
    * Build a processor and register it with the [[Graph]] in the environment — the form for a layer, where the
    * processor is constructed and handed over in one step and nobody is left holding something they must

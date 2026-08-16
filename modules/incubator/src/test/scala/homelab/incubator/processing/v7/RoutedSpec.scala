@@ -3,8 +3,8 @@ package homelab.incubator.processing.v7
 
 import homelab.common.error.ApplicationError.AdapterError
 import homelab.common.messaging.Partitioner
-import homelab.incubator.processing.actor.v7.{Actor, Routed}
-import homelab.incubator.processing.actor.v7.Actor.{Next, Self}
+import homelab.incubator.processing.actor.v7.{ Actor, Routed }
+import homelab.incubator.processing.actor.v7.Actor.{ Next, Self }
 import zio.*
 import zio.test.*
 
@@ -24,7 +24,7 @@ object RoutedSpec extends ZIOSpecDefault:
     case Boom
     case Wait(gate: Promise[Nothing, Unit])
 
-  private final case class Message(key: String, op: Op)
+  final private case class Message(key: String, op: Op)
 
   private given Partitioner.Key[Message] with
     type Type = String
@@ -79,7 +79,7 @@ object RoutedSpec extends ZIOSpecDefault:
           arrived  <- Ref.make(0)
           behaviour = new Actor[AdapterError, Message, Int, Int]:
                         def init(message: Message): IO[AdapterError, Int] = ZIO.succeed(0)
-                        def next(self: Self[Message]) =
+                        def next(self: Self[Message])                     =
                           (message, total) =>
                             message.op match
                               // Completes only if both keys are inside a step at the same moment.

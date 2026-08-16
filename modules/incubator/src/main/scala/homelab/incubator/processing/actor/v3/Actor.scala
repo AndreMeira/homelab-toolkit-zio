@@ -1,5 +1,6 @@
 package homelab.incubator.processing.actor.v3
 
+
 import homelab.common.error.ApplicationError.AdapterError
 import homelab.common.flow.KeyedQueue
 import homelab.common.messaging.{ Consumer, Partitioner }
@@ -209,11 +210,14 @@ object Actor:
           def send(input: I): UIO[Unit] = enqueue(input)
 
           def pipeToSelf(message: UIO[I]): UIO[Unit] =
-            ids.getAndUpdate(_ + 1).flatMap { id =>
-              // Daemon-fork so a finished pipe is pruned by ZIO's supervisor; track it only while in flight.
-              // (A pipe that finishes before the add re-inserts a dead entry — harmless, cleared at shutdown.)
-              message.flatMap(enqueue).ensuring(pipes.update(_ - id)).forkDaemon.flatMap(f => pipes.update(_ + (id -> f)))
-            }.unit
+            ids
+              .getAndUpdate(_ + 1)
+              .flatMap { id =>
+                // Daemon-fork so a finished pipe is pruned by ZIO's supervisor; track it only while in flight.
+                // (A pipe that finishes before the add re-inserts a dead entry — harmless, cleared at shutdown.)
+                message.flatMap(enqueue).ensuring(pipes.update(_ - id)).forkDaemon.flatMap(f => pipes.update(_ + (id -> f)))
+              }
+              .unit
 
     /**
      * A single entity: one unbounded queue drained by one fiber, under the unit key. Setup never fails.

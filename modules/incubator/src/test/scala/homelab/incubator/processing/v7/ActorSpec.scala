@@ -4,7 +4,7 @@ package homelab.incubator.processing.v7
 import homelab.common.error.ApplicationError.AdapterError
 import homelab.common.store.Bucket
 import homelab.incubator.processing.actor.v7.Actor
-import homelab.incubator.processing.actor.v7.Actor.{Next, Running, Self, Terminated}
+import homelab.incubator.processing.actor.v7.Actor.{ Next, Running, Self, Terminated }
 import zio.*
 import zio.test.*
 
@@ -23,7 +23,7 @@ object ActorSpec extends ZIOSpecDefault:
     case Stop
     case Boom
     case Wait(gate: Promise[Nothing, Unit])
-    case Follow(by: Int)          // self-sends an Inc from inside the step
+    case Follow(by: Int) // self-sends an Inc from inside the step
     case Later(work: UIO[Message]) // pipes the work's result back as a message
 
   /**
@@ -67,7 +67,7 @@ object ActorSpec extends ZIOSpecDefault:
           peak     <- Ref.make(0)
           behaviour = new Actor[AdapterError, Message, Int, Int]:
                         def init(message: Message): IO[AdapterError, Int] = seeds.update(_ + 1).as(0)
-                        def next(self: Self[Message]) =
+                        def next(self: Self[Message])                     =
                           (_, total) =>
                             inFlight.updateAndGet(_ + 1).flatMap(now => peak.update(_ max now)) *>
                               ZIO.yieldNow.repeatN(3) *> // every chance for a second drain to interleave
@@ -119,36 +119,36 @@ object ActorSpec extends ZIOSpecDefault:
     test("a self-send queues behind the current step instead of re-entering it") {
       ZIO.scoped {
         for
-          trace     <- Ref.make(List.empty[String])
-          behaviour  = new Actor[AdapterError, Message, Int, Int]:
-                         def init(message: Message): IO[AdapterError, Int] = ZIO.succeed(0)
-                         def next(self: Self[Message]) =
-                           (message, total) =>
-                             message match
-                               case Message.Follow(by) =>
-                                 trace.update(_ :+ "follow:start") *>
-                                   self.send(Message.Inc(by)) *>
-                                   trace.update(_ :+ "follow:end").as(Next.Continue(total, total))
-                               case _                  =>
-                                 trace.update(_ :+ "inc").as(Next.Continue(total + 1, total + 1))
-          actor     <- Actor.spawn(behaviour)
-          _         <- actor.ask(Message.Follow(1))
-          _         <- actor.ask(Message.Inc(1)) // ordering: runs after the self-sent one
-          recorded  <- trace.get
+          trace    <- Ref.make(List.empty[String])
+          behaviour = new Actor[AdapterError, Message, Int, Int]:
+                        def init(message: Message): IO[AdapterError, Int] = ZIO.succeed(0)
+                        def next(self: Self[Message])                     =
+                          (message, total) =>
+                            message match
+                              case Message.Follow(by) =>
+                                trace.update(_ :+ "follow:start") *>
+                                  self.send(Message.Inc(by)) *>
+                                  trace.update(_ :+ "follow:end").as(Next.Continue(total, total))
+                              case _                  =>
+                                trace.update(_ :+ "inc").as(Next.Continue(total + 1, total + 1))
+          actor    <- Actor.spawn(behaviour)
+          _        <- actor.ask(Message.Follow(1))
+          _        <- actor.ask(Message.Inc(1)) // ordering: runs after the self-sent one
+          recorded <- trace.get
         yield assertTrue(recorded == List("follow:start", "follow:end", "inc", "inc"))
       }
     },
     test("pipeToSelf outlives the step that started it and comes back as a message") {
       ZIO.scoped {
         for
-          seeds  <- Ref.make(0)
-          gate   <- Promise.make[Nothing, Unit]
-          actor  <- spawn(seeds)
+          seeds <- Ref.make(0)
+          gate  <- Promise.make[Nothing, Unit]
+          actor <- spawn(seeds)
           // The step ends immediately; the work completes only once the gate opens, well after the
           // submission's own scope has closed.
-          _      <- actor.ask(Message.Later(gate.await.as(Message.Inc(7))))
-          _      <- gate.succeed(())
-          total  <- actor.ask(Message.Inc(0)).repeatUntil(_ == 7)
+          _     <- actor.ask(Message.Later(gate.await.as(Message.Inc(7))))
+          _     <- gate.succeed(())
+          total <- actor.ask(Message.Inc(0)).repeatUntil(_ == 7)
         yield assertTrue(total == 7)
       }
     },

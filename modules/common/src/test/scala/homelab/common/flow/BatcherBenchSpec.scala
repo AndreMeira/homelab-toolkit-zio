@@ -148,9 +148,10 @@ object BatcherBenchSpec extends ZIOSpecDefault:
           dedI     <- dedItems.get
           serMs     = (serEnd - serStart).toDouble / 1e6
           dedMs     = (dedEnd - dedStart).toDouble / 1e6
-          _        <- ZIO.debug(
-                        f"N=$n over $keys keys, $perItem%dµs/item   serial: $serMs%7.1f ms ($serI items)    dedup: $dedMs%6.1f ms ($dedI items)    → ${serMs / dedMs}%.1f× faster"
-                      )
+          _        <-
+            ZIO.debug(
+              f"N=$n over $keys keys, $perItem%dµs/item   serial: $serMs%7.1f ms ($serI items)    dedup: $dedMs%6.1f ms ($dedI items)    → ${serMs / dedMs}%.1f× faster"
+            )
         yield assertTrue(serRes == want, dedRes == want, dedMs < serMs)
     } @@ TestAspect.withLiveClock,
     test("one hot key, N duplicates: dedup holds O(1) state + allocations where Serial holds O(N)") {

@@ -1,5 +1,6 @@
 package homelab.incubator.processing.actor.v4
 
+
 import homelab.common.error.ApplicationError.AdapterError
 import homelab.common.store.KeyValueStore
 import Actor.{ ask, tell }

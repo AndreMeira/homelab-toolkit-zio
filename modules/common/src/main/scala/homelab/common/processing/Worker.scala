@@ -40,8 +40,10 @@ trait Worker[E <: ApplicationError, A, B] extends Processor[E, (A, Promise[E, B]
    * @return noop once queued, not once handled
    */
   def send(message: A): IO[E, Unit] =
-    Promise.make[E, B].flatMap:
-      promise => input.emit((message, promise))
+    Promise
+      .make[E, B]
+      .flatMap: promise =>
+        input.emit((message, promise))
 
   /**
    * Queue `message` and wait for its reply.

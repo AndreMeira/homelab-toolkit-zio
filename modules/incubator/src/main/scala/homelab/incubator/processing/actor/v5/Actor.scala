@@ -1,5 +1,6 @@
 package homelab.incubator.processing.actor.v5
 
+
 import homelab.common.error.ApplicationError.AdapterError
 import homelab.common.store.Bucket
 import homelab.incubator.processing.actor.v5
@@ -135,7 +136,6 @@ object Actor {
       _        <- owned.addFinalizer(finished.interrupt)
     yield new Running.Live(runtime, new v5.Runtime.Key, owned, behaviour, held, onDone, finished)
 
-
   /**
    * A live entity: an [[Actor]] bound to its state and to the [[v5.Runtime]] that serialises it. This is the
    * handle a caller holds — messages go in, replies come out, and the behaviour, the state and the scheduling
@@ -237,7 +237,7 @@ object Actor {
      * @param finished  completed with the final reply when the entity ends; every message claimed afterwards
      *                  is refused
      */
-    private[Actor] final class Live[E >: AdapterError, I, S, O](
+    final private[Actor] class Live[E >: AdapterError, I, S, O](
       runtime: v5.Runtime,
       key: v5.Runtime.Key,
       owned: Scope.Closeable,
@@ -303,9 +303,7 @@ object Actor {
                   .onExit(exit => ZIO.foreachDiscard(replyTo)(_.done(exit)))
                   // `stripFailures` keeps the interrupt but drops the typed failure, which is what makes this
                   // a `UIO`: the step's `E` has already gone to the promise and must not reach the drain.
-                  .catchAllCause(cause =>
-                    if cause.isInterrupted then ZIO.refailCause(cause.stripFailures) else ZIO.unit
-                  )
+                  .catchAllCause(cause => if cause.isInterrupted then ZIO.refailCause(cause.stripFailures) else ZIO.unit)
                   // Retire *after* the reply is out, never during the step: closing the scope stops this
                   // entity's background work, and a caller owed the final answer must have it first. The
                   // drain fiber survives closing its own scope — ZIO's fork finalizer skips self-interrupt —
