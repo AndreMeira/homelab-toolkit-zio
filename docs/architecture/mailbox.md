@@ -30,7 +30,8 @@ a message to it, and the receipt's holder gets that message back, decoded. It is
 made small enough to put in a payload.
 
 ```scala
-val warehouse: Producer[AdapterError, DispatchOrder] = ???
+// asking side
+val warehouse: Producer[AdapterError, DispatchOrderRequest] = ???
 for
   receipt <- inbox.expect[Confirmation](30.seconds)
   _       <- warehouse.emit(DispatchOrderRequest(id, replyTo = receipt.address))
@@ -38,8 +39,25 @@ for
 yield outcome
 ```
 
-Note what is *not* happening: the reply does not come back from `warehouse` because we asked it — it comes
-back because someone was handed an address. The party that resolves it need not be the party we sent to.
+```scala
+// answering side — an ordinary consumer of requests; only the reply leg is the mailbox
+val outgoing: Mailbox.Outgoing[AdapterError] = ???
+def handle(request: DispatchOrderRequest): IO[AdapterError, Unit] =
+  for
+    confirmation <- dispatch(request.id)
+    _            <- outgoing.send(request.replyTo, confirmation) // resolves whoever is holding that receipt
+  yield ()
+```
+
+Note what is *not* happening on either side. The reply does not come back from `warehouse` because we asked
+it — it comes back because someone was handed an address, and the party that resolves it need not be the
+party we sent to. And the warehouse never learns that anyone is waiting: it has an address and something to
+put there. If it dies before replying, nothing is stranded — the expectation simply expires at its deadline,
+which is why the failure mode here is a timeout rather than a lost caller.
+
+The request leg is plain messaging, so it carries no mailbox machinery. Where requests instead arrive on the
+mailbox's own address space — a peer publishing to `Location.get` — they land unclaimed and reach `handle`
+through `forward` rather than through a consumer; the handler itself is unchanged.
 
 ## The pieces
 
