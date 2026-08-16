@@ -30,9 +30,10 @@ a message to it, and the receipt's holder gets that message back, decoded. It is
 made small enough to put in a payload.
 
 ```scala
+val warehouse: Producer[AdapterError, DispatchOrder] = ???
 for
   receipt <- inbox.expect[Confirmation](30.seconds)
-  _       <- outgoing.send(warehouse, DispatchOrder(id, replyTo = receipt.address))
+  _       <- warehouse.emit(DispatchOrderRequest(id, replyTo = receipt.address))
   outcome <- receipt.await          // Some(confirmation), or None at the deadline
 yield outcome
 ```
