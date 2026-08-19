@@ -2,47 +2,31 @@ package homelab.nats.stream
 
 
 import homelab.nats.{ NatsConnection, NatsError }
-import io.nats.client.{ Connection, ConsumerContext, Message }
+import io.nats.client.{ Connection, ConsumerContext }
 import zio.*
-import zio.stream.ZStream
 
 
 /**
- * Attaches durable JetStream consumers over one [[Connection]] and bridges their async delivery into
- * per-consumer queues. Unlike Core's shared `Dispatcher`, each durable consumer has its own
- * `MessageConsumer`; this type holds the connection and, per subscription, creates/attaches the durable
- * consumer and forks its `consume` callback into a bridge queue. `ZStream` is used only internally to adapt
- * the multi-shot callback — it is never surfaced.
+ * Attaches durable JetStream consumers over one [[Connection]].
+ *
+ * That is all it does: create (or attach to) the durable consumer and hand back its `ConsumerContext`. There
+ * is no delivery bridge, because the consumers built on this *pull* — they ask for a message when they are
+ * ready to handle one. Nothing is buffered between the server and the handler, so backpressure is intrinsic
+ * (an unasked message is not delivered) and a message's `ackWait` clock starts when we take it rather than
+ * while it waits in a queue we forgot to heartbeat.
  *
  * @param connection the live connection durable consumers are attached over
  */
 final class JetStreamSubscriber(connection: Connection):
 
   /**
-   * Attach the durable consumer described by `config`, bridge its async delivery into `queue` (forked into
-   * `scope`, torn down on scope close), and return once delivery is live.
+   * Create (or attach to) the explicit-ack durable consumer described by `config` on its stream.
    *
    * @param config the stream / durable / subject identity and ack tuning
-   * @param queue  the bridge queue delivered messages are offered into
-   * @param scope  the scope the delivery fiber is forked into
-   * @return noop once delivery is established; aborts with [[NatsError.Connect]] if the consumer can't be
-   *         created or attached
+   * @return the consumer context to pull from; aborts with [[NatsError.Connect]] if the stream is missing or
+   *         setup fails
    */
-  def subscribe(config: ContextConfig, queue: Queue[Message], scope: Scope): IO[NatsError, Unit] =
-    for
-      context <- consumerContext(config)
-      started <- Promise.make[NatsError, Unit]
-      _       <- stream(context, started).runForeach(queue.offer).forkIn(scope)
-      _       <- started.await
-    yield ()
-
-  /**
-   * Create (or attach to) the explicit-ack durable pull consumer described by `config` on its stream.
-   *
-   * @param config the stream / durable / subject identity and ack tuning
-   * @return the consumer context; aborts with [[NatsError.Connect]] if the stream is missing or setup fails
-   */
-  private def consumerContext(config: ContextConfig): IO[NatsError, ConsumerContext] =
+  def attach(config: ContextConfig): IO[NatsError, ConsumerContext] =
     ZIO
       .attemptBlocking:
         connection
@@ -50,32 +34,12 @@ final class JetStreamSubscriber(connection: Connection):
           .createOrUpdateConsumer(config.toConsumerConfiguration)
       .mapError(NatsError.Connect(_))
 
-  /**
-   * The consumer's messages as a stream: `context.consume` delivers to a `ZStream.asyncScoped`; the
-   * `MessageConsumer` is stopped when the stream finalizes, and `started` completes once delivery is live.
-   *
-   * @param context the consumer context to attach delivery to
-   * @param started completed once the async delivery is wired up, or failed if attaching fails
-   * @return the delivered messages (adapter-internal; never surfaced)
-   */
-  private def stream(context: ConsumerContext, started: Promise[NatsError, Unit]): ZStream[Any, NatsError, Message] =
-    ZStream.asyncScoped { emit =>
-      ZIO
-        .acquireRelease(
-          ZIO
-            .attemptBlocking(context.consume(message => emit(ZIO.succeed(Chunk.single(message)))))
-            .mapError(NatsError.Connect(_))
-        )(consumer => ZIO.attemptBlocking(consumer.stop()).ignore)
-        .tapError(started.fail(_))
-        .zipRight(started.succeed(()))
-    }
-
 
 object JetStreamSubscriber:
 
   /**
-   * Create a subscriber over `connection`. The subscriber owns no resource of its own — each durable consumer
-   * it attaches is torn down with the scope passed to `subscribe`.
+   * Create a subscriber over `connection`. It owns no resource of its own — a durable consumer lives on the
+   * server, and the contexts it hands out hold nothing that needs closing.
    *
    * @param connection the live connection
    * @return the subscriber

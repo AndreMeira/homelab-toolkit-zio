@@ -1,16 +1,24 @@
 package homelab.nats.core
 
 
-import homelab.nats.{ NatsError, Poll }
+import homelab.nats.NatsError
 import io.nats.client.Message
 import zio.*
 
 
 /**
- * A Core NATS [[Poll]]: drains a bridge queue that a [[CoreSubscriber]] fills from the shared dispatcher,
- * subscribing lazily on the first `one`/`many` (so an unconsumed poll never buffers). Lazy because Core is
- * fire-and-forget with no server-side backpressure — deferring the SUB until first demand avoids piling
- * undrained messages into an unbounded queue.
+ * The receive side of Core NATS: a bridge queue that a [[CoreSubscriber]] fills from the shared dispatcher,
+ * drained one message at a time or in bounded batches, subscribing lazily on the first demand.
+ *
+ * '''A buffer is unavoidable here, and lossy on purpose.''' Core delivery is push — the client hands us a
+ * message on its own thread whether or not anyone is ready — and Core has no server-side flow control, so
+ * something must absorb the difference. The queue is `sliding`: under sustained overload it drops the oldest
+ * rather than growing without bound, which is the honest behaviour for a substrate that already loses
+ * messages with no live subscriber. JetStream needs none of this and has none — it pulls (see
+ * `stream.Consumer`).
+ *
+ * Subscription is deferred to the first `one`/`many` because an unconsumed poll would otherwise pile
+ * undrained messages into that queue from the moment it was built.
  *
  * @param subject       the subject to subscribe to on first demand
  * @param queue         the bridge queue the subscriber offers delivered messages into
@@ -26,14 +34,50 @@ final class CorePoll(
   started: Ref[Boolean],
   subscribeLock: Semaphore,
   capturedScope: Scope,
-) extends Poll.WithQueue(queue) with Poll.WithInit(subscribeLock, started):
+) {
 
-  /** Establish the shared-dispatcher subscription — the one-time [[Poll.WithInit.init]] effect for this poll. */
-  override def init: IO[NatsError, Unit] =
-    subscriber.subscribe(subject, queue, capturedScope)
+  /**
+   * Take the next delivered message, subscribing on first demand and then suspending until one arrives.
+   *
+   * @return the next message; aborts with [[NatsError.Connect]] if the lazy subscription can't be set up
+   */
+  def one: IO[NatsError, Message] = subscribed *> queue.take
+
+  /**
+   * Take a batch: at least one message (suspending until one arrives) and up to `maxMessages`. Returns
+   * whatever is already buffered rather than waiting to fill, so it favours latency over packing.
+   *
+   * @param maxMessages the batch ceiling
+   * @return the drained messages (1..`maxMessages`); aborts with [[NatsError.Connect]] if the lazy
+   *         subscription can't be set up
+   */
+  def many(maxMessages: Int): IO[NatsError, List[Message]] =
+    subscribed *> queue.takeBetween(1, maxMessages).map(_.toList)
+
+  /**
+   * Establish the subscription exactly once, on first demand.
+   *
+   * Double-checked: the hot path is a lock-free `started.get`; only the cold first call takes the lock, and
+   * `started` flips to `true` only after the subscription succeeds, so a failed attempt is retried by the
+   * next caller rather than leaving the poll permanently silent.
+   *
+   * @return noop once subscribed; aborts with [[NatsError.Connect]] if subscribing fails
+   */
+  private def subscribed: IO[NatsError, Unit] =
+    started.get.flatMap:
+      case true  => ZIO.unit
+      case false =>
+        subscribeLock.withPermit:
+          started.get.flatMap:
+            case true  => ZIO.unit
+            case false => subscriber.subscribe(subject, queue, capturedScope) *> started.set(true)
+}
 
 
-object CorePoll:
+object CorePoll {
+
+  /** How many delivered-but-undrained messages the bridge holds before dropping the oldest. */
+  private val bufferSize = 256
 
   /**
    * Build a core poll over `subscriber`, capturing the current scope so the lazy subscription (established on
@@ -47,7 +91,8 @@ object CorePoll:
   def make(subscriber: CoreSubscriber, subject: String): ZIO[Scope, Nothing, CorePoll] =
     for
       scope   <- ZIO.scope
-      queue   <- Queue.sliding[Message](256) // bounded, drop-oldest under overload — Core is lossy by nature; @todo config the size
+      queue   <- Queue.sliding[Message](bufferSize)
       started <- Ref.make(false)
       lock    <- Semaphore.make(1)
     yield new CorePoll(subject, queue, subscriber, started, lock, scope)
+}

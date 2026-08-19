@@ -67,6 +67,11 @@ object ApplicationError:
   trait DecodingError extends ApplicationError
 
   /**
+   * Failures during encoding or parsing of data.
+   */
+  trait EncodingError extends ApplicationError
+
+  /**
    * Business-logic violations and constraint failures — expected, recoverable.
    */
   trait DomainError extends ApplicationError

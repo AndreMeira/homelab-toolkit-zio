@@ -14,7 +14,8 @@ import zio.Duration
  * @param durable       the durable consumer name (shared progress across restarts)
  * @param subject       the subject filter (e.g. `orders.>`)
  * @param ackWait       how long the server waits for an ack before redelivering
- * @param maxAckPending the backpressure bound on un-acked in-flight messages
+ * @param maxAckPending the server's ceiling on un-acked in-flight messages — a safety net, since a pulling
+ *                      consumer is already bounded by what it asks for
  */
 final private[nats] case class ContextConfig(
   stream: String,

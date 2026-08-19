@@ -135,10 +135,16 @@ object Processor {
 
   /**
    * Process up to `parallelism` values concurrently by spawning consume calls *on demand*: exactly one
-   * listener waits on `input` at a time, and the moment it receives a value (and a permit) it hands
-   * listening over to a freshly spawned listener and runs `handle` inline. Fibers therefore scale with
-   * actual work — an idle loop is a single parked fiber, and a backlog holds at most `parallelism`
-   * in-flight `handle` runs plus one waiting listener, regardless of depth.
+   * listener waits on `input` at a time, and the moment it receives a value it hands listening over to a
+   * freshly spawned listener and runs `handle` inline. Fibers therefore scale with actual work — an idle
+   * loop is a single parked fiber, and a backlog holds at most `parallelism` in-flight `handle` runs plus
+   * one waiting listener, regardless of depth.
+   *
+   * A listener takes its permit *before* it consumes, so no value is ever claimed without the capacity to
+   * run it. That matters for any intake where taking a value has a cost the caller cannot see — a leased
+   * message ageing toward redelivery, a held key blocking its peers. It costs no concurrency: the waiting
+   * listener does hold a permit, but only while the intake has nothing to give, which is exactly when no
+   * other value needs that permit.
    *
    * Errors fail fast: the first failing `handle` (or `consume`) aborts the returned effect with that
    * error and interrupts all in-flight work. The spawner is forked into the ambient [[Scope]], so all
@@ -146,7 +152,7 @@ object Processor {
    *
    * @param input       the intake to pull values from
    * @param parallelism the concurrency cap — how many values may run `handle` at once; must be positive
-   * @param handle      the per-value effect, run under a permit inside the delivering consume call
+   * @param handle      the per-value effect, run inside a consume call that already holds its permit
    * @tparam E the error the loop aborts with
    * @tparam A the value consumed
    * @return never completes successfully; aborts with `E` on the first failure; requires a [[Scope]] that
@@ -162,17 +168,17 @@ object Processor {
     yield never
 
   /**
-   * One spawn step: fork a listener and park until it starts running `handle` — holding a value *and* a
-   * permit — then return, so [[parallel]]'s `serial` spawns the next listener exactly then. Repeated,
-   * this keeps one waiting listener and up to `parallelism` running ones, with fibers appearing only when
-   * there is work. `handle` runs inside the listener's consume call, keeping any key held for its whole
-   * duration. A listener's failure is captured inside its fiber into `failure` (it is otherwise
-   * unobserved), which is what aborts [[parallel]].
+   * One spawn step: fork a listener and park until it receives a value — having already taken its permit —
+   * then return, so [[parallel]] spawns the next listener exactly then. Repeated, this keeps one waiting
+   * listener and up to `parallelism` running ones, with fibers appearing only when there is work. `handle`
+   * runs inside the listener's consume call, keeping any key held for its duration. A listener's failure is
+   * captured inside its fiber into `failure` (it is otherwise unobserved), which is what aborts
+   * [[parallel]].
    *
    * @param input   the intake the spawned listener consumes from
    * @param sem     caps concurrent `handle` runs at `parallelism`
    * @param failure the sink a listener's failure is reported to
-   * @param handle  the per-value effect, run under a permit
+   * @param handle  the per-value effect, run inside a consume call that already holds its permit
    * @tparam E the error a listener aborts with
    * @tparam A the value consumed
    * @return noop once the spawned listener has started running `handle` (holding a value and a permit)
@@ -187,11 +193,13 @@ object Processor {
     for
       scope   <- ZIO.service[Scope]
       started <- Promise.make[Nothing, Unit]
-      _       <- input
-                   // Signal INSIDE the permit: the next listener spawns only once this value holds a
-                   // permit, so claimed-but-waiting fibers cannot pile up under a deep backlog.
-                   .consume: value =>
-                     sem.withPermit(started.succeed(()) *> handle(value))
+      _       <- sem
+                   // The permit is taken BEFORE consuming, so a listener never claims a value it has no
+                   // capacity to run: an intake that leases (a broker, a locking query) would otherwise have
+                   // that value ageing toward redelivery while its fiber waited, and a keyed intake would
+                   // hold the key for the wait. Signalling inside the consume keeps the spawn chain intact —
+                   // the next listener appears only once this one holds both a permit and a value.
+                   .withPermit(input.consume(value => started.succeed(()) *> handle(value)))
                    .catchAllCause(failure.failCause(_).unit)
                    .forkIn(scope)
       _       <- started.await

@@ -1,5 +1,4 @@
-package homelab.incubator.llm
-
+package homelab.incubator.llm.v1
 
 import sttp.capabilities.zio.ZioStreams
 import sttp.client4.*

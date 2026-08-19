@@ -4,12 +4,12 @@ package homelab.nats.stream
 import homelab.common.messaging.Consumer as ConsumerContract
 import homelab.nats.Codec.Decoder
 import homelab.nats.{ HandlerFailurePolicy, NatsError }
-import io.nats.client.{ Connection, Message }
+import io.nats.client.{ Connection, ConsumerContext, Message }
 import zio.*
 
 
 /**
- * A durable JetStream [[ConsumerContract]] over messages, backed by a [[StreamPoll]]. Each message is settled
+ * A durable JetStream [[ConsumerContract]] over messages, pulled one at a time. Each message is settled
  * with '''explicit ack''': `ack` when `logic` succeeds, and on failure whatever `onFailure` dictates — `nak`
  * (redeliver), `term` (discard), or surface the error. Redelivery is real, so '''handlers must be
  * idempotent'''. An optional `heartbeat` pings `inProgress()` while the handler runs so slow work isn't
@@ -19,12 +19,14 @@ import zio.*
  * why there is a single failure policy here — settling happens below the decoder, so a malformed payload
  * reaches this class as a failing handler and is settled the same way. See [[Consumer.make]].
  *
- * @param poll      the message source (subscribes lazily on first `consume`)
+ * @param context   the durable consumer to pull from
+ * @param expiry    how long the server holds an unanswered pull open before returning nothing
  * @param heartbeat `inProgress()` keepalive interval while the handler runs, or `None` to disable
  * @param onFailure what to do when processing a message fails
  */
 final class Consumer(
-  poll: StreamPoll,
+  context: ConsumerContext,
+  expiry: Duration,
   heartbeat: Option[Duration],
   onFailure: HandlerFailurePolicy,
 ) extends ConsumerContract[NatsError, Message]:
@@ -40,11 +42,26 @@ final class Consumer(
    */
   override def consume[E2 >: NatsError](logic: Message => IO[E2, Unit]): IO[E2, Unit] =
     for
-      message <- poll.one
+      message <- next
       _       <- Heartbeat
                    .wrap(heartbeat, message :: Nil)(logic(message).either)
                    .flatMap(handleResult(message, _))
     yield ()
+
+  /**
+   * Pull the next message, asking again until one arrives.
+   *
+   * Nothing is delivered that was not asked for, which is where this consumer's backpressure comes from: the
+   * server holds the request open for `expiry` and returns nothing if the stream is idle. The blocking call
+   * is interruptible, so a closing scope does not wait out the expiry.
+   *
+   * @return the next message; aborts with [[NatsError.Receive]] if the pull fails
+   */
+  private def next: IO[NatsError, Message] =
+    ZIO
+      .attemptBlockingInterrupt(context.next(expiry))
+      .mapError(NatsError.Receive(_))
+      .flatMap(message => if message == null then next else ZIO.succeed(message))
 
   /**
    * Settle a message by its handler outcome: `ack` on success, else `onFailure`.
@@ -98,15 +115,18 @@ object Consumer:
    * Tuning for a JetStream consumer.
    *
    * @param ackWait       how long the server waits for an ack before redelivering
-   * @param maxAckPending the backpressure bound on un-acked in-flight messages
+   * @param maxAckPending the server's ceiling on un-acked in-flight messages — a safety net, since a pulling
+   *                      consumer only ever holds the one it asked for
    * @param heartbeat     `inProgress()` keepalive interval while the handler runs, or `None` to disable
    * @param onFailure     what to do when processing a message fails — decoding included, see [[make]]
+   * @param expiry        how long the server holds an unanswered pull open before returning nothing
    */
   final case class Config(
     ackWait: Duration = 30.seconds,
     maxAckPending: Int = 256,
     heartbeat: Option[Duration] = None,
     onFailure: HandlerFailurePolicy = HandlerFailurePolicy.Redeliver,
+    expiry: Duration = 30.seconds,
   )
 
   /**
@@ -130,8 +150,8 @@ object Consumer:
     apply(JetStreamSubscriber.make(connection), stream, durable, subject, config)
 
   /**
-   * Attach a durable message consumer through an existing [[JetStreamSubscriber]]. The subscription is
-   * established lazily on the first `consume`.
+   * Attach a durable message consumer through an existing [[JetStreamSubscriber]]. The durable consumer is
+   * created (or attached to) here; nothing is delivered until a `consume` pulls.
    *
    * @param subscriber the subscriber to attach the durable consumer through
    * @param stream     the (existing) stream name
@@ -147,9 +167,9 @@ object Consumer:
     subject: String,
     config: Config,
   ): ZIO[Scope, NatsError, ConsumerContract[NatsError, Message]] =
-    StreamPoll
-      .make(subscriber, ContextConfig(stream, durable, subject, config.ackWait, config.maxAckPending))
-      .map(poll => new Consumer(poll, config.heartbeat, config.onFailure))
+    subscriber
+      .attach(ContextConfig(stream, durable, subject, config.ackWait, config.maxAckPending))
+      .map(context => new Consumer(context, config.expiry, config.heartbeat, config.onFailure))
 
   /**
    * A consumer of decoded values: the message consumer with `A`'s decoder layered over it.

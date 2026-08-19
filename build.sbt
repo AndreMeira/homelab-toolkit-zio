@@ -13,6 +13,7 @@ val scala3Version         = "3.8.3"
 val zioVersion            = "2.1.23" // keep in sync with the zio-core that zio-prelude/zio-http pull, else zio-test layer macros break
 val zioPreludeVersion     = "1.0.0-RC47"
 val zioLoggingVersion     = "2.5.0"
+val zioSchemaVersion      = "1.8.6"
 val jwtVersion            = "11.0.4"
 val zioHttpVersion        = "3.0.1"
 val magnumVersion         = "1.3.1"
@@ -46,6 +47,11 @@ lazy val common = project
       "dev.zio" %% "zio-prelude"               % zioPreludeVersion,
       "dev.zio" %% "zio-logging"               % zioLoggingVersion,
       "dev.zio" %% "zio-logging-slf4j2-bridge" % zioLoggingVersion,
+      // A reified description of a type, from which both a codec and an advertised schema derive — one
+      // source instead of two hand-written artefacts that drift. In `common` beside `data/Codec` rather than
+      // quarantined in a module: it describes our own data, it reaches no external system.
+      "dev.zio" %% "zio-schema"                % zioSchemaVersion,
+      "dev.zio" %% "zio-schema-derivation"     % zioSchemaVersion, // the `derives Schema` macro
       "dev.zio" %% "zio-test"                  % zioVersion % Test,
       "dev.zio" %% "zio-test-sbt"              % zioVersion % Test,
     ),
@@ -133,6 +139,10 @@ lazy val incubator = project
   .settings(
     name           := "homelab-incubator",
     publish / skip := true,
+    // zio-schema-json wants zio-json 0.10, the jwt-scala sketches pin 0.7. Sketches are not published and
+    // their tests are not gated by CI, so take the newer rather than hold the experiment back — if a jwt
+    // sketch breaks on it, that is a signal to prune it (it is already on the list) rather than to downgrade.
+    libraryDependencySchemes += "dev.zio" %% "zio-json" % VersionScheme.Always,
     scalacOptions  := Nil, // experiment area — Java-interop heavy; skip the strict prod flags
     libraryDependencies ++= Seq(
       "com.github.jwt-scala"          %% "jwt-zio-json"   % jwtVersion,
@@ -140,6 +150,9 @@ lazy val incubator = project
       "com.softwaremill.sttp.client4" %% "zio"            % sttpVersion, // llm sketch: sttp4 ZIO backend + SSE (core/model/shared-zio transitively)
       "dev.zio"                       %% "zio-streams"    % zioVersion, // adapter-internal only (NATS callback bridge); never surfaced
       "io.nats"                        % "jnats"          % "2.20.5", // NATS exploration sketch (messaging/nats)
+      // Codecs derived from the *same* zio-schema the advertised JSON Schema comes from — one description,
+      // so what a model is told to send is what the decoder reads. See docs/sessions/2026-08-17.
+      "dev.zio"                       %% "zio-schema-json" % zioSchemaVersion,
       "dev.zio"                       %% "zio-test"       % zioVersion            % Test,
       "dev.zio"                       %% "zio-test-sbt"   % zioVersion            % Test,
       "org.testcontainers"             % "testcontainers" % testcontainersVersion % Test, // NATS via GenericContainer
