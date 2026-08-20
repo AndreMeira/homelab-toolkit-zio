@@ -29,7 +29,6 @@ final class PollConsumer[E, A] private (channel: PollConsumer.Channel[E, A]) ext
 
   import PollConsumer.{ Pending, Settlement, Verdict }
 
-
   /**
    * Tell this consumer its store may have work now. Never blocks and never fails — a wake-up already pending
    * absorbs this one.
@@ -82,6 +81,7 @@ final class PollConsumer[E, A] private (channel: PollConsumer.Channel[E, A]) ext
         _       <- restore(settled.await.raceFirst(channel.failure.await))
         done    <- exit
       yield done
+
 
 /**
  * How a [[PollConsumer]] is built, and what a store has to provide to be consumed from.
@@ -166,7 +166,7 @@ object PollConsumer:
    *
    * Internal; the consumer builds its own and exposes the raising end as [[PollConsumer.wakeUp]].
    */
-  opaque private[PollConsumer] type Signal = Signal.Type
+  private[PollConsumer] type Signal = Signal.Type
 
   private[PollConsumer] object Signal:
     opaque type Type <: Queue[Unit] = Queue[Unit]
@@ -298,14 +298,12 @@ object PollConsumer:
      * @return noop once the batch is placed; aborts with `E` if the store fails
      */
     private def step: IO[E, Unit] =
-      channel.demand
-        .takeBetween(1, pollSize)
-        .flatMap: tokens =>
-          source
-            .tryAcquire(upTo = tokens.size)
-            .flatMap:
-              case Nil    => channel.demand.offerAll(tokens) *> channel.signal.take.unit
-              case claims => channel.supply.offerAll(claims) *> channel.demand.offerAll(tokens.drop(claims.size)).unit
+      channel.demand.takeBetween(1, pollSize).flatMap { tokens =>
+        source.tryAcquire(upTo = tokens.size).flatMap {
+          case Nil    => channel.demand.offerAll(tokens) *> channel.signal.take.unit
+          case claims => channel.supply.offerAll(claims) *> channel.demand.offerAll(tokens.drop(claims.size)).unit
+        }
+      }
 
     /**
      * Return everything claimed but never handed to a worker.
@@ -390,21 +388,17 @@ object PollConsumer:
      *
      * @return noop once `Closed` is read; aborts with `E` if the store fails
      */
-    private def run: IO[E, Unit] = step.repeatWhile(identity).unit
+    private def run: IO[E, Unit] = step.repeatUntil(_.contains(Settlement.Closed)).unit
 
     /**
      * Take a batch, write the verdicts in it, and report whether to keep going.
      *
      * @return true unless the batch contained [[Settlement.Closed]]; aborts with `E` if the store fails
      */
-    private def step: IO[E, Boolean] =
-      ZIO.uninterruptibleMask: restore =>
-        restore(channel.settlement.takeBetween(1, batchSize)).flatMap: batch =>
-          val verdicts = batch.collect { case Settlement.Filed(pending) => pending }
-          val closed   = batch.exists:
-            case Settlement.Closed => true
-            case _                   => false
-          write(verdicts).unless(verdicts.isEmpty).as(!closed)
+    private def step: IO[E, List[Settlement[A]]] = ZIO.uninterruptibleMask: restore =>
+      restore(channel.settlement.takeBetween(1, batchSize)).flatMap: batch =>
+        val verdicts = batch.collect { case Settlement.Filed(pending) => pending }
+        write(verdicts).unless(verdicts.isEmpty).as(batch.toList)
 
     /**
      * Write one batch — at most one `ack` and one `nack` — and release everyone waiting on it.
@@ -417,11 +411,12 @@ object PollConsumer:
      * @param batch the verdicts to write, never empty
      * @return noop once written and released; aborts with `E` if the store fails
      */
-    private def write(batch: Chunk[Pending[A]]): IO[E, Unit] =
+    private def write(batch: Chunk[Pending[A]]): IO[E, Unit] = {
       val (done, failed) = batch.partition(_.verdict == Verdict.Done)
       source.ack(done.map(_.element).toList).unless(done.isEmpty)
         *> source.nack(failed.map(_.element).toList, nackDelay).unless(failed.isEmpty)
         *> ZIO.foreachDiscard(batch)(_.settled.succeed(()))
+    }
 
     /**
      * End the settler by asking it to stop, and wait for it to finish.

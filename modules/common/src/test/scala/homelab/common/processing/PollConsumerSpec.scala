@@ -7,10 +7,10 @@ import zio.test.*
 
 /**
  * What the third queue changes: settlement is batched, it is still synchronous from the caller's side, and a
- * pool torn down mid-flight still records what its workers decided.
+ * consumer torn down mid-flight still records the verdict it was holding.
  *
  * The teardown cases come first because they are the ones the design is arranged around — the registration
- * order in `Worker.make` exists for them, and nothing else would catch it being wrong.
+ * order in `PollConsumer.make` exists for them, and nothing else would catch it being wrong.
  */
 object PollConsumerSpec extends ZIOSpecDefault:
 
@@ -50,10 +50,10 @@ object PollConsumerSpec extends ZIOSpecDefault:
   extension (calls: List[List[Int]]) private def flat: List[Int] = calls.flatten.sorted
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("PollConsumer")(
-    test("a pool torn down mid-flight still records what its workers decided") {
-      // The worker is interrupted inside `logic`, files a Failed verdict on the way out, and the settler —
-      // which the registration order keeps alive longer than the workers — writes it. Swap the two `make`
-      // lines in `Worker.make` and this element is stranded until its lease expires.
+    test("a consumer torn down mid-flight still records the verdict it was holding") {
+      // The caller is interrupted inside `logic`, files a Failed verdict on the way out, and the settler —
+      // which the registration order keeps alive longer than the callers — writes it. Swap the two `make`
+      // lines in `PollConsumer.make` and this element is stranded until its lease expires.
       for
         source  <- recording(List(1))
         running <- Promise.make[Nothing, Unit] // the handler has the element and is inside `logic`
@@ -77,9 +77,9 @@ object PollConsumerSpec extends ZIOSpecDefault:
         _       <- ZIO.scoped {
                      PollConsumer
                        .make(source, concurrency = 4, pollSize = 4, nackDelay = 1.second)
-                       .flatMap: worker =>
+                       .flatMap: consumer =>
                          ZIO.foreachParDiscard(1 to 4)(_ =>
-                           worker.consume(_ => done.update(_ + 1)).forkScoped
+                           consumer.consume(_ => done.update(_ + 1)).forkScoped
                          )
                        // Every handler has returned, so four Done verdicts are guaranteed to be filed — the
                        // offer sits in the uninterruptible half of `process`. None can have been written yet.
@@ -88,7 +88,7 @@ object PollConsumerSpec extends ZIOSpecDefault:
         settled <- source.ackCalls.get
       yield assertTrue(settled.flat == List(1, 2, 3, 4))
     },
-    test("settlement is batched: four workers finishing together cost one write") {
+    test("settlement is batched: four callers finishing together cost one write") {
       // The store is held for 200ms per write, so verdicts pile up behind the one in flight and are swept by a
       // single `takeBetween`. The assertion is "fewer writes than elements", not an exact count: how the four
       // split across batches depends on the scheduler, but *that* they share is the property. A per-element
@@ -97,8 +97,8 @@ object PollConsumerSpec extends ZIOSpecDefault:
         source <- recording((1 to 4).toList, settleDelay = 200.millis)
         result <- ZIO.scoped {
                     for
-                      worker <- PollConsumer.make(source, concurrency = 4, pollSize = 4, nackDelay = 1.second)
-                      _      <- ZIO.foreachParDiscard(1 to 4)(_ => worker.consume(_ => ZIO.unit).forkScoped)
+                      consumer <- PollConsumer.make(source, concurrency = 4, pollSize = 4, nackDelay = 1.second)
+                      _      <- ZIO.foreachParDiscard(1 to 4)(_ => consumer.consume(_ => ZIO.unit).forkScoped)
                       _      <- source.ackCalls.get.map(_.flat.size).repeatUntil(_ == 4)
                       calls  <- source.ackCalls.get
                     yield assertTrue(calls.size < 4, calls.flat == List(1, 2, 3, 4))
@@ -113,9 +113,9 @@ object PollConsumerSpec extends ZIOSpecDefault:
         source <- recording((1 to 4).toList, settleDelay = 300.millis)
         result <- ZIO.scoped {
                     for
-                      worker <- PollConsumer.make(source, concurrency = 4, pollSize = 4, nackDelay = 1.second)
+                      consumer <- PollConsumer.make(source, concurrency = 4, pollSize = 4, nackDelay = 1.second)
                       _      <- ZIO.foreachParDiscard(1 to 4) { _ =>
-                                  worker
+                                  consumer
                                     .consume(element => ZIO.fail("rejected").when(element % 2 == 0).unit)
                                     .either
                                     .forkScoped
@@ -139,7 +139,7 @@ object PollConsumerSpec extends ZIOSpecDefault:
       // unbatched floor is 200 × 20ms = 4s of pure bookkeeping. Anything materially under that is batching,
       // and the call count says how much.
       val elements  = 200
-      val workers   = 16
+      val callers   = 16
       val perCall   = 20.millis
       val unbatched = perCall * elements.toDouble
       val ceiling   = unbatched * 0.5
@@ -148,9 +148,9 @@ object PollConsumerSpec extends ZIOSpecDefault:
         start   <- Clock.nanoTime
         _       <- ZIO.scoped {
                      for
-                       worker <- PollConsumer
-                                   .make(source, concurrency = workers, pollSize = workers, nackDelay = 1.second)
-                       _      <- ZIO.foreachParDiscard(1 to workers)(_ => worker.consume(_ => ZIO.unit).forever.forkScoped)
+                       consumer <- PollConsumer
+                                   .make(source, concurrency = callers, pollSize = callers, nackDelay = 1.second)
+                       _      <- ZIO.foreachParDiscard(1 to callers)(_ => consumer.consume(_ => ZIO.unit).forever.forkScoped)
                        _      <- source.ackCalls.get.map(_.flat.size).repeatUntil(_ == elements)
                      yield ()
                    }
@@ -165,12 +165,12 @@ object PollConsumerSpec extends ZIOSpecDefault:
       yield assertTrue(
         calls.flat == (1 to elements).toList,   // nothing lost or duplicated on the way
         calls.size <= elements / 4,             // average batch of at least four
-        calls.forall(_.size <= workers),        // and never more than the settler was allowed to take
+        calls.forall(_.size <= callers),        // and never more than the settler was allowed to take
         elapsed < ceiling,
       )
     },
-    test("a quiet pool pays no batching latency") {
-      // The flip side: `takeBetween` blocks only for the *first* verdict, so a lone worker is written
+    test("a quiet consumer pays no batching latency") {
+      // The flip side: `takeBetween` blocks only for the *first* verdict, so a lone caller is written
       // immediately rather than waiting for a batch to fill or a timer to fire.
       for
         source <- recording(List(1))
@@ -189,8 +189,8 @@ object PollConsumerSpec extends ZIOSpecDefault:
         source  <- recording(List(1), settleDelay = 300.millis)
         result  <- ZIO.scoped {
                      for
-                       worker <- PollConsumer.make(source, concurrency = 2, pollSize = 4, nackDelay = 1.second)
-                       fiber  <- worker.consume(_ => ZIO.unit).fork
+                       consumer <- PollConsumer.make(source, concurrency = 2, pollSize = 4, nackDelay = 1.second)
+                       fiber  <- consumer.consume(_ => ZIO.unit).fork
                        _      <- ZIO.sleep(150.millis)
                        early  <- fiber.poll.map(_.isEmpty) // still waiting on the write
                        _      <- fiber.join
@@ -199,9 +199,9 @@ object PollConsumerSpec extends ZIOSpecDefault:
                    }
       yield result
     },
-    test("a dead settler aborts its workers instead of leaving them unrecorded") {
+    test("a dead settler aborts its callers instead of leaving them unrecorded") {
       // The failure mode that matters most: a silent settler would let work be processed forever and never
-      // recorded, redelivering everything on every lease expiry. It must take the pool down instead.
+      // recorded, redelivering everything on every lease expiry. It must take the consumer down instead.
       val broken = new PollConsumer.Source[String, Int]:
         override def tryAcquire(upTo: Int): IO[String, List[Int]]                = ZIO.succeed(List(1))
         override def ack(elements: List[Int]): IO[String, Unit]                  = ZIO.fail("store is gone")

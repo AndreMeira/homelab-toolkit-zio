@@ -10,12 +10,12 @@ import zio.test.*
  *
  * The verdict-loss bug this guards against passed a single-shot test every time and failed roughly one run in
  * three under load — the window is between a queue completing a parked taker and that taker resuming, so it
- * only opens when the scheduler is busy. Twelve consecutive pools, each torn down with an element in flight,
+ * only opens when the scheduler is busy. Twelve consecutive consumers, each torn down with an element in flight,
  * is what made it reproducible; anything less reports success on a broken settler.
  */
 object PollConsumerTeardownStressSpec extends ZIOSpecDefault:
 
-  /** One pool, one element, torn down while the handler holds it. Reports what the store was told. */
+  /** One consumer, one element, torn down while the handler holds it. Reports what the store was told. */
   private def torndownMidFlight(run: Int): UIO[String] =
     for
       remaining <- Ref.make(1)
@@ -45,7 +45,7 @@ object PollConsumerTeardownStressSpec extends ZIOSpecDefault:
     yield s"run $run: claimed=$got ack=$a nack=$n"
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("teardown stress")(
-    test("every torn-down pool records the verdict of the element it was holding") {
+    test("every torn-down consumer records the verdict of the element it was holding") {
       // The expected line is the whole assertion: the element was claimed, and the store was told to hand it
       // back. A dropped verdict shows up as `nack=List()` — the element left claimed, invisible until its
       // lease expires. Failures print every run, so a partial loss is legible rather than a bare count.
