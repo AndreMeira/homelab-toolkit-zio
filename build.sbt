@@ -28,9 +28,9 @@ val sttpVersion           = "4.0.9"
 
 ThisBuild / scalaVersion := scala3Version
 ThisBuild / organization := "com.andremeira.homelab"
-// The release workflow sets RELEASE_VERSION from the tag (`v0.1.0` -> `0.1.0`). Everywhere else this is a
+// The release workflow sets RELEASE_VERSION from the tag (`v0.0.1` -> `0.0.1`). Everywhere else this is a
 // snapshot, so a local build cannot accidentally claim a release number.
-ThisBuild / version      := sys.env.getOrElse("RELEASE_VERSION", "0.1.0-SNAPSHOT")
+ThisBuild / version      := sys.env.getOrElse("RELEASE_VERSION", "0.0.1-SNAPSHOT")
 
 
 ThisBuild / scalacOptions ++= Seq(
@@ -55,7 +55,9 @@ ThisBuild / publishTo         := Some(
 )
 ThisBuild / credentials ++= githubCredentials
 
-// POM metadata, which is also what makes the package page on GitHub link back to this repo.
+// POM metadata: the licence a consumer's tooling reads, and what makes the package page on GitHub link
+// back to this repo. The full licence text is in LICENSE at the repo root.
+ThisBuild / licenses := Seq("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0"))
 ThisBuild / homepage := Some(url("https://github.com/AndreMeira/homelab-toolkit-zio"))
 ThisBuild / scmInfo  := Some(
   ScmInfo(

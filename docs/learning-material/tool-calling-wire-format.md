@@ -14,7 +14,7 @@ answer, why the schema root must be an object — are all consequences of this f
 
 Design rationale lives elsewhere: [`../../../research/agent/agent-architecture.md`](../../../research/agent/agent-architecture.md)
 for the MCP boundary and the loop, and
-[`../../../research/library-design/llm-design-exploration.md`](../../../research/library-design/llm-design-exploration.md)
+[`../research/llm-design-exploration.md`](../research/llm-design-exploration.md)
 for the port and registry shape.
 
 ## 1. What you send: tools are advertised per request

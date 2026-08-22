@@ -22,7 +22,7 @@ Landed in `modules/incubator/src/main/scala/homelab/incubator/llm/v2/` — 23 sp
 | `Tool.scala` | `Tool` (pure behaviour) + `Registry` + `Session` |
 
 Plus `zio-schema` in `common`, [`../learning-material/tool-calling-wire-format.md`](../learning-material/tool-calling-wire-format.md),
-and [`../../../research/library-design/llm-design-exploration.md`](../../../research/library-design/llm-design-exploration.md)
+and [`../research/llm-design-exploration.md`](../research/llm-design-exploration.md)
 for the design rationale.
 
 ## Four decisions that turned over during the session

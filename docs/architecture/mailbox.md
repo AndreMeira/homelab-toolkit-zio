@@ -13,7 +13,7 @@ idiom built on it. One file, one object, seven nested types. Part of the family 
 [`processing.md`](./processing.md): `Incoming` is a `Processor`, so a `Graph` runs it like anything else, and
 it is the remote counterpart to `Worker`'s local request/reply.
 
-Supersedes [`research/library-design/mailbox-design.md`](../../../research/library-design/mailbox-design.md),
+Supersedes [`docs/research/mailbox-design.md`](../research/mailbox-design.md),
 whose §1–8 describe a different shape (a `Pipe` adapter presenting remote requests to `Worker`, correlation
 carried in a receipt, `Serde` at the seam). What landed is smaller and does not touch `Worker` at all.
 

@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to publish, e.g. v0.1.0'
+        description: 'Tag to publish, e.g. v0.0.1'
         required: true
 
 # Only the package write is granted; everything else stays read-only.
@@ -58,7 +58,7 @@ jobs:
       - name: Test
         run: sbt -batch -no-colors test
 
-      # `v0.1.0` -> `0.1.0`: the tag carries the `v`, the artifact version must not. build.sbt reads this.
+      # `v0.0.1` -> `0.0.1`: the tag carries the `v`, the artifact version must not. build.sbt reads this.
       - name: Derive version from tag
         run: echo "RELEASE_VERSION=${TAG#v}" >> "$GITHUB_ENV"
 

@@ -33,7 +33,7 @@ password=<your-classic-pat>
 ```scala
 resolvers += "homelab-toolkit-zio" at "https://maven.pkg.github.com/AndreMeira/homelab-toolkit-zio"
 
-libraryDependencies += "com.andremeira.homelab" %% "homelab-auth" % "0.1.0"
+libraryDependencies += "com.andremeira.homelab" %% "homelab-auth" % "0.0.1"
 // every adapter transitively brings homelab-common — you rarely need both lines
 ```
 
@@ -53,7 +53,7 @@ Don't use Actions' built-in `GITHUB_TOKEN` to *read* these — it needs one acce
 consumer repo. The shared PAT avoids that matrix.
 
 > **No release is cut yet.** Until the first `v*` tag exists, use `sbt publishLocal` in this repo and depend
-> on `0.1.0-SNAPSHOT` — `~/.ivy2/local` is already on sbt's resolver chain, so no resolver and no token are
+> on `0.0.1-SNAPSHOT` — `~/.ivy2/local` is already on sbt's resolver chain, so no resolver and no token are
 > needed. Full recipe, plus the git-source-dependency and JitPack alternatives:
 > [`docs/learning-material/using-modules-as-a-dependency.md`](docs/learning-material/using-modules-as-a-dependency.md).
 
@@ -132,18 +132,18 @@ sbt publishLocal       # every module to ~/.ivy2/local
 
 ## Releasing
 
-**Publish a GitHub Release** — *Releases → Draft a new release*, create the tag `v0.1.0` on the spot, and
+**Publish a GitHub Release** — *Releases → Draft a new release*, create the tag `v0.0.1` on the spot, and
 hit *Publish release*. That fires [`.github/workflows/release.yml`](.github/workflows/release.yml), which
 runs the suite and publishes the five library modules. From the CLI it's the same event:
 
 ```bash
-gh release create v0.1.0 --generate-notes
+gh release create v0.0.1 --generate-notes
 ```
 
 Note the workflow triggers on the **release**, not on a tag push, because a release created in the UI emits
-only the release event — `git push origin v0.1.0` alone would publish nothing.
+only the release event — `git push origin v0.0.1` alone would publish nothing.
 
-The tag is the version (`v0.1.0` → `0.1.0`); a local build always says `0.1.0-SNAPSHOT`. Published versions
+The tag is the version (`v0.0.1` → `0.0.1`); a local build always says `0.0.1-SNAPSHOT`. Published versions
 are **immutable** — fix a botched release by releasing the next patch, never by overwriting. If a publish
 fails after the release exists, re-run the workflow manually (*Actions → release → Run workflow*) with the
 same tag.
@@ -152,4 +152,5 @@ same tag.
 
 [`docs/`](docs/) follows the homelab-wide taxonomy ([`../DOCS.md`](../DOCS.md)): `architecture/` for
 current-state, `learning-material/` for how-it-works and gotchas, `sessions/` for dated checkpoints. Design
-rationale that precedes the code lives in [`../research/library-design/`](../research/library-design/).
+rationale for the toolkit itself lives in [`docs/research/`](docs/research/); what precedes or spans repos
+stays in the homelab-wide `research/`.

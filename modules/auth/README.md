@@ -15,7 +15,7 @@ the [`ServiceAuthenticator`](../common/src/main/scala/homelab/common/auth/Servic
 ## Add it
 
 ```scala
-libraryDependencies += "com.andremeira.homelab" %% "homelab-auth" % "0.1.0-SNAPSHOT"
+libraryDependencies += "com.andremeira.homelab" %% "homelab-auth" % "0.0.1-SNAPSHOT"
 // transitively brings homelab-common (the ports, Requester, value objects, error hierarchy)
 ```
 

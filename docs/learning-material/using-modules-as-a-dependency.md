@@ -59,7 +59,7 @@ a 401 that reads like a bad token.
 ```scala
 resolvers += "homelab-toolkit-zio" at "https://maven.pkg.github.com/AndreMeira/homelab-toolkit-zio"
 
-libraryDependencies += "com.andremeira.homelab" %% "homelab-common" % "0.1.0"
+libraryDependencies += "com.andremeira.homelab" %% "homelab-common" % "0.0.1"
 ```
 
 ### In your service's CI
@@ -89,18 +89,18 @@ that matrix entirely.
 
 ## Cutting a release
 
-Draft a release in the GitHub UI, create the tag `v0.1.0` as part of it, publish — or, equivalently:
+Draft a release in the GitHub UI, create the tag `v0.0.1` as part of it, publish — or, equivalently:
 
 ```bash
-gh release create v0.1.0 --generate-notes
+gh release create v0.0.1 --generate-notes
 ```
 
 The workflow listens for `release: published`, **not** for a tag push: a release created in the UI creates
 its tag internally and emits only the release webhook, so a tag-filtered workflow would never run. The
-corollary is that a bare `git push origin v0.1.0` publishes nothing — it just moves a tag.
+corollary is that a bare `git push origin v0.0.1` publishes nothing — it just moves a tag.
 
-The version comes from the tag (`build.sbt` reads `RELEASE_VERSION`, which the workflow sets to `0.1.0`), so
-a local build always says `0.1.0-SNAPSHOT` and cannot accidentally claim a release number.
+The version comes from the tag (`build.sbt` reads `RELEASE_VERSION`, which the workflow sets to `0.0.1`), so
+a local build always says `0.0.1-SNAPSHOT` and cannot accidentally claim a release number.
 
 **A published version is immutable** — GitHub Packages rejects a re-push of the same coordinates. A botched
 release is fixed by tagging the next patch version, never by overwriting.

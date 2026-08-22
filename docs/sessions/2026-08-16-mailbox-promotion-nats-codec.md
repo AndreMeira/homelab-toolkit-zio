@@ -16,7 +16,7 @@ lives in the message, not in the payload.
 State: `common` green at 100, `nats` green at 22 (integration, real broker via Testcontainers).
 
 Superseding doc: [`../architecture/mailbox.md`](../architecture/mailbox.md). The research note
-`research/library-design/mailbox-design.md` is now marked *superseded* — its §8 assumed a `Pipe` adapter
+`docs/research/mailbox-design.md` (then `research/library-design/`) is now marked *superseded* — its §8 assumed a `Pipe` adapter
 feeding `Worker`, which is not what was built.
 
 ## Mailbox: what review changed before promotion

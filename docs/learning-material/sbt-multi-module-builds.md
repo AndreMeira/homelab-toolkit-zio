@@ -2,8 +2,8 @@
 title: "Adding modules to the sbt build"
 type: learning-material
 status: current
-updated: 2026-07-06
-tags: [sbt, multi-module, build, jitpack, modules]
+updated: 2026-08-22
+tags: [sbt, multi-module, build, publishing, github-packages, modules]
 ---
 
 # Adding modules to the sbt build
@@ -153,38 +153,26 @@ Prefer inheriting the strict flags for real modules; only relax deliberately.
 - **`aggregate` ≠ `dependsOn`.** Forgetting `aggregate` means `sbt test` at the root silently skips your
   module; forgetting `dependsOn` means your code can't see `common`. You usually need both.
 
-## Publishing via JitPack
+## Publishing
 
-The modules are consumable straight from GitHub without a publishing pipeline: **[JitPack](https://jitpack.io)
-builds them on demand from a git tag** and serves the artifacts. As a maintainer you do two things:
+The modules are published to this repo's **GitHub Packages** Maven registry by publishing a **GitHub
+Release**; [`release.yml`](../../.github/workflows/release.yml) runs the suite and then `sbt publish`. The
+tag is the version (`v0.0.1` -> `0.0.1`), read by `build.sbt` from `RELEASE_VERSION`.
 
-1. **Add a `jitpack.yml`** at the repo root pinning a JDK new enough for the code (Ed25519 needs 15+; use 17):
+What this means when you add a module:
 
-   ```yaml
-   jdk:
-     - openjdk17
-   ```
+- **`publish / skip` decides what ships.** `root` and `incubator` opt out; everything else in the aggregate
+  is published, so a new module is released the moment it is added unless you skip it deliberately.
+- **The artifact name is `name`, not the sbt project id.** `lazy val postgres` publishes as
+  `homelab-postgres`; get that line wrong and the coordinate is wrong forever.
+- **Versions are immutable.** GitHub Packages rejects a re-push of the same coordinates, so a botched
+  release is fixed by releasing the next patch, never by overwriting.
+- **A release triggers on `release: published`, not on a tag push** — `git push origin v0.0.1` alone
+  publishes nothing.
 
-2. **Push a git tag** — that tag *is* the version:
+The consumer side — the resolver, the classic PAT with `read:packages`, and the `publishLocal` loop for
+day-to-day work — is [`using-modules-as-a-dependency.md`](using-modules-as-a-dependency.md).
 
-   ```
-   git tag v0.1.0 && git push origin v0.1.0
-   ```
-
-That's it. On the first request, JitPack clones the tag, runs `sbt publishM2`, and caches the result.
-Consumers then reference the module under the `com.github.<owner>.<repo>` group by its artifact name — see
-[`using-modules-as-a-dependency.md`](using-modules-as-a-dependency.md).
-
-Notes:
-
-- **`publish / skip` modules are excluded** — the `root` and `incubator` won't be published, which is what
-  we want; only real modules (`common`, `auth`, …) are served.
-- **sbt multi-module is JitPack's rough edge.** If the first build fails, read the log at
-  `jitpack.io/com/github/<owner>/<repo>/<tag>/build.log` and expect to iterate once on the tag / `jitpack.yml`.
-- **Tags are immutable coordinates.** To ship a fix, push a new tag (`v0.1.1`); don't move an existing one.
-
-For local iteration (same machine) `sbt publishLocal` is simpler — publishing all modules to `~/.ivy2/local`;
-JitPack is for handing a **pinned, cross-machine** coordinate to a consumer.
 
 ## Cheat sheet
 
