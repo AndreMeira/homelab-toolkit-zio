@@ -5,9 +5,10 @@ whole homelab in [`../../DOCS.md`](../../DOCS.md). It is the authority; nothing 
 
 What is specific to this repo:
 
-- **Sub-folders in use:** `architecture/`, `learning-material/`, `sessions/`. Others from the taxonomy are
-  created when first needed — `decisions/` when a choice here earns its own ADR.
+- **Sub-folders in use:** `architecture/`, `learning-material/`, `research/`, `sessions/`. Others from the
+  taxonomy are created when first needed — `decisions/` when a choice here earns its own ADR.
 - **`architecture/` is one page per concern**, named after the package it describes (`messaging.md`,
   `processing.md`, `auth.md`), so a reader goes from a package to its page without a lookup.
-- **Design rationale lives outside this repo**, in `research/library-design/` — it predates and outlives
-  individual modules. When a "how it works now" crystallises there, it gets promoted into `architecture/`.
+- **[`research/`](research/) holds this toolkit's design rationale** — drafts kept as written, not
+  current-state. It moved here from the homelab-wide `research/library-design/` on 2026-08-22, unedited;
+  promoting any of it into `architecture/` is a separate, deliberate pass.
