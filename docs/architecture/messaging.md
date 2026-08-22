@@ -2,17 +2,18 @@
 title: Messaging — the two ports everything else is built from
 type: architecture
 status: current
-updated: 2026-08-16
-tags: [messaging, producer, consumer, pipe, partitioner, hub, router, inmemory]
+updated: 2026-08-22
+tags: [messaging, producer, consumer, pipe, partitioner, hub, router, inmemory, pollconsumer, polling]
 ---
 
 # Messaging
 
 `homelab.common.messaging` — the transport seam. Two ports, a conduit that is both, three producers that do
-something other than send, and an in-memory family that implements all of it without a broker.
+something other than send, an in-memory family that implements all of it without a broker, and one consumer
+for substrates that never call you.
 
 Code: `modules/common/src/main/scala/homelab/common/messaging/`
-Adapters: `homelab.nats` (Core + JetStream), `messaging/inmemory/` (queues)
+Adapters: `homelab.nats` (Core + JetStream), `messaging/inmemory/` (queues), `PollConsumer` (leased stores)
 
 ## The two ports
 
@@ -74,6 +75,57 @@ Not a test double — the same ports, over ZIO queues, used wherever a process t
   runs, and frees it after. Per-key FIFO with concurrency across keys — this is what `KeySafe` promises.
 
 None of them fail (`E = Nothing`), which is why they compose with any error type.
+
+## Polling a store that will not call you
+
+`PollConsumer[E, A]` is a `Consumer` over a substrate with no delivery: a table used as a work queue, rows
+claimed with `SELECT … FOR UPDATE SKIP LOCKED`, a `claimed_until` lease and a `visible_at` retry delay. It
+asks for work rather than being told about it, and everything below exists to make asking cheap.
+
+**Reach for it only when the substrate has no consumer client.** NATS, Kafka and SQS already solve delivery,
+flow control and liveness; wrapping them here would buy a second layer of queues and nothing else.
+
+The store side is one port, three non-blocking methods, one statement each:
+
+```scala
+trait Source[E, A]:
+  def claim(upTo: Int): IO[E, List[A]]
+  def ack(elements: List[A]): IO[E, Unit]
+  def nack(elements: List[A], wait: Duration): IO[E, Unit]
+```
+
+**Three queues, three owners**, and the consumer itself touches the store not at all — a caller's fiber owns
+nothing but the work:
+
+| Fiber | Takes | Owns |
+|---|---|---|
+| fetcher | demand | the read, batched by `LIMIT` |
+| caller | supply | `logic`, then files a verdict |
+| settler | verdicts | the write, batched by `WHERE id = ANY` |
+
+**Capacity is a token held, not a number computed.** A caller ready to run offers a *demand* token and the
+fetcher claims only as much demand as it holds, so no row is ever marked claimed with nobody free to run it.
+Because `consume` returns only once the outcome is *written*, a caller cannot spend a second token while its
+first element is recorded only in memory — so **outstanding leases never exceed `concurrency`**, end to end.
+
+**Batching is `takeBetween(1, batchSize)` and nothing else** — no timer, no flush interval. A quiet consumer
+writes one element per statement with no added latency; a busy one batches exactly as hard as it is being
+pushed, because the batch is whatever finished while the previous write was in flight.
+
+**Nothing calls a polling consumer**, so liveness is the caller's to arrange: a periodic tick is what keeps it
+correct, and `wakeUp` is the latency shortcut for a writer in the same process (call it after the insert
+commits). With neither, it polls once, finds nothing, and parks forever.
+
+**Teardown is ordered, and the order is load-bearing**: callers interrupted → fetcher stopped → claims nobody
+received handed back → settler closed. Every stage that can still produce a verdict stops before the stage
+that writes them, which is what lets a caller interrupted mid-wait still have its verdict recorded. The
+settler is the one fiber here that is *never* interrupted — a queue hands an offered item straight to a parked
+taker, so interrupting there would destroy the very verdict being delivered; it is stopped through its own
+FIFO instead. A dead fetcher or settler fails every caller rather than going quiet, because a silent settler
+would process work forever and record none of it.
+
+Specs: `PollConsumerSpec`, `PollConsumerTeardownSpec`, `PollConsumerConcurrencySpec`,
+`PollConsumerTeardownStressSpec`, plus `ScopeOrderingSpec` for the two ZIO behaviours the teardown rests on.
 
 ## Batched
 
