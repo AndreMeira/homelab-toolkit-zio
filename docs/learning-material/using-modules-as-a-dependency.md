@@ -2,94 +2,118 @@
 title: "Depending on a toolkit module from your service"
 type: learning-material
 status: current
-updated: 2026-07-06
-tags: [sbt, dependencies, jitpack, publishing, modules]
+updated: 2026-08-22
+tags: [sbt, dependencies, github-packages, publishing, modules, pat]
 ---
 
 # Depending on a toolkit module from your service
 
-This repo is a set of small libraries (`homelab-common`, `homelab-auth`, …). This note is for the **other
-side**: a ZIO service that wants to pull one of them in as an sbt dependency.
+This repo is a set of small libraries (`homelab-common`, `homelab-postgres`, …). This note is for the
+**other side**: a ZIO service that wants to pull one of them in as an sbt dependency.
 
 ## What you can depend on
 
 | Module | Artifact | Provides |
 |--------|----------|----------|
-| common | `homelab-common` | ports, `Requester`, value objects, the error hierarchy |
-| auth   | `homelab-auth`   | JWT/JWKS service & user authentication (depends on `common`) |
+| common | `homelab-common` | data, ports, `processing`, `messaging` (incl. the in-memory family) |
+| postgres | `homelab-postgres` | persistence adapter — Magnum + Hikari + Flyway |
+| telemetry | `homelab-telemetry` | the OTel implementation of the `Monitor` port |
+| auth | `homelab-auth` | JWKS authenticator, hasher, EdDSA issuer |
+| nats | `homelab-nats` | Core NATS + JetStream implementations of the messaging ports |
 
-Coordinates: organization **`com.andremeira.homelab`**, version **`0.1.0-SNAPSHOT`**, cross-built for
-**Scala 3** (use `%%`). `magnum`/`inmemory` aren't implemented yet; `incubator` is never published.
+Coordinates: organization **`com.andremeira.homelab`**, cross-built for **Scala 3** (use `%%`, which appends
+the `_3` suffix). Every adapter depends on `common`, so pulling one **transitively brings `homelab-common`**
+and you rarely need both lines. The root aggregate and `incubator` are `publish / skip` — deliberately not
+published.
 
-Depending on `homelab-auth` **transitively brings `homelab-common`** (and its libraries), so you rarely
-need both lines.
+## Released artifacts live in GitHub Packages
 
-## It isn't on Maven Central — so pick a method
+A `v*` tag on this repo triggers [`release.yml`](../../.github/workflows/release.yml), which runs the suite
+and publishes the five modules to
+`https://maven.pkg.github.com/AndreMeira/homelab-toolkit-zio`.
 
-### 1. Local publish — simplest when you control both repos
+### Consumers need a token — yes, even though the repo is public
 
-In the **toolkit** repo:
+GitHub Packages serves Maven artifacts **only to authenticated callers**: *"You need an access token to
+publish, install, and delete private, internal, and public packages."* Repo visibility does not change this;
+the container registry (`ghcr.io`) is the only registry that allows anonymous reads. It also has to be a
+**classic** PAT — *"GitHub Packages only supports authentication using a personal access token (classic)."*
+
+So, once: create a classic PAT with the **`read:packages` scope and nothing else**. One token covers every
+package on the account, so a single shared token serves the whole homelab.
+
+Put it in `~/.sbt/1.0/credentials` (never in a repo):
 
 ```
-sbt publishLocal          # publishes every module to ~/.ivy2/local
-# …or just one:
-sbt auth/publishLocal
+realm=GitHub Package Registry
+host=maven.pkg.github.com
+user=AndreMeira
+password=ghp_yourclassictoken
 ```
 
-In your **service**'s `build.sbt`:
+The realm string is fixed by GitHub. Get it wrong and sbt silently skips the credentials, which surfaces as
+a 401 that reads like a bad token.
+
+### In your service's `build.sbt`
 
 ```scala
-libraryDependencies += "com.andremeira.homelab" %% "homelab-auth" % "0.1.0-SNAPSHOT"
+resolvers += "homelab-toolkit-zio" at "https://maven.pkg.github.com/AndreMeira/homelab-toolkit-zio"
+
+libraryDependencies += "com.andremeira.homelab" %% "homelab-common" % "0.1.0"
 ```
 
-No resolver needed — `~/.ivy2/local` is already on sbt's default chain. (The root and `incubator` are
-`publish / skip`, so they're deliberately not published.) Re-run `publishLocal` after each toolkit change;
-if your service caches the SNAPSHOT, `sbt update` or a fresh reload picks up the new build.
+### In your service's CI
 
-### 2. Git source dependency — no publishing at all
-
-Reference the toolkit's subproject straight from GitHub in your service's `build.sbt`:
+Add the same PAT as an Actions secret (or an organization-level secret, which every repo inherits — the only
+version with no per-service setup), and read credentials from the environment instead of the file:
 
 ```scala
-lazy val toolkitAuth =
-  ProjectRef(uri("https://github.com/<owner>/homelab-toolkit-zio.git#<ref>"), "auth")
-
-lazy val myService = (project in file("."))
-  .dependsOn(toolkitAuth)     // homelab-common comes with it
+credentials += Credentials(
+  "GitHub Package Registry",
+  "maven.pkg.github.com",
+  sys.env.getOrElse("GITHUB_ACTOR", ""),
+  sys.env.getOrElse("GITHUB_TOKEN", ""),
+)
 ```
 
-`<ref>` is a tag, branch, or commit SHA; the project ID (`"auth"`) is the `lazy val` name from the toolkit's
-`build.sbt`. sbt clones and **builds the toolkit from source** alongside your service — nothing to publish,
-and you can pin an exact commit while iterating.
-
-### 3. JitPack — a real binary coordinate from a GitHub tag
-
-```scala
-resolvers += "jitpack" at "https://jitpack.io"
-libraryDependencies += "com.github.<owner>.homelab-toolkit-zio" %% "homelab-auth" % "<tag>"
+```yaml
+      - name: Test
+        env:
+          GITHUB_TOKEN: ${{ secrets.HOMELAB_PACKAGES_TOKEN }}
+        run: sbt -batch -no-colors test
 ```
 
-JitPack builds the tag on first request and serves the artifacts. For a multi-module sbt build it publishes
-each subproject under the `com.github.<owner>.<repo>` group; reference the one you want by its artifact
-name. You'll likely need a `jitpack.yml` pinning the JDK, and a **pushed git tag** to build from.
+**Do not use the built-in `GITHUB_TOKEN` for this.** It can only read packages it has been granted access to,
+one grant per package per consumer repo — five artifacts times every service, forever. The shared PAT avoids
+that matrix entirely.
 
-### 4. GitHub Packages — if you want authenticated hosted artifacts
+## Cutting a release
 
-Set `publishTo` to your repo's GitHub Packages Maven registry and publish with a token; consumers add the
-same registry as a resolver with credentials. More setup than the above — reach for it only if you want
-hosted, access-controlled artifacts.
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+That is the whole process. The workflow derives `0.1.0` from the tag (`build.sbt` reads `RELEASE_VERSION`),
+so a local build always says `0.1.0-SNAPSHOT` and cannot accidentally claim a release number.
+
+**A published version is immutable** — GitHub Packages rejects a re-push of the same coordinates. A botched
+release is fixed by tagging the next patch version, never by overwriting.
+
+## The alternatives, and when they are still better
+
+- **`publishLocal`** — the day-to-day loop while changing the toolkit and a service together. `sbt
+  publishLocal` (or `sbt common/publishLocal`) writes to `~/.ivy2/local`, which is already on sbt's default
+  resolver chain, so the service needs no resolver and no credentials. Re-run it after each toolkit change.
+- **Git source dependency** — `ProjectRef(uri("https://github.com/AndreMeira/homelab-toolkit-zio.git#<ref>"),
+  "common")` builds the toolkit from source alongside your service. No publishing, no token, and you can pin
+  an exact commit — at the cost of building the toolkit in every consumer's build.
+- **JitPack** — the only anonymous option, but it rewrites the coordinates to `com.github.AndreMeira.*`,
+  drops the `com.andremeira.homelab` group, and needs its runner to offer a JDK this build can use.
 
 ## Things to know
 
-- **`%%` vs `%`.** `%%` appends the Scala 3 binary suffix (`_3`); your service must be on a compatible
-  Scala 3 (the toolkit builds with **3.3.4**, the 3.3.x LTS line). Use plain `%` only for Java libraries.
-- **SNAPSHOTs move.** `0.1.0-SNAPSHOT` can change under you. For a reproducible build, pin a **tag** via
-  method 2 or 3 rather than tracking the SNAPSHOT.
-- **You depend on the port, not the class.** `homelab-auth` implements `homelab-common`'s
-  `ServiceAuthenticator` / `UserAuthenticator`. Wire your code against the port and inject the
-  implementation — see [`modules/auth/README.md`](../../modules/auth/README.md) for usage.
-
-## Recommendation
-
-Controlling both repos in a homelab: **`publishLocal`** for day-to-day work, and a **git source dependency
-or a JitPack tag** when you want a pinned, reproducible reference (CI, another machine, a teammate).
+- **`%%` vs `%`.** `%%` appends the Scala 3 binary suffix (`_3`); the toolkit builds with **Scala 3.8.3**, so
+  your service needs a compatible Scala 3. Plain `%` is for Java libraries only.
+- **You depend on the port, not the class.** Wire your code against `common`'s ports and inject the adapter —
+  that is the whole point of the module split.

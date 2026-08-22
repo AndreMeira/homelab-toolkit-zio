@@ -28,7 +28,9 @@ val sttpVersion           = "4.0.9"
 
 ThisBuild / scalaVersion := scala3Version
 ThisBuild / organization := "com.andremeira.homelab"
-ThisBuild / version      := "0.1.0-SNAPSHOT"
+// The release workflow sets RELEASE_VERSION from the tag (`v0.1.0` -> `0.1.0`). Everywhere else this is a
+// snapshot, so a local build cannot accidentally claim a release number.
+ThisBuild / version      := sys.env.getOrElse("RELEASE_VERSION", "0.1.0-SNAPSHOT")
 
 
 ThisBuild / scalacOptions ++= Seq(
@@ -36,6 +38,43 @@ ThisBuild / scalacOptions ++= Seq(
   "-Wnonunit-statement",
   "-Wconf:msg=(unused.*value|discarded.*value|pure.*statement):error",
 )
+
+
+// Publishing — this repo's own GitHub Packages Maven registry.
+//
+// Releases are cut by CI on a `v*` tag (.github/workflows/release.yml), never from a laptop, so a published
+// version always corresponds to a commit CI built and tested. Publishing needs no secret: Actions' built-in
+// GITHUB_TOKEN can write to its own repo's registry.
+//
+// *Consumers* do need a classic PAT with `read:packages` — GitHub Packages serves Maven to authenticated
+// callers only, public repo or not (the container registry is the sole anonymous one). The consumer-side
+// recipe is docs/learning-material/using-modules-as-a-dependency.md.
+ThisBuild / publishMavenStyle := true
+ThisBuild / publishTo         := Some(
+  "GitHub Packages" at "https://maven.pkg.github.com/AndreMeira/homelab-toolkit-zio"
+)
+ThisBuild / credentials ++= githubCredentials
+
+// POM metadata, which is also what makes the package page on GitHub link back to this repo.
+ThisBuild / homepage := Some(url("https://github.com/AndreMeira/homelab-toolkit-zio"))
+ThisBuild / scmInfo  := Some(
+  ScmInfo(
+    url("https://github.com/AndreMeira/homelab-toolkit-zio"),
+    "scm:git:git@github.com:AndreMeira/homelab-toolkit-zio.git",
+  )
+)
+
+// From the environment in CI, from ~/.sbt/1.0/credentials on a laptop, and never from a file in the repo.
+// The realm is fixed by GitHub — "GitHub Package Registry" — and sbt matches credentials on (realm, host),
+// so a wrong realm fails as a 401 that reads like a bad token.
+def githubCredentials: Seq[Credentials] =
+  (sys.env.get("GITHUB_ACTOR"), sys.env.get("GITHUB_TOKEN")) match {
+    case (Some(actor), Some(token)) =>
+      Seq(Credentials("GitHub Package Registry", "maven.pkg.github.com", actor, token))
+    case _ =>
+      val local = Path.userHome / ".sbt" / "1.0" / "credentials"
+      if (local.exists) Seq(Credentials(local)) else Nil
+  }
 
 
 lazy val common = project
