@@ -139,7 +139,7 @@ object PollConsumer:
      * @param upTo the ceiling — always positive, since the caller holds that much demand
      * @return the claimed elements, at most `upTo` of them
      */
-    def tryAcquire(upTo: Int): IO[E, List[A]]
+    def claim(upTo: Int): IO[E, List[A]]
 
     /**
      * Retire elements: they will not be handed out again.
@@ -299,7 +299,7 @@ object PollConsumer:
      */
     private def step: IO[E, Unit] =
       channel.demand.takeBetween(1, pollSize).flatMap { tokens =>
-        source.tryAcquire(upTo = tokens.size).flatMap {
+        source.claim(upTo = tokens.size).flatMap {
           case Nil    => channel.demand.offerAll(tokens) *> channel.signal.take.unit
           case claims => channel.supply.offerAll(claims) *> channel.demand.offerAll(tokens.drop(claims.size)).unit
         }

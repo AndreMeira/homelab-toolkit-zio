@@ -23,7 +23,7 @@ object PollConsumerSpec extends ZIOSpecDefault:
     val nackCalls: Ref[List[List[Int]]],
     settleDelay: Duration,
   ) extends PollConsumer.Source[Nothing, Int]:
-    override def tryAcquire(upTo: Int): IO[Nothing, List[Int]] =
+    override def claim(upTo: Int): IO[Nothing, List[Int]] =
       for
         _      <- asks.update(_ :+ upTo)
         claims <- available.takeUpTo(upTo).map(_.toList)
@@ -36,6 +36,9 @@ object PollConsumerSpec extends ZIOSpecDefault:
 
     /** Park until `count` elements have actually been claimed — a load-proof stand-in for sleeping. */
     def awaitHandedOut(count: Int): UIO[Unit] = handed.get.map(_.size).repeatUntil(_ == count).unit
+
+    /** Make one more element available, as something outside the consumer would. */
+    def add(element: Int): UIO[Unit] = available.offer(element).unit
 
   private def recording(elements: List[Int], settleDelay: Duration = Duration.Zero): UIO[Recording] =
     for
@@ -203,7 +206,7 @@ object PollConsumerSpec extends ZIOSpecDefault:
       // The failure mode that matters most: a silent settler would let work be processed forever and never
       // recorded, redelivering everything on every lease expiry. It must take the consumer down instead.
       val broken = new PollConsumer.Source[String, Int]:
-        override def tryAcquire(upTo: Int): IO[String, List[Int]]                = ZIO.succeed(List(1))
+        override def claim(upTo: Int): IO[String, List[Int]]                     = ZIO.succeed(List(1))
         override def ack(elements: List[Int]): IO[String, Unit]                  = ZIO.fail("store is gone")
         override def nack(elements: List[Int], wait: Duration): IO[String, Unit] = ZIO.unit
       for
@@ -213,6 +216,28 @@ object PollConsumerSpec extends ZIOSpecDefault:
                        .flatMap(_.consume(_ => ZIO.unit).either)
                    }
       yield assertTrue(outcome == Left("store is gone"))
+    },
+    test("a consumer parked on an empty store resumes when the wake-up is raised") {
+      // Liveness, which no other test here can fail on: nothing calls a polling consumer, so an empty poll
+      // parks the fetcher on the signal and only `wakeUp` (or the caller's own periodic tick) starts it
+      // again. It doubles as the proof that a parked fetcher holds nothing — the second poll can only ask
+      // for demand that was handed back before parking.
+      for
+        source <- recording(Nil)
+        result <- ZIO.scoped {
+                    for
+                      consumer <- PollConsumer.make(source, concurrency = 2, pollSize = 4, nackDelay = 1.second)
+                      caller   <- consumer.consume(_ => ZIO.unit).fork
+                      _        <- source.asks.get.repeatUntil(_.nonEmpty) // the first poll came back empty
+                      _        <- ZIO.sleep(100.millis)                   // and the fetcher is parked on the signal
+                      early    <- caller.poll.map(_.isEmpty)
+                      _        <- source.add(7) *> consumer.wakeUp
+                      _        <- caller.join
+                      asks     <- source.asks.get
+                      acked    <- source.ackCalls.get
+                    yield assertTrue(early, asks.size >= 2, asks.forall(_ == 1), acked.flat == List(7))
+                  }
+      yield result
     },
     test("claims nothing beyond the demand in hand") {
       // v2's invariant, unchanged: one blocked caller means exactly one claimed element.

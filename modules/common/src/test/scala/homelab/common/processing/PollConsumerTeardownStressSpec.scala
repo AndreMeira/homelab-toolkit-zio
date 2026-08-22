@@ -25,7 +25,7 @@ object PollConsumerTeardownStressSpec extends ZIOSpecDefault:
       running   <- Promise.make[Nothing, Unit] // the handler has the element
       gate      <- Promise.make[Nothing, Unit] // never completed: it is interrupted, not finished
       source     = new PollConsumer.Source[Nothing, Int]:
-                     override def tryAcquire(upTo: Int): IO[Nothing, List[Int]] =
+                     override def claim(upTo: Int): IO[Nothing, List[Int]] =
                        remaining
                          .getAndSet(0)
                          .map(left => if left > 0 then List(1) else Nil)
