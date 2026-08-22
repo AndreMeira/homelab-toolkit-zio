@@ -42,8 +42,8 @@ ThisBuild / scalacOptions ++= Seq(
 
 // Publishing — this repo's own GitHub Packages Maven registry.
 //
-// Releases are cut by CI on a `v*` tag (.github/workflows/release.yml), never from a laptop, so a published
-// version always corresponds to a commit CI built and tested. Publishing needs no secret: Actions' built-in
+// Releases are cut by CI when a GitHub Release is published (.github/workflows/release.yml), never from a
+// laptop, so a published version always corresponds to a commit CI built and tested. Publishing needs no secret: Actions' built-in
 // GITHUB_TOKEN can write to its own repo's registry.
 //
 // *Consumers* do need a classic PAT with `read:packages` — GitHub Packages serves Maven to authenticated

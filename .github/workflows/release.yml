@@ -1,0 +1,70 @@
+# Publishes the library modules to this repo's GitHub Packages Maven registry when a GitHub Release is
+# published.
+#
+# The trigger is `release`, not `push: tags`, because a release created in the GitHub UI creates its tag
+# internally and emits the release webhook only — a tag-filtered workflow never runs for it. So publishing
+# is driven by the Release, and `workflow_dispatch` is there to re-run one by hand if a publish fails after
+# the release already exists.
+#
+# Publishing needs no secret of its own: the built-in GITHUB_TOKEN can write to its own repo's registry.
+# Reading is the asymmetric part — consumers need a classic PAT with `read:packages`, because GitHub
+# Packages never serves Maven anonymously, public repo or not. See
+# docs/learning-material/using-modules-as-a-dependency.md.
+name: release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish, e.g. v0.1.0'
+        required: true
+
+# Only the package write is granted; everything else stays read-only.
+permissions:
+  contents: read
+  packages: write
+
+# Two releases published back to back are two different versions, so let them run rather than cancelling.
+concurrency:
+  group: release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      # Explicit ref: a manual run has no tag context of its own, and pinning it keeps both paths identical.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      # Same JDK as test.yml — see its comment for why 25.
+      - name: Set up JDK 25 + sbt cache
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: sbt
+
+      - uses: sbt/setup-sbt@v1
+
+      # The suite runs here too rather than trusting the tagged commit's earlier run: a green `main` is not
+      # proof that *this* tree publishes, and a GitHub Packages version cannot be overwritten once pushed.
+      - name: Test
+        run: sbt -batch -no-colors test
+
+      # `v0.1.0` -> `0.1.0`: the tag carries the `v`, the artifact version must not. build.sbt reads this.
+      - name: Derive version from tag
+        run: echo "RELEASE_VERSION=${TAG#v}" >> "$GITHUB_ENV"
+
+      # `publish` on the aggregate pushes the five library modules; root and incubator opt out with
+      # `publish / skip` in build.sbt. GITHUB_ACTOR is supplied by Actions; the token has to be passed.
+      - name: Publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: sbt -batch -no-colors publish
