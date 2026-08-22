@@ -40,20 +40,14 @@ ThisBuild / scalacOptions ++= Seq(
 )
 
 
-// Publishing — this repo's own GitHub Packages Maven registry.
+// Publishing — the registry and the credential lookup are in project/GitHubPackages.scala.
 //
 // Releases are cut by CI when a GitHub Release is published (.github/workflows/release.yml), never from a
-// laptop, so a published version always corresponds to a commit CI built and tested. Publishing needs no secret: Actions' built-in
-// GITHUB_TOKEN can write to its own repo's registry.
-//
-// *Consumers* do need a classic PAT with `read:packages` — GitHub Packages serves Maven to authenticated
-// callers only, public repo or not (the container registry is the sole anonymous one). The consumer-side
+// laptop, so a published version always corresponds to a commit CI built and tested. The consumer-side
 // recipe is docs/learning-material/using-modules-as-a-dependency.md.
 ThisBuild / publishMavenStyle := true
-ThisBuild / publishTo         := Some(
-  "GitHub Packages" at "https://maven.pkg.github.com/AndreMeira/homelab-toolkit-zio"
-)
-ThisBuild / credentials ++= githubCredentials
+ThisBuild / publishTo         := Some(GitHubPackages.registry)
+ThisBuild / credentials ++= GitHubPackages.credentials
 
 // POM metadata: the licence a consumer's tooling reads, and what makes the package page on GitHub link
 // back to this repo. The full licence text is in LICENSE at the repo root.
@@ -65,19 +59,6 @@ ThisBuild / scmInfo  := Some(
     "scm:git:git@github.com:AndreMeira/homelab-toolkit-zio.git",
   )
 )
-
-// From the environment in CI, from ~/.sbt/1.0/credentials on a laptop, and never from a file in the repo.
-// The realm is fixed by GitHub — "GitHub Package Registry" — and sbt matches credentials on (realm, host),
-// so a wrong realm fails as a 401 that reads like a bad token.
-def githubCredentials: Seq[Credentials] =
-  (sys.env.get("GITHUB_ACTOR"), sys.env.get("GITHUB_TOKEN")) match {
-    case (Some(actor), Some(token)) =>
-      Seq(Credentials("GitHub Package Registry", "maven.pkg.github.com", actor, token))
-    case _ =>
-      val local = Path.userHome / ".sbt" / "1.0" / "credentials"
-      if (local.exists) Seq(Credentials(local)) else Nil
-  }
-
 
 lazy val common = project
   .in(file("modules/common"))
