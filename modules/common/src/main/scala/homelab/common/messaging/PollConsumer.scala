@@ -1,6 +1,5 @@
 package homelab.common.messaging
 
-
 import zio.*
 
 
@@ -48,18 +47,47 @@ final class PollConsumer[E, A] private (channel: PollConsumer.Channel[E, A]) ext
    * again, and a settler that has died leaves the verdict never to be written. Without the races either one
    * would show up as a hang rather than as an error.
    *
+   * '''An element never exists outside a queue with interruption enabled.''' The whole call is one
+   * uninterruptible region and only two things are restored: the parking on `supply`, so a caller waiting
+   * for work can still be torn down, and `logic` itself. An interrupt arriving while parked is therefore
+   * not lost but deferred — ZIO applies it at the next enabled point, which is `logic` — so the handler is
+   * interrupted, [[process]] files `Failed`, and the element is nacked promptly instead of sitting claimed
+   * until its lease expires.
+   *
+   * '''The mask has to be opened here rather than in [[process]].''' An `uninterruptibleMask` created
+   * inside an already-uninterruptible region hands back a restorer that does nothing, so a nested one would
+   * silently run `logic` uninterruptibly and a caller in a long handler could never be torn down. One mask,
+   * its restorer passed down, is what keeps both properties.
+   *
+   * One narrow hole is left, and it belongs to the race rather than to the mask: if `failure` completes at
+   * the instant the take yields, `raceFirst` returns the failure and that element is dropped, recovered on
+   * lease expiry. It is reachable only once the fetcher or settler has already died.
+   *
+   * '''A caller that leaves while parked leaves a debt, not an orphan.''' Its demand has already been
+   * offered and may already have been spent, so an element may be claimed for a caller that no longer
+   * exists. It cannot settle that element itself — it never received one, and cannot tell whether one is
+   * coming — so it posts a cancellation and lets [[Canceller]] redeem it. That is deliberately a *debt*: the
+   * canceller nacks one element, not necessarily *this* element, which is all the accounting needs. Note
+   * this fires on interruption only; a caller aborted by the failure race leaves its debt unpaid, which is
+   * harmless because the consumer is already going down and `Fetcher.drain` hands back what is left.
+   *
    * @param logic processes one element
    * @tparam E2 the widened error, admitting `logic`'s failures
    * @return noop once the element is settled; aborts with `E2` if `logic` failed, or if the fetcher or settler died
    */
   override def consume[E2 >: E](logic: A => IO[E2, Unit]): IO[E2, Unit] =
-    channel.demand.offer(())
-      *> channel.supply.take.raceFirst(channel.failure.await).flatMap(process(_, logic))
+    ZIO.uninterruptibleMask: restore =>
+      channel.demand.offer(()) *>
+        restore(channel.supply.take.raceFirst(channel.failure.await))
+          .onInterrupt(channel.cancels.offer(()))
+          .flatMap(process(_, logic, restore))
 
   /**
    * Run `logic`, file the verdict, and wait for it to land.
    *
-   * Only `logic` and the wait are interruptible. Filing is not: an element whose verdict was dropped on the
+   * Runs inside [[consume]]'s uninterruptible region — it does not open its own, and must not: a nested
+   * mask would hand back a restorer that does nothing (see [[consume]]). Only `logic` and the wait are
+   * restored. Filing is not: an element whose verdict was dropped on the
    * way out would sit claimed until its lease expired. The wait deliberately *is* interruptible — holding it
    * uninterruptibly would mean a caller being torn down could not proceed until the settler wrote, and the
    * settler is closed later in the teardown than the callers. The verdict is already on the queue by then, so
@@ -67,19 +95,23 @@ final class PollConsumer[E, A] private (channel: PollConsumer.Channel[E, A]) ext
    *
    * @param element the claimed element
    * @param logic processes it
+   * @param restore [[consume]]'s restorer — the only way back to interruptible from here
    * @tparam E2 the widened error
    * @return noop once settled; aborts with `E2` if `logic` failed
    */
-  private def process[E2 >: E](element: A, logic: A => IO[E2, Unit]): IO[E2, Unit] =
-    ZIO.uninterruptibleMask: restore =>
-      for
-        settled <- Promise.make[Nothing, Unit]
-        exit    <- restore(logic(element)).exit
-        verdict  = if exit.isSuccess then Verdict.Done else Verdict.Failed
-        _       <- channel.settlement.offer(Settlement.Filed(Pending(element, verdict, settled)))
-        _       <- restore(settled.await.raceFirst(channel.failure.await))
-        done    <- exit
-      yield done
+  private def process[E2 >: E](
+    element: A,
+    logic: A => IO[E2, Unit],
+    restore: ZIO.InterruptibilityRestorer,
+  ): IO[E2, Unit] =
+    for
+      settled <- Promise.make[Nothing, Unit]
+      exit    <- restore(logic(element)).exit
+      verdict  = if exit.isSuccess then Verdict.Done else Verdict.Failed
+      _       <- channel.settlement.offer(Settlement.Filed(Pending(element, verdict, settled)))
+      _       <- restore(settled.await.raceFirst(channel.failure.await))
+      done    <- exit
+    yield done
 
 
 /**
@@ -95,23 +127,42 @@ final class PollConsumer[E, A] private (channel: PollConsumer.Channel[E, A]) ext
  * use it. Those already solve delivery, flow control and liveness better than a polling loop can, and
  * wrapping them here would buy a second layer of queues and nothing else.
  *
- * '''Three queues, three owners.''' Every touch of the store belongs to exactly one fiber, and the consumer
+ * '''This is the batched variant, and the name does not say so.''' The whole shape below follows from one
+ * decision: [[Source]] claims, acks and nacks in '''batches''', so a claim cannot happen in the fiber that
+ * will run the work — somebody has to claim `n` things for `n` fibers. That is where the queues, the demand
+ * tokens and the cancellation machinery all come from. A consumer over a '''single-element''' `Source`
+ * (claim one, ack one, nack one) needs none of it: the claimant is the worker, so nothing can be claimed for
+ * a caller that has left, and batching moves into the `Source` implementation, where a `Batcher` can coalesce
+ * claims and settlements on the store's terms. An honest library would ship that as `PollConsumer` and this
+ * as the alternative for stores whose batch API is worth the complexity. Naming the two is unfinished
+ * business; treat this type as provisional in that respect, not in its behaviour.
+ *
+ * '''Four queues, four owners.''' Every touch of the store belongs to exactly one fiber, and the consumer
  * itself touches it not at all:
  *
  *   - '''fetcher''' — takes demand, claims, fills supply. Owns the read, batched by `LIMIT`.
  *   - '''caller''' — takes supply, runs `logic`, files a verdict. Owns nothing but the work.
  *   - '''settler''' — takes verdicts, writes them. Owns the write, batched by `WHERE id = ANY`.
+ *   - '''canceller''' — takes cancellations, hands one element back per debt. Owns the compensating nack.
  *
  * A caller ready to run something offers a *demand* token, and the fetcher claims only as much as it holds
  * demand for. Nothing is ever claimed that there is no capacity to run, so no row sits marked claimed while
  * its handler queues: capacity is a token held rather than a number computed.
  *
- * '''Teardown is ordered, and the order is load-bearing.''' [[make]] registers the settler before the fetcher,
- * so finalizers (last-registered-first) run: callers interrupted → fetcher stopped → supply drained → settler
- * closed. Every stage that can still produce a verdict stops before the stage that writes them, and the
- * settler outliving the callers is what lets one interrupted mid-wait still have its verdict recorded. See
- * `ScopeOrderingSpec` for the finalizer mechanics this rests on, and [[Settler.close]] for why the settler is
- * the one fiber here that is never interrupted.
+ * '''The fourth queue exists because demand is anonymous.''' A token says somebody wants work, not *who*, so
+ * when a caller is interrupted while parked the fetcher cannot know the element it is claiming has lost its
+ * owner. The departing caller cannot settle that element either — it never received one, and cannot tell
+ * whether one is coming — and it cannot wait to find out, because waiting inside an interrupt finalizer is a
+ * deadlock. So it posts a debt and [[Canceller]], which *can* block, redeems it against whatever element
+ * arrives. The guarantee that buys: '''every claimed element either reaches a worker or is handed back''',
+ * promptly rather than at lease expiry.
+ *
+ * '''Teardown is ordered, and the order is load-bearing.''' [[make]] registers settler, fetcher, canceller in
+ * that order, so finalizers (last-registered-first) run: callers interrupted → canceller stopped → fetcher
+ * stopped → supply drained → settler closed. Every stage that can still produce a verdict stops before the
+ * stage that writes them, and the settler outliving the callers is what lets one interrupted mid-wait still
+ * have its verdict recorded. See `ScopeOrderingSpec` for the finalizer mechanics this rests on, and
+ * [[Settler.close]] for why the settler is the one fiber here that is never interrupted.
  */
 object PollConsumer:
 
@@ -231,6 +282,7 @@ object PollConsumer:
    * @param demand capacity offered by callers — one token is the right to claim one element
    * @param supply elements claimed and waiting for the worker whose demand paid for them
    * @param settlement verdicts waiting to be written
+   * @param cancels one token per caller that left while parked — a claimed element owed a nack
    * @param signal raised when the source may have become non-empty
    * @param failure filled when the fetcher or the settler dies — see [[Settler.make]]
    * @tparam E the error the store aborts with
@@ -240,6 +292,7 @@ object PollConsumer:
     demand: Queue[Unit],
     supply: Queue[A],
     settlement: Queue[Settlement[A]],
+    cancels: Queue[Unit],
     signal: Signal,
     failure: Promise[E, Nothing],
   )
@@ -260,8 +313,12 @@ object PollConsumer:
         demand     <- Queue.bounded[Unit](concurrency)
         supply     <- Queue.bounded[A](concurrency)
         settlement <- Queue.bounded[Settlement[A]](concurrency + 1) // +1 so the Closed message always fits
+        // Unbounded on purpose, and the one queue here that is: a cancellation is posted from a caller's
+        // interrupt finalizer, where blocking on a full queue would stall the interruption itself. The
+        // count is self-limiting anyway — one token per leaked demand, each redeemed by one claim.
+        cancels    <- Queue.unbounded[Unit]
         failure    <- Promise.make[E, Nothing]
-      yield Channel(demand, supply, settlement, signal, failure)
+      yield Channel(demand, supply, settlement, cancels, signal, failure)
 
   /**
    * Claims from the store on behalf of waiting workers, and never more than they asked for. 
@@ -350,6 +407,71 @@ object PollConsumer:
       ZIO
         .acquireRelease(ZIO.succeed(Fetcher(source, channel, pollSize, nackDelay)))(_.drain)
         .tap(_.run.catchAllCause(channel.failure.failCause(_).unit).forkScoped)
+
+  /**
+   * Pays the debts left by callers that were interrupted while waiting for work.
+   *
+   * A caller posts a cancellation when it leaves the queue empty-handed, because its demand may already have
+   * bought an element it will never take. This fiber redeems one cancellation against one element: take a
+   * token, take an element, hand it straight back to the store. It exists because '''the redemption has to
+   * be able to block'''. A departing caller cannot do this work itself — its finalizer would have to wait for
+   * an element that may still be mid-claim, and waiting inside an uninterruptible finalizer is a deadlock. A
+   * fiber can wait; a finalizer cannot.
+   *
+   * '''Which element it nacks does not matter.''' One leaked token buys exactly one element, and one
+   * cancellation returns exactly one, so the books balance whichever it happens to take. It may well hand
+   * back an element a live caller was about to receive — that caller's own demand is still outstanding, so
+   * the fetcher claims a replacement, and with a zero delay the element is visible again immediately. A
+   * redelivery, not a penalty.
+   *
+   * @param source the leased store to hand elements back to
+   * @param channel the cancellations it redeems and the supply it draws from
+   * @tparam E the error nacking aborts with
+   * @tparam A the element handed back
+   */
+  final private[PollConsumer] class Canceller[E, A] private (source: Source[E, A], channel: Channel[E, A]):
+
+    /**
+     * Redeem cancellations until interrupted.
+     *
+     * @return never completes successfully
+     */
+    private def run: UIO[Nothing] = step.forever
+
+    /**
+     * One redemption: take a debt, take an element, give it back.
+     *
+     * Interruption is safe at exactly one point — parked on a queue with nothing in hand. The take is
+     * restored so a scope close can stop this fiber; everything after it is uninterruptible, so an element
+     * handed over is always nacked. A failed nack is ignored rather than routed to `channel.failure`: this
+     * is a compensating path, the element is already claimed, and the lease is the backstop — killing the
+     * consumer over it would turn a delayed redelivery into an outage.
+     *
+     * @return noop once one debt is paid; never fails
+     */
+    private def step: UIO[Unit] =
+      channel.cancels.take *> ZIO.uninterruptibleMask: restore =>
+        restore(channel.supply.take)
+          .flatMap(element => source.nack(List(element), Duration.Zero).ignore)
+
+  private[PollConsumer] object Canceller:
+
+    /**
+     * Start a canceller for the life of the scope.
+     *
+     * Registered '''after''' the fetcher, so last-registered-first stops it before the fetcher and its drain:
+     * the two would otherwise both be taking from `supply` at teardown. Both would nack what they took, so a
+     * race is harmless, but the ordering keeps teardown legible.
+     *
+     * @param source the leased store to hand elements back to
+     * @param channel the cancellations it redeems and the supply it draws from
+     * @tparam E the error the store aborts with
+     * @tparam A the element handed back
+     * @return noop; the canceller runs in the scope's background
+     */
+    def make[E, A](source: Source[E, A], channel: Channel[E, A]): ZIO[Scope, Nothing, Unit] =
+      Canceller(source, channel).run.forkScoped.unit
+
 
   /**
    * Writes verdicts to the store, as many at a time as have accumulated.
@@ -506,4 +628,5 @@ object PollConsumer:
       channel <- Channel.make[E, A](concurrency, signal)
       _       <- Settler.make(source, channel, concurrency, nackDelay)
       _       <- Fetcher.make(source, channel, pollSize, nackDelay)
+      _       <- Canceller.make(source, channel)
     yield PollConsumer(channel)

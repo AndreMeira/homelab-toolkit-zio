@@ -2,7 +2,7 @@
 title: Messaging — the two ports everything else is built from
 type: architecture
 status: current
-updated: 2026-08-22
+updated: 2026-08-23
 tags: [messaging, producer, consumer, pipe, partitioner, hub, router, inmemory, pollconsumer, polling]
 ---
 
@@ -94,7 +94,7 @@ trait Source[E, A]:
   def nack(elements: List[A], wait: Duration): IO[E, Unit]
 ```
 
-**Three queues, three owners**, and the consumer itself touches the store not at all — a caller's fiber owns
+**Four queues, four owners**, and the consumer itself touches the store not at all — a caller's fiber owns
 nothing but the work:
 
 | Fiber | Takes | Owns |
@@ -102,11 +102,26 @@ nothing but the work:
 | fetcher | demand | the read, batched by `LIMIT` |
 | caller | supply | `logic`, then files a verdict |
 | settler | verdicts | the write, batched by `WHERE id = ANY` |
+| canceller | cancellations | handing back one element per debt |
 
 **Capacity is a token held, not a number computed.** A caller ready to run offers a *demand* token and the
 fetcher claims only as much demand as it holds, so no row is ever marked claimed with nobody free to run it.
 Because `consume` returns only once the outcome is *written*, a caller cannot spend a second token while its
 first element is recorded only in memory — so **outstanding leases never exceed `concurrency`**, end to end.
+
+**The fourth queue exists because demand is anonymous.** A token says somebody wants work, not *who*, so a
+caller interrupted while parked may already have had an element claimed for it. It cannot settle that element
+— it never received one — and it cannot wait to find out, because waiting inside an interrupt finalizer
+deadlocks. So it posts a debt and the canceller, which *can* block, redeems it against whatever element turns
+up, nacking with zero delay. The guarantee: **every claimed element either reaches a worker or is handed
+back**, promptly rather than at lease expiry.
+
+> **This is the batched variant, and the name doesn't say so.** All of the above follows from `Source`
+> claiming, acking and nacking in *batches* — which forces the claim out of the fiber that will do the work.
+> A consumer over a single-element `Source` needs no demand tokens, no supply queue and no canceller, because
+> the claimant is the worker; batching then lives in the `Source` implementation, where a `Batcher` can
+> coalesce claims and settlements on the store's terms. Which of the two deserves the name `PollConsumer` is
+> unfinished business.
 
 **Batching is `takeBetween(1, batchSize)` and nothing else** — no timer, no flush interval. A quiet consumer
 writes one element per statement with no added latency; a busy one batches exactly as hard as it is being

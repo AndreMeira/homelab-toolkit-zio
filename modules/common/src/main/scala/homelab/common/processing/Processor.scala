@@ -191,7 +191,7 @@ object Processor {
     handle: A => IO[E, Unit]
   ): ZIO[Scope, Nothing, Unit] =
     for
-      scope   <- ZIO.service[Scope]
+      scope   <- ZIO.scope
       started <- Promise.make[Nothing, Unit]
       _       <- sem
                    // The permit is taken BEFORE consuming, so a listener never claims a value it has no

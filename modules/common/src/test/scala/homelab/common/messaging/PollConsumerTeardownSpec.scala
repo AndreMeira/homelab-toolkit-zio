@@ -87,10 +87,12 @@ object PollConsumerTeardownSpec extends ZIOSpecDefault:
     yield Store(available, asks, claimed, acked, nacked, gate)
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("PollConsumer teardown")(
-    test("elements claimed but never handed to a worker are given back") {
-      // The fetcher's drain, which nothing else exercises: the callers spend their demand, are interrupted
-      // while the poll is still in flight, and the elements that poll returns arrive in a supply queue nobody
-      // is left to take from. Delete `Fetcher.drain` and these sit claimed until their leases expire.
+    test("elements claimed for callers that have left are given back at once") {
+      // The requirement the `Canceller` exists for. The callers spend their demand, are interrupted while
+      // the poll is still in flight, and the elements that poll returns arrive with nobody to take them.
+      // Each departing caller left a cancellation, so those elements are handed back *while the consumer is
+      // still running* — the assertion is made inside the scope, not after it. Without the canceller they
+      // would sit claimed until teardown's drain, or until their leases expired.
       for
         gate    <- Promise.make[Nothing, Unit]
         source  <- store((1 to 4).toList, gate = Some(gate))
@@ -102,7 +104,8 @@ object PollConsumerTeardownSpec extends ZIOSpecDefault:
                        _        <- Fiber.interruptAll(callers)             // and now nobody is left to take it
                        _        <- gate.succeed(())
                        _        <- source.awaitClaimed(4)
-                       _        <- ZIO.sleep(200.millis)                   // let the claims reach the supply queue
+                       // the canceller returns them without waiting for the scope to close
+                       _        <- source.nacked.get.repeatUntil(_.flatten.size == 4)
                      yield ()
                    }
         claims  <- source.claimed.get
@@ -111,7 +114,6 @@ object PollConsumerTeardownSpec extends ZIOSpecDefault:
       yield assertTrue(
         claims.sorted == List(1, 2, 3, 4),
         nacked.flatten.sorted == claims.sorted, // everything claimed was handed back
-        nacked.size == 1,                       // in one statement, not one per stranded element
         acked.isEmpty,                          // and nothing was retired: no worker ever saw them
       )
     },

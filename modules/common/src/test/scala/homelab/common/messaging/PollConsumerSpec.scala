@@ -217,6 +217,74 @@ object PollConsumerSpec extends ZIOSpecDefault:
                    }
       yield assertTrue(outcome == Left("store is gone"))
     },
+    test("interrupting one caller records its verdict and leaves the consumer usable") {
+      // Interruption that is *not* teardown: one caller is cancelled while the consumer keeps running.
+      // Three things have to hold, and only the first is obvious. The verdict is filed on the way out (the
+      // offer sits in the uninterruptible half of `process`), the caller's fiber ends interrupted rather
+      // than failing, and — the one that would bite in production — the consumer still works afterwards.
+      // A caller spends a demand token *before* it takes from supply, so a cancelled one leaves a token it
+      // never used; if that stranded the fetcher, the next caller would hang here instead of being served.
+      for
+        source   <- recording(List(1, 2))
+        running  <- Promise.make[Nothing, Int]  // the first caller has an element and is inside `logic`
+        gate     <- Promise.make[Nothing, Unit] // never completed: it is interrupted, not finished
+        processed <- Promise.make[Nothing, Int] // what the caller *after* the interruption received
+        result   <- ZIO.scoped {
+                      for
+                        consumer <- PollConsumer.make(source, concurrency = 2, pollSize = 4, nackDelay = 1.second)
+                        first    <- consumer.consume(element => running.succeed(element) *> gate.await).fork
+                        held     <- running.await
+                        exit     <- first.interrupt
+                        _        <- source.nackCalls.get.repeatUntil(_.nonEmpty) // its verdict was written
+                        second   <- consumer.consume(element => processed.succeed(element).unit).timeout(5.seconds)
+                        handled  <- processed.await
+                      yield (held, exit, second, handled)
+                    }
+        acked    <- source.ackCalls.get
+        nacked   <- source.nackCalls.get
+      yield
+        val (held, exit, second, handled) = result
+        assertTrue(
+          held == 1,
+          exit.isInterrupted,        // the cancellation reached the caller, not swallowed
+          nacked.flat == List(1),    // and its element went back to the store
+          second.isDefined,          // the next caller was served rather than left waiting
+          handled == 2,
+          acked.flat == List(2),
+        )
+    },
+    test("a cancelled caller's element is nacked even when no other caller ever comes") {
+      // The case the whole demand/supply split kept getting wrong. The only caller is interrupted while
+      // parked; its demand has already been offered, so the element that arrives afterwards belongs to
+      // nobody. Nothing else happens: no second caller, no teardown. The element must still come back —
+      // that is the requirement, and it is why redemption lives in a fiber that can block rather than in
+      // the departing caller's finalizer, which cannot.
+      for
+        source  <- recording(Nil)
+        ran     <- Ref.make(0)
+        result  <- ZIO.scoped {
+                     for
+                       consumer <- PollConsumer.make(source, concurrency = 2, pollSize = 4, nackDelay = 1.second)
+                       caller   <- consumer.consume(_ => ran.update(_ + 1)).fork
+                       _        <- source.asks.get.repeatUntil(_.nonEmpty) // the first poll came back empty
+                       _        <- caller.interrupt                        // its demand outlives it
+                       _        <- source.add(7) *> consumer.wakeUp        // work arrives for nobody
+                       nacked   <- source.nackCalls.get.repeatUntil(_.nonEmpty).timeout(5.seconds)
+                       handed   <- source.handed.get
+                     yield (nacked, handed)
+                   }
+        worked  <- ran.get
+        acked   <- source.ackCalls.get
+      yield
+        val (nacked, handed) = result
+        assertTrue(
+          handed == List(7),               // it was claimed…
+          nacked.isDefined,                // …and handed straight back, inside the consumer's lifetime
+          nacked.get.flatten == List(7),
+          worked == 0,                     // no handler ever saw it
+          acked.isEmpty,
+        )
+    },
     test("a consumer parked on an empty store resumes when the wake-up is raised") {
       // Liveness, which no other test here can fail on: nothing calls a polling consumer, so an empty poll
       // parks the fetcher on the signal and only `wakeUp` (or the caller's own periodic tick) starts it
