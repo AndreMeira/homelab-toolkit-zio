@@ -21,6 +21,7 @@ object PollConsumerSpec extends ZIOSpecDefault:
     val handed: Ref[List[Int]],
     val ackCalls: Ref[List[List[Int]]],
     val nackCalls: Ref[List[List[Int]]],
+    val nackWaits: Ref[List[Duration]],
     settleDelay: Duration,
   ) extends PollConsumer.Source[Nothing, Int]:
     override def claim(upTo: Int): IO[Nothing, List[Int]] =
@@ -32,7 +33,7 @@ object PollConsumerSpec extends ZIOSpecDefault:
     override def ack(elements: List[Int]): IO[Nothing, Unit] =
       ZIO.sleep(settleDelay) *> ackCalls.update(_ :+ elements)
     override def nack(elements: List[Int], wait: Duration): IO[Nothing, Unit] =
-      ZIO.sleep(settleDelay) *> nackCalls.update(_ :+ elements)
+      ZIO.sleep(settleDelay) *> nackCalls.update(_ :+ elements) *> nackWaits.update(_ :+ wait)
 
     /** Park until `count` elements have actually been claimed — a load-proof stand-in for sleeping. */
     def awaitHandedOut(count: Int): UIO[Unit] = handed.get.map(_.size).repeatUntil(_ == count).unit
@@ -48,7 +49,8 @@ object PollConsumerSpec extends ZIOSpecDefault:
       handed    <- Ref.make(List.empty[Int])
       acks      <- Ref.make(List.empty[List[Int]])
       nacks     <- Ref.make(List.empty[List[Int]])
-    yield Recording(available, asks, handed, acks, nacks, settleDelay)
+      waits     <- Ref.make(List.empty[Duration])
+    yield Recording(available, asks, handed, acks, nacks, waits, settleDelay)
 
   extension (calls: List[List[Int]]) private def flat: List[Int] = calls.flatten.sorted
 
@@ -128,10 +130,12 @@ object PollConsumerSpec extends ZIOSpecDefault:
                                   .repeatUntil(_ == 4)
                       acks   <- source.ackCalls.get
                       nacks  <- source.nackCalls.get
+                      waits  <- source.nackWaits.get
                     yield assertTrue(
                       acks.flat == List(1, 3),               // odd elements succeeded
                       nacks.flat == List(2, 4),              // even elements failed
                       acks.size + nacks.size < 4,            // and they still shared statements
+                      waits.forall(_ == 1.second),           // a *failed* element backs off by nackDelay
                     )
                   }
       yield result

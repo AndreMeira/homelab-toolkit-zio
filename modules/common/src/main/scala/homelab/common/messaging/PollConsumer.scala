@@ -326,7 +326,6 @@ object PollConsumer:
    * @param source the leased store to claim from
    * @param channel the demand it serves and the supply it fills
    * @param pollSize the most it will claim in one call
-   * @param nackDelay how long an element returned at shutdown stays unavailable
    * @tparam E the error claiming aborts with
    * @tparam A the element claimed
    */
@@ -334,7 +333,6 @@ object PollConsumer:
     source: Source[E, A],
     channel: Channel[E, A],
     pollSize: Int,
-    nackDelay: Duration,
   ):
 
     /**
@@ -369,13 +367,19 @@ object PollConsumer:
      * promise, so routing them would mean a [[Pending]] whose `settled` nobody reads. One batched `nack` is
      * simpler and has no ordering dependency on the settler.
      *
+     * '''Returned with no delay''', unlike a verdict from [[Settler.write]]. `nackDelay` is a backoff for an
+     * element whose handler *ran and failed*; nothing here was ever attempted. Holding these back would mean
+     * that on every rolling restart the work a departing pod gives up stays invisible while its healthy
+     * peers sit idle — silent, and during the operation performed most often. Same reasoning as
+     * [[Canceller.step]].
+     *
      * '''Only correct once [[run]] has stopped'''; [[Fetcher.make]] interrupts first.
      *
      * @return noop once the supply is empty
      */
     private def drain: UIO[Unit] =
       channel.supply.takeAll
-        .flatMap(stranded => source.nack(stranded.toList, nackDelay).ignore.unless(stranded.isEmpty))
+        .flatMap(stranded => source.nack(stranded.toList, Duration.Zero).ignore.unless(stranded.isEmpty))
         .unit
         .uninterruptible
 
@@ -393,7 +397,6 @@ object PollConsumer:
      * @param source the leased store to claim from
      * @param channel the demand it serves, the supply it fills, and the promise it dies into
      * @param pollSize the most it will claim in one call
-     * @param nackDelay how long an element returned at shutdown stays unavailable
      * @tparam E the error the store aborts with
      * @tparam A the element claimed
      * @return the running fetcher; never fails — its own failure lands in the channel
@@ -402,10 +405,9 @@ object PollConsumer:
       source: Source[E, A],
       channel: Channel[E, A],
       pollSize: Int,
-      nackDelay: Duration,
     ): ZIO[Scope, Nothing, Fetcher[E, A]] =
       ZIO
-        .acquireRelease(ZIO.succeed(Fetcher(source, channel, pollSize, nackDelay)))(_.drain)
+        .acquireRelease(ZIO.succeed(Fetcher(source, channel, pollSize)))(_.drain)
         .tap(_.run.catchAllCause(channel.failure.failCause(_).unit).forkScoped)
 
   /**
@@ -636,7 +638,9 @@ object PollConsumer:
    * @param concurrency how many fibers will call `consume` at once — the size of all three queues, and the
    *                    ceiling on outstanding leases
    * @param pollSize the most the fetcher will claim in one query
-   * @param nackDelay how long an element returned unprocessed stays unavailable
+   * @param nackDelay how long an element whose handler *failed* stays unavailable — a retry backoff. It
+   *                  does not apply to elements handed back untouched at shutdown or after a cancellation;
+   *                  those return immediately (see [[Fetcher.drain]] and [[Canceller.step]])
    * @tparam E the error the store aborts with
    * @tparam A the element handled
    * @return the worker, with its fetcher and settler already running; never fails
@@ -651,6 +655,6 @@ object PollConsumer:
       signal  <- Signal.make
       channel <- Channel.make[E, A](concurrency, signal)
       _       <- Settler.make(source, channel, concurrency, nackDelay)
-      _       <- Fetcher.make(source, channel, pollSize, nackDelay)
+      _       <- Fetcher.make(source, channel, pollSize)
       _       <- Canceller.make(source, channel, concurrency)
     yield PollConsumer(channel)

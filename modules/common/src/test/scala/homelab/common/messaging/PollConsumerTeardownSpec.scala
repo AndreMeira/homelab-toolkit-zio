@@ -34,6 +34,7 @@ object PollConsumerTeardownSpec extends ZIOSpecDefault:
     val claimed: Ref[List[Int]],
     val acked: Ref[List[List[Int]]],
     val nacked: Ref[List[List[Int]]],
+    val nackWaits: Ref[List[Duration]],
     gate: Option[Promise[Nothing, Unit]],
   ) extends PollConsumer.Source[Nothing, Int]:
 
@@ -42,7 +43,8 @@ object PollConsumerTeardownSpec extends ZIOSpecDefault:
 
     override def ack(elements: List[Int]): IO[Nothing, Unit] = acked.update(_ :+ elements)
 
-    override def nack(elements: List[Int], wait: Duration): IO[Nothing, Unit] = nacked.update(_ :+ elements)
+    override def nack(elements: List[Int], wait: Duration): IO[Nothing, Unit] =
+      nacked.update(_ :+ elements) *> nackWaits.update(_ :+ wait)
 
     /**
      * Take up to `upTo` elements and record them, as one indivisible step.
@@ -84,7 +86,8 @@ object PollConsumerTeardownSpec extends ZIOSpecDefault:
       claimed   <- Ref.make(List.empty[Int])
       acked     <- Ref.make(List.empty[List[Int]])
       nacked    <- Ref.make(List.empty[List[Int]])
-    yield Store(available, asks, claimed, acked, nacked, gate)
+      waits     <- Ref.make(List.empty[Duration])
+    yield Store(available, asks, claimed, acked, nacked, waits, gate)
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("PollConsumer teardown")(
     test("elements claimed for callers that have left are given back at once") {
@@ -111,10 +114,12 @@ object PollConsumerTeardownSpec extends ZIOSpecDefault:
         claims  <- source.claimed.get
         nacked  <- source.nacked.get
         acked   <- source.acked.get
+        waits   <- source.nackWaits.get
       yield assertTrue(
         claims.sorted == List(1, 2, 3, 4),
         nacked.flatten.sorted == claims.sorted, // everything claimed was handed back
         acked.isEmpty,                          // and nothing was retired: no worker ever saw them
+        waits.forall(_ == Duration.Zero),       // untouched, so no backoff: available again at once
       )
     },
     test("nothing is left claimed once the scope has closed") {
