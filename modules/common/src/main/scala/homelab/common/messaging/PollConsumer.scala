@@ -412,8 +412,8 @@ object PollConsumer:
    * Pays the debts left by callers that were interrupted while waiting for work.
    *
    * A caller posts a cancellation when it leaves the queue empty-handed, because its demand may already have
-   * bought an element it will never take. This fiber redeems one cancellation against one element: take a
-   * token, take an element, hand it straight back to the store. It exists because '''the redemption has to
+   * bought an element it will never take. This fiber redeems cancellations against elements — take the debts
+   * that have accumulated, take an element for each it can serve now, hand them back in one statement. It exists because '''the redemption has to
    * be able to block'''. A departing caller cannot do this work itself — its finalizer would have to wait for
    * an element that may still be mid-claim, and waiting inside an uninterruptible finalizer is a deadlock. A
    * fiber can wait; a finalizer cannot.
@@ -426,10 +426,15 @@ object PollConsumer:
    *
    * @param source the leased store to hand elements back to
    * @param channel the cancellations it redeems and the supply it draws from
+   * @param batchSize the most debts it will redeem in one statement
    * @tparam E the error nacking aborts with
    * @tparam A the element handed back
    */
-  final private[PollConsumer] class Canceller[E, A] private (source: Source[E, A], channel: Channel[E, A]):
+  final private[PollConsumer] class Canceller[E, A] private (
+    source: Source[E, A],
+    channel: Channel[E, A],
+    batchSize: Int,
+  ):
 
     /**
      * Redeem cancellations until interrupted.
@@ -439,20 +444,34 @@ object PollConsumer:
     private def run: UIO[Nothing] = step.forever
 
     /**
-     * One redemption: take a debt, take an element, give it back.
+     * One redemption: take the debts that have piled up, take an element for each one that can be served
+     * now, and hand them back in a single statement.
      *
-     * Interruption is safe at exactly one point — parked on a queue with nothing in hand. The take is
-     * restored so a scope close can stop this fiber; everything after it is uninterruptible, so an element
-     * handed over is always nacked. A failed nack is ignored rather than routed to `channel.failure`: this
-     * is a compensating path, the element is already claimed, and the lease is the backstop — killing the
-     * consumer over it would turn a delayed redelivery into an outage.
+     * The batching policy is [[Settler.step]]'s, for the same reason — block for the first element, sweep up
+     * whatever else is already in `supply`, and never wait for the rest. Waiting for a full batch would be
+     * wrong here rather than merely slow: the elements already taken would sit in this fiber's hand,
+     * claimed and unnacked, while it waited for one that may be arriving much later or not at all. Debts
+     * that could not be served are put back, and the queue is unbounded so returning them cannot block.
      *
-     * @return noop once one debt is paid; never fails
+     * Interruption is safe at exactly two points — parked on either queue with nothing in hand. Both takes
+     * are restored so a scope close can stop this fiber; everything after them is uninterruptible, so an
+     * element handed over is always nacked. A debt lost to interruption mid-`takeBetween` is not a leak in
+     * practice: the only thing that interrupts this fiber is teardown, where `Fetcher.drain` hands back
+     * whatever is left in `supply` anyway.
+     *
+     * A failed nack is ignored rather than routed to `channel.failure`: this is a compensating path, the
+     * element is already claimed, and the lease is the backstop — killing the consumer over it would turn a
+     * delayed redelivery into an outage.
+     *
+     * @return noop once the batch is handed back; never fails
      */
-    private def step: UIO[Unit] =
-      channel.cancels.take *> ZIO.uninterruptibleMask: restore =>
-        restore(channel.supply.take)
-          .flatMap(element => source.nack(List(element), Duration.Zero).ignore)
+    private def step: UIO[Unit] = ZIO.uninterruptibleMask: restore =>
+      restore(channel.cancels.takeBetween(1, batchSize)).flatMap: debts =>
+        restore(channel.supply.take).flatMap: first =>
+          channel.supply.takeUpTo(debts.size - 1).flatMap: rest =>
+            val elements = first :: rest.toList
+            source.nack(elements, Duration.Zero).ignore
+              *> channel.cancels.offerAll(debts.drop(elements.size)).unit
 
   private[PollConsumer] object Canceller:
 
@@ -465,12 +484,17 @@ object PollConsumer:
      *
      * @param source the leased store to hand elements back to
      * @param channel the cancellations it redeems and the supply it draws from
+     * @param batchSize the most debts it will redeem in one statement
      * @tparam E the error the store aborts with
      * @tparam A the element handed back
-     * @return noop; the canceller runs in the scope's background
+     * @return the running canceller; never fails
      */
-    def make[E, A](source: Source[E, A], channel: Channel[E, A]): ZIO[Scope, Nothing, Unit] =
-      Canceller(source, channel).run.forkScoped.unit
+    def make[E, A](
+      source: Source[E, A],
+      channel: Channel[E, A],
+      batchSize: Int,
+    ): ZIO[Scope, Nothing, Canceller[E, A]] =
+      ZIO.succeed(Canceller(source, channel, batchSize)).tap(_.run.forkScoped)
 
 
   /**
@@ -628,5 +652,5 @@ object PollConsumer:
       channel <- Channel.make[E, A](concurrency, signal)
       _       <- Settler.make(source, channel, concurrency, nackDelay)
       _       <- Fetcher.make(source, channel, pollSize, nackDelay)
-      _       <- Canceller.make(source, channel)
+      _       <- Canceller.make(source, channel, concurrency)
     yield PollConsumer(channel)
