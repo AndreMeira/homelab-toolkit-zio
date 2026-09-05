@@ -13,10 +13,13 @@ Why ZIO, not Kyo (and when that flips): see
 Artifacts are published to this repo's **GitHub Packages** Maven registry, under organization
 `com.andremeira.homelab`, cross-built for Scala 3 (use `%%` — it appends the `_3` suffix).
 
-**1. Get a token.** GitHub Packages serves Maven artifacts only to authenticated callers — *"You need an
-access token to publish, install, and delete private, internal, and public packages"* — and it must be a
-**classic** PAT. Repo visibility does not change this. Create one with the **`read:packages` scope and
-nothing else**; a single token covers every package on the account, so one serves the whole homelab.
+**1. Get a token — for your laptop.** GitHub Packages serves Maven artifacts only to authenticated
+callers — *"You need an access token to publish, install, and delete private, internal, and public
+packages"* — and it must be a **classic** PAT. Repo visibility does not change *that*; what it changes is
+*who* is authorised once authenticated, and for a public package the answer is anyone. Outside Actions
+there is no built-in identity to be, which is why a laptop needs a token and CI does not. Create one with
+the **`read:packages` scope and nothing else**; a single token covers every package on the account, so one
+serves the whole homelab.
 
 **2. Put it in `~/.sbt/1.0/credentials`** (never in a repo). The realm string is fixed by GitHub; get it
 wrong and sbt skips the credentials, which surfaces as a 401 that reads like a bad token:
@@ -33,12 +36,13 @@ password=<your-classic-pat>
 ```scala
 resolvers += "homelab-toolkit-zio" at "https://maven.pkg.github.com/AndreMeira/homelab-toolkit-zio"
 
-libraryDependencies += "com.andremeira.homelab" %% "homelab-auth" % "0.0.1"
+libraryDependencies += "com.andremeira.homelab" %% "homelab-auth" % "0.0.1-alpha"
 // every adapter transitively brings homelab-common — you rarely need both lines
 ```
 
-**In CI**, add the same PAT as an Actions secret (or an org-level one, which every repo inherits) and read
-the credentials from the environment instead of the file:
+**In CI, you usually need no token at all.** These packages are public, and GitHub authorises *any*
+authenticated identity to read a public package — including the built-in `GITHUB_TOKEN` that every Actions
+run is given. So a consuming workflow authenticates as itself and resolves:
 
 ```scala
 credentials += Credentials(
@@ -49,11 +53,17 @@ credentials += Credentials(
 )
 ```
 
-Don't use Actions' built-in `GITHUB_TOKEN` to *read* these — it needs one access grant per package per
-consumer repo. The shared PAT avoids that matrix.
+```yaml
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # the built-in one; no secret to create
+```
 
-> **No release is cut yet.** Until the first `v*` tag exists, use `sbt publishLocal` in this repo and depend
-> on `0.0.1-SNAPSHOT` — `~/.ivy2/local` is already on sbt's resolver chain, so no resolver and no token are
+The per-package access grant that the built-in token *does* need applies to **private and internal**
+packages only. Nothing here is private, so there is no matrix to manage — and a shared PAT in CI buys
+nothing but a secret to rotate. `distributed-keyed-queue` resolves this toolkit exactly this way.
+
+> **Released as `v0.0.1-alpha`.** To try an unreleased change, `sbt publishLocal` here and depend on
+> `0.0.1-SNAPSHOT` — `~/.ivy2/local` is already on sbt's resolver chain, so no resolver and no token are
 > needed. Full recipe, plus the git-source-dependency and JitPack alternatives:
 > [`docs/learning-material/using-modules-as-a-dependency.md`](docs/learning-material/using-modules-as-a-dependency.md).
 
