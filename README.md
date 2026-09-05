@@ -1,28 +1,20 @@
 # homelab-toolkit-zio
 
-Shared **Scala 3 + ZIO** building blocks for homelab services — hexagonal at the module level: `common`
-is the boundary (shared data + ports + the in-process implementations that need no dependency of their
-own), and every module that drags in a third-party library is quarantined behind its own artifact. The ZIO
-counterpart of [`../homelab-toolkit`](../homelab-toolkit) (Kyo).
+Shared **Scala 3 + ZIO 2** building blocks: ports for the things a service always needs — persistence,
+messaging, authentication, observability — and adapters that implement them. `homelab-common` holds the
+ports and everything that needs no third-party library; each adapter is a separate artifact, so depending
+on one never drags in the others' dependencies.
 
-Why ZIO, not Kyo (and when that flips): see
-[`../homelab-toolkit/docs/decisions/0001-effect-system-zio-until-kyo-matures.md`](../homelab-toolkit/docs/decisions/0001-effect-system-zio-until-kyo-matures.md).
+Apache-2.0. Built with Scala 3.8.3 and ZIO 2.1.23.
 
-## Adding a dependency
+## Install
 
-Artifacts are published to this repo's **GitHub Packages** Maven registry, under organization
-`com.andremeira.homelab`, cross-built for Scala 3 (use `%%` — it appends the `_3` suffix).
+**1. Create a classic PAT** with the `read:packages` scope and nothing else. GitHub Packages serves Maven
+artifacts only to authenticated callers, public ones included, and fine-grained tokens are not supported.
+One token covers every package on the account.
 
-**1. Get a token — for your laptop.** GitHub Packages serves Maven artifacts only to authenticated
-callers — *"You need an access token to publish, install, and delete private, internal, and public
-packages"* — and it must be a **classic** PAT. Repo visibility does not change *that*; what it changes is
-*who* is authorised once authenticated, and for a public package the answer is anyone. Outside Actions
-there is no built-in identity to be, which is why a laptop needs a token and CI does not. Create one with
-the **`read:packages` scope and nothing else**; a single token covers every package on the account, so one
-serves the whole homelab.
-
-**2. Put it in `~/.sbt/1.0/credentials`** (never in a repo). The realm string is fixed by GitHub; get it
-wrong and sbt skips the credentials, which surfaces as a 401 that reads like a bad token:
+**2. Put it in `~/.sbt/1.0/credentials`** — never in a repo. The realm must match exactly; get it wrong and
+sbt skips the credentials and you get a 401 that looks like a bad token:
 
 ```
 realm=GitHub Package Registry
@@ -31,18 +23,25 @@ user=<your-github-username>
 password=<your-classic-pat>
 ```
 
-**3. Add the resolver and the module** to your service's `build.sbt`:
+**3. Add the resolver and what you need** to `build.sbt`:
 
 ```scala
 resolvers += "homelab-toolkit-zio" at "https://maven.pkg.github.com/AndreMeira/homelab-toolkit-zio"
 
-libraryDependencies += "com.andremeira.homelab" %% "homelab-auth" % "0.0.1-alpha"
-// every adapter transitively brings homelab-common — you rarely need both lines
+libraryDependencies += "com.andremeira.homelab" %% "homelab-auth" % "<version>"
+// adapters bring homelab-common transitively — you rarely need both lines
 ```
 
-**In CI, you usually need no token at all.** These packages are public, and GitHub authorises *any*
-authenticated identity to read a public package — including the built-in `GITHUB_TOKEN` that every Actions
-run is given. So a consuming workflow authenticates as itself and resolves:
+**Which version?** The published versions are this repo's releases without the leading `v`:
+
+```bash
+gh release list --limit 1
+```
+
+A release tagged `v1.2.3` makes that line `… %% "homelab-auth" % "1.2.3"`.
+
+**In CI you need no token.** These packages are public, so the built-in `GITHUB_TOKEN` every Actions run is
+given is enough:
 
 ```scala
 credentials += Credentials(
@@ -55,112 +54,94 @@ credentials += Credentials(
 
 ```yaml
 env:
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # the built-in one; no secret to create
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # built-in; no secret to create
 ```
 
-The per-package access grant that the built-in token *does* need applies to **private and internal**
-packages only. Nothing here is private, so there is no matrix to manage — and a shared PAT in CI buys
-nothing but a secret to rotate. `distributed-keyed-queue` resolves this toolkit exactly this way.
+**To use an unreleased change**, run `sbt publishLocal` here and depend on the snapshot version from
+`build.sbt` — `~/.ivy2/local` is already on sbt's resolver chain, so no resolver and no token are needed.
+Git-source and JitPack alternatives are in
+[`docs/learning-material/using-modules-as-a-dependency.md`](docs/learning-material/using-modules-as-a-dependency.md).
 
-> **Released as `v0.0.1-alpha`.** To try an unreleased change, `sbt publishLocal` here and depend on
-> `0.0.1-SNAPSHOT` — `~/.ivy2/local` is already on sbt's resolver chain, so no resolver and no token are
-> needed. Full recipe, plus the git-source-dependency and JitPack alternatives:
-> [`docs/learning-material/using-modules-as-a-dependency.md`](docs/learning-material/using-modules-as-a-dependency.md).
+## What to depend on
 
-## The modules
-
-| Module | Artifact | One line |
+| Artifact | Use it for | Brings |
 |---|---|---|
-| `common` | `homelab-common` | data, ports, and everything that needs no third-party library |
-| `postgres` | `homelab-postgres` | Postgres persistence — Magnum + Hikari + Flyway |
-| `nats` | `homelab-nats` | NATS Core + JetStream behind the messaging ports |
-| `auth` | `homelab-auth` | JWT/JWKS authentication, including the in-cluster Kubernetes issuer |
-| `telemetry` | `homelab-telemetry` | OpenTelemetry behind the `Monitor` port |
-| `incubator` | — | sketches and experiments; never published |
+| `homelab-common` | ports, error vocabulary, in-memory implementations | ZIO only |
+| `homelab-postgres` | Postgres persistence | Magnum, Hikari, Flyway |
+| `homelab-nats` | NATS Core and JetStream messaging | jnats |
+| `homelab-auth` | JWT/JWKS authentication, incl. the Kubernetes issuer | JDK `HttpClient` only |
+| `homelab-telemetry` | OpenTelemetry spans and metrics | zio-telemetry, otel-api |
+
+`incubator` is sketches and experiments; it is never published.
 
 ### `homelab-common`
 
-The boundary every other module implements, plus the parts that are pure ZIO and so need no quarantine:
-
-- **`data`** — `Batch` and its map variants (partial results carried in the type), `Codec`.
-- **`error`** — the `ApplicationError` hierarchy and `ValidationError`, the one error vocabulary a service
-  speaks.
-- **`messaging`** — the `Producer` / `Consumer` ports, `Pipe`, `Hub`, `Router`, `Partitioner`; an in-memory
-  family (`Wire`, `QueueProducer`/`QueueConsumer`, the keyed `Distributer`) that is a real implementation
-  rather than a test double; and `PollConsumer` for stores that never call you. See
-  [`docs/architecture/messaging.md`](docs/architecture/messaging.md).
-- **`processing`** — what runs continuously: `Processor`, `Worker`, `Stateful`, `Workflow`, and the `Graph` /
-  `Node` that start and supervise them, plus `Mailbox` for request-reply. See
-  [`docs/architecture/processing.md`](docs/architecture/processing.md) and
-  [`docs/architecture/mailbox.md`](docs/architecture/mailbox.md).
-- **`flow`** — backpressure and rate primitives: `Batcher` (serial, deduplicated, distributed and adaptive
-  strategies), `KeyedQueue`, `KeyLock`, `Permit`, `Loop`.
-- **`store`** — `KeyValueStore`, `Bucket` and `Memo` ports, with in-memory implementations.
-- **`auth`** / **`database`** / **`monitor`** — the ports the `auth`, `postgres` and `telemetry` modules
-  implement: `Requester`, `ServiceAuthenticator`, `UserAuthenticator`, `Database`, `Monitor`.
+- **`data`** — `Batch` and its map variants (partial results in the type), `Codec`.
+- **`error`** — the `ApplicationError` hierarchy and `ValidationError`: one error vocabulary per service.
+- **`messaging`** — `Producer` / `Consumer` ports, `Pipe`, `Hub`, `Router`, `Partitioner`; an in-memory
+  family (`Wire`, `QueueProducer`/`QueueConsumer`, `Distributer`) usable in production, not just in tests;
+  and `PollConsumer` for stores that never call you.
+  → [`docs/architecture/messaging.md`](docs/architecture/messaging.md)
+- **`processing`** — `Processor`, `Worker`, `Stateful`, `Workflow`, and the `Graph` / `Node` that start and
+  supervise them; `Mailbox` for request-reply.
+  → [`docs/architecture/processing.md`](docs/architecture/processing.md),
+  [`docs/architecture/mailbox.md`](docs/architecture/mailbox.md)
+- **`flow`** — `Batcher` (serial, deduplicated, distributed, adaptive), `KeyedQueue`, `KeyLock`, `Permit`,
+  `Loop`.
+- **`store`** — `KeyValueStore`, `Bucket`, `Memo`, with in-memory implementations.
+- **`auth`**, **`database`**, **`monitor`** — the ports the adapter modules implement: `Requester`,
+  `ServiceAuthenticator`, `UserAuthenticator`, `Database`, `Monitor`.
 
 ### `homelab-postgres`
 
-The `Database` port over Postgres: a Hikari-pooled `PostgresDatabase`, `PostgresTransaction`, Flyway
-migrations (`PostgresMigration`), and HOCON configuration. Queries are written with **Magnum**, which is
-effect-agnostic — blocking JDBC is lifted with `ZIO.attemptBlocking`, so no cats-effect comes along.
+`PostgresDatabase` (Hikari-pooled), `PostgresTransaction`, Flyway migrations, HOCON config. Queries use
+**Magnum**; blocking JDBC is lifted with `ZIO.attemptBlocking`, so no cats-effect is pulled in.
 
 ### `homelab-nats`
 
-The messaging ports over NATS. **Core** (`nats.core`) for ephemeral pub/sub and **JetStream**
-(`nats.stream`) for durable delivery, each with a single and a batched consumer, plus a `Mailbox` transport,
-wire codecs and an explicit `HandlerFailurePolicy` (what an ack, a nak and a term mean for your handler).
-`ZStream` is an internal bridging detail and never surfaces in a signature.
+Core (`nats.core`) for ephemeral pub/sub, JetStream (`nats.stream`) for durable delivery — each with a
+single and a batched consumer — plus a `Mailbox` transport, wire codecs, and an explicit
+`HandlerFailurePolicy` for ack / nak / term.
 
 ### `homelab-auth`
 
-`ServiceAuthenticator` / `UserAuthenticator` implemented by verifying JWTs against a JWKS — signature and
-expiry checked locally, claims mapped to a `Requester`. Two issuers: any public JWKS endpoint, or the
-in-cluster **Kubernetes** service-account issuer (cluster-CA TLS, the pod's own projected token, and
-`TokenReview` where it is needed). Keys, tokens and verifications are cached. EdDSA (Ed25519) and RS256, over
-the JDK `HttpClient` — no `zio-http`. See [`docs/architecture/auth.md`](docs/architecture/auth.md) and
-[`modules/auth/README.md`](modules/auth/README.md).
+`ServiceAuthenticator` and `UserAuthenticator` verifying JWTs against a JWKS, with claims mapped to a
+`Requester`. Two issuers: any public JWKS endpoint, or the in-cluster Kubernetes service-account issuer.
+EdDSA (Ed25519) and RS256. Keys, tokens and verifications are cached.
+→ [`docs/architecture/auth.md`](docs/architecture/auth.md), [`modules/auth/README.md`](modules/auth/README.md)
 
 ### `homelab-telemetry`
 
-`OtelMonitor`, the OpenTelemetry implementation of `common`'s `Monitor` port (spans + metrics) via
-zio-telemetry. The application wires the `Tracing`/`Meter` layers; the toolkit supplies the adapter.
+`OtelMonitor`, the OpenTelemetry implementation of the `Monitor` port — spans plus hit/latency/error
+metrics. Your application wires the zio-telemetry `Tracing` and `Meter` layers; `OtelMonitor.make` takes
+them and its scaladoc shows the wiring.
 
-### `incubator`
-
-Throwaway sketches — successive versions of an idea kept side by side (`actor/v1..v7`, `nats/v1..v5`) until
-one is promoted into a real module. `publish / skip`, and its tests compile but do not run in CI.
-
-## Build
+## Contributing
 
 ```bash
 sbt compile
-sbt test               # the full suite, incl. Postgres/NATS Testcontainers integration tests
+sbt test               # full suite, incl. Postgres/NATS Testcontainers integration tests
 sbt common/test        # one module
 sbt publishLocal       # every module to ~/.ivy2/local
 ```
 
-## Releasing
+### Releasing
 
-**Publish a GitHub Release** — *Releases → Draft a new release*, create the tag `v0.0.1` on the spot, and
-hit *Publish release*. That fires [`.github/workflows/release.yml`](.github/workflows/release.yml), which
-runs the suite and publishes the five library modules. From the CLI it's the same event:
+Draft a GitHub Release, create the tag `v<version>` on the spot, and publish it — that fires
+[`.github/workflows/release.yml`](.github/workflows/release.yml), which runs the suite and publishes the
+five library modules. From the CLI:
 
 ```bash
-gh release create v0.0.1 --generate-notes
+gh release create v<version> --generate-notes
 ```
 
-Note the workflow triggers on the **release**, not on a tag push, because a release created in the UI emits
-only the release event — `git push origin v0.0.1` alone would publish nothing.
-
-The tag is the version (`v0.0.1` → `0.0.1`); a local build always says `0.0.1-SNAPSHOT`. Published versions
-are **immutable** — fix a botched release by releasing the next patch, never by overwriting. If a publish
-fails after the release exists, re-run the workflow manually (*Actions → release → Run workflow*) with the
-same tag.
+The workflow triggers on the **release**, not on a tag push: `git push origin v<version>` alone publishes
+nothing. The tag is the version (`v1.2.3` → `1.2.3`). Published versions are immutable — fix a bad release
+by releasing the next patch. If a publish fails after the release exists, re-run it from *Actions → release
+→ Run workflow* with the same tag.
 
 ## Docs
 
-[`docs/`](docs/) follows the homelab-wide taxonomy ([`../DOCS.md`](../DOCS.md)): `architecture/` for
-current-state, `learning-material/` for how-it-works and gotchas, `sessions/` for dated checkpoints. Design
-rationale for the toolkit itself lives in [`docs/research/`](docs/research/); what precedes or spans repos
-stays in the homelab-wide `research/`.
+[`docs/architecture/`](docs/architecture/) for how a module works today,
+[`docs/learning-material/`](docs/learning-material/) for the underlying technology and its gotchas,
+[`docs/research/`](docs/research/) for design rationale.
