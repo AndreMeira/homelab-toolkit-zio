@@ -172,6 +172,8 @@ lazy val incubator = project
       "com.softwaremill.sttp.client4" %% "zio"            % sttpVersion, // llm sketch: sttp4 ZIO backend + SSE (core/model/shared-zio transitively)
       "dev.zio"                       %% "zio-streams"    % zioVersion, // adapter-internal only (NATS callback bridge); never surfaced
       "io.nats"                        % "jnats"          % "2.20.5", // NATS exploration sketch (messaging/nats)
+      // Redis stream sketch (messaging/redis): the same client distributed-keyed-queue uses.
+      "io.lettuce"                     % "lettuce-core"   % "6.7.1.RELEASE",
       // Codecs derived from the *same* zio-schema the advertised JSON Schema comes from — one description,
       // so what a model is told to send is what the decoder reads. See docs/sessions/2026-08-17.
       "dev.zio"                       %% "zio-schema-json" % zioSchemaVersion,

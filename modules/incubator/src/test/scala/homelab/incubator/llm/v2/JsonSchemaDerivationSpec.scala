@@ -13,18 +13,18 @@ import zio.test.*
 object JsonSchemaDerivationSpec extends ZIOSpecDefault:
 
   @description("Search the knowledge base")
-  private final case class Query(
+  final private case class Query(
     @description("the natural-language question") text: String,
     limit: Option[Int],
   ) derives Schema
 
   /** The motivating recursion: a type reachable from itself, whose instances are almost always shallow. */
-  private final case class Person(name: String, partner: Option[Person]) derives Schema
+  final private case class Person(name: String, partner: Option[Person]) derives Schema
 
   private enum Direction derives Schema:
     case Ascending, Descending
 
-  private final case class Unrenderable(lookup: Map[String, Int]) derives Schema
+  final private case class Unrenderable(lookup: Map[String, Int]) derives Schema
 
   // Carries data, and says how a decoder will tell its cases apart.
   @discriminatorName("kind")

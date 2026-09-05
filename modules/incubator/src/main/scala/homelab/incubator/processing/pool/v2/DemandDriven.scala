@@ -111,7 +111,7 @@ object DemandDriven:
    * one — whoever knows that work arrived, be it a subscription callback, a scheduled tick, or a write on the
    * other side of the table, reaches it through the worker.
    */
-  private[v2] opaque type Signal = Signal.Type
+  opaque private[v2] type Signal = Signal.Type
 
   private[v2] object Signal:
     opaque type Type <: Queue[Unit] = Queue[Unit]

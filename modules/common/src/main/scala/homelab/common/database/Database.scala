@@ -37,9 +37,7 @@ trait Database[Tx <: Database.Transaction] {
    * @return `effect`'s result with `Tx` discharged; fails with the body's `E`, or with an
    *         `AdapterError` when the transaction mechanism itself fails
    */
-  def transaction[R, E <: ApplicationError, A](
-    effect: ZIO[R & Tx, E, A]
-  ): ZIO[R, AdapterError | E, A]
+  def transaction[R, E <: ApplicationError, A](effect: ZIO[R & Tx, E, A]): ZIO[R, AdapterError | E, A]
 
 }
 

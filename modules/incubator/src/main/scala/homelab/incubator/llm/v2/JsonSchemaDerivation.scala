@@ -193,7 +193,7 @@ object JsonSchemaDerivation {
       Right(describe(JsonSchema.enumeration(labels.head, labels.tail*), enumeration.annotations) -> defs)
     else
       discriminator(enumeration.annotations) match
-        case None =>
+        case None      =>
           Left(
             Unsupported(
               "a sum type carrying data needs @discriminatorName, so the tag the model writes is the tag the decoder reads"
@@ -244,9 +244,9 @@ object JsonSchemaDerivation {
     node.shape match
       case JsonSchema.Shape.Obj(properties) if properties.contains(tag) =>
         Left(Unsupported(s"case '$name' already has a property named '$tag', which the discriminator needs"))
-      case JsonSchema.Shape.Obj(properties) =>
+      case JsonSchema.Shape.Obj(properties)                             =>
         Right(JsonSchema.Node(JsonSchema.Shape.Obj(ListMap(tag -> Field(JsonSchema.enumeration(name))) ++ properties), node.description))
-      case _ =>
+      case _                                                            =>
         Left(Unsupported(s"case '$name' does not render as an object, so it cannot carry the '$tag' discriminator"))
 
   /**

@@ -37,7 +37,7 @@ object JsonSchemaSpec extends ZIOSpecDefault:
       )
     },
     test("carries definitions for a recursive type, and reports a dangling reference") {
-      val node = JsonSchema.obj(
+      val node     = JsonSchema.obj(
         "value"    -> Field(JsonSchema.text),
         "children" -> Field(JsonSchema.array(JsonSchema.ref("Node"))),
       )

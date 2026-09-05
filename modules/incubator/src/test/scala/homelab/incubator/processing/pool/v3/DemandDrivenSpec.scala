@@ -15,7 +15,7 @@ import zio.test.*
 object DemandDrivenSpec extends ZIOSpecDefault:
 
   /** A store recording every claim and every settlement '''call''', so batching is observable, not inferred. */
-  private final class Recording(
+  final private class Recording(
     available: Queue[Int],
     val asks: Ref[List[Int]],
     val handed: Ref[List[Int]],
@@ -23,13 +23,13 @@ object DemandDrivenSpec extends ZIOSpecDefault:
     val nackCalls: Ref[List[List[Int]]],
     settleDelay: Duration,
   ) extends DemandDriven.Source[Nothing, Int]:
-    override def tryAcquire(upTo: Int): IO[Nothing, List[Int]] =
+    override def tryAcquire(upTo: Int): IO[Nothing, List[Int]]                =
       for
         _      <- asks.update(_ :+ upTo)
         claims <- available.takeUpTo(upTo).map(_.toList)
         _      <- handed.update(_ ++ claims)
       yield claims
-    override def ack(elements: List[Int]): IO[Nothing, Unit] =
+    override def ack(elements: List[Int]): IO[Nothing, Unit]                  =
       ZIO.sleep(settleDelay) *> ackCalls.update(_ :+ elements)
     override def nack(elements: List[Int], wait: Duration): IO[Nothing, Unit] =
       ZIO.sleep(settleDelay) *> nackCalls.update(_ :+ elements)
@@ -78,12 +78,10 @@ object DemandDrivenSpec extends ZIOSpecDefault:
                      DemandDriven.Worker
                        .make(source, concurrency = 4, pollSize = 4, nackDelay = 1.second)
                        .flatMap: worker =>
-                         ZIO.foreachParDiscard(1 to 4)(_ =>
-                           worker.consume(_ => done.update(_ + 1)).forkScoped
-                         )
-                       // Every handler has returned, so four Done verdicts are guaranteed to be filed — the
-                       // offer sits in the uninterruptible half of `process`. None can have been written yet.
-                       *> done.get.repeatUntil(_ == 4)
+                         ZIO.foreachParDiscard(1 to 4)(_ => worker.consume(_ => done.update(_ + 1)).forkScoped)
+                         // Every handler has returned, so four Done verdicts are guaranteed to be filed — the
+                         // offer sits in the uninterruptible half of `process`. None can have been written yet.
+                           *> done.get.repeatUntil(_ == 4)
                    }
         settled <- source.ackCalls.get
       yield assertTrue(settled.flat == List(1, 2, 3, 4))
@@ -126,9 +124,9 @@ object DemandDrivenSpec extends ZIOSpecDefault:
                       acks   <- source.ackCalls.get
                       nacks  <- source.nackCalls.get
                     yield assertTrue(
-                      acks.flat == List(1, 3),               // odd elements succeeded
-                      nacks.flat == List(2, 4),              // even elements failed
-                      acks.size + nacks.size < 4,            // and they still shared statements
+                      acks.flat == List(1, 3),   // odd elements succeeded
+                      nacks.flat == List(2, 4),  // even elements failed
+                      acks.size + nacks.size < 4, // and they still shared statements
                     )
                   }
       yield result
@@ -144,28 +142,28 @@ object DemandDrivenSpec extends ZIOSpecDefault:
       val unbatched = perCall * elements.toDouble
       val ceiling   = unbatched * 0.5
       for
-        source  <- recording((1 to elements).toList, settleDelay = perCall)
-        start   <- Clock.nanoTime
-        _       <- ZIO.scoped {
-                     for
-                       worker <- DemandDriven.Worker
-                                   .make(source, concurrency = workers, pollSize = workers, nackDelay = 1.second)
-                       _      <- ZIO.foreachParDiscard(1 to workers)(_ => worker.consume(_ => ZIO.unit).forever.forkScoped)
-                       _      <- source.ackCalls.get.map(_.flat.size).repeatUntil(_ == elements)
-                     yield ()
-                   }
-        finish  <- Clock.nanoTime
-        calls   <- source.ackCalls.get
-        elapsed  = Duration.fromNanos(finish - start)
-        average  = elements.toDouble / calls.size
-        _       <- ZIO.debug(
-                     f"batching: ${calls.size} calls for $elements elements (avg ${average}%.1f per call), "
-                       + f"${elapsed.toMillis}ms against an unbatched floor of ${unbatched.toMillis}ms"
-                   )
+        source <- recording((1 to elements).toList, settleDelay = perCall)
+        start  <- Clock.nanoTime
+        _      <- ZIO.scoped {
+                    for
+                      worker <- DemandDriven.Worker
+                                  .make(source, concurrency = workers, pollSize = workers, nackDelay = 1.second)
+                      _      <- ZIO.foreachParDiscard(1 to workers)(_ => worker.consume(_ => ZIO.unit).forever.forkScoped)
+                      _      <- source.ackCalls.get.map(_.flat.size).repeatUntil(_ == elements)
+                    yield ()
+                  }
+        finish <- Clock.nanoTime
+        calls  <- source.ackCalls.get
+        elapsed = Duration.fromNanos(finish - start)
+        average = elements.toDouble / calls.size
+        _      <- ZIO.debug(
+                    f"batching: ${calls.size} calls for $elements elements (avg ${average}%.1f per call), "
+                      + f"${elapsed.toMillis}ms against an unbatched floor of ${unbatched.toMillis}ms"
+                  )
       yield assertTrue(
-        calls.flat == (1 to elements).toList,   // nothing lost or duplicated on the way
-        calls.size <= elements / 4,             // average batch of at least four
-        calls.forall(_.size <= workers),        // and never more than the settler was allowed to take
+        calls.flat == (1 to elements).toList, // nothing lost or duplicated on the way
+        calls.size <= elements / 4,           // average batch of at least four
+        calls.forall(_.size <= workers),      // and never more than the settler was allowed to take
         elapsed < ceiling,
       )
     },
@@ -186,17 +184,17 @@ object DemandDrivenSpec extends ZIOSpecDefault:
       // Capacity stays end-to-end: `consume` means "recorded", not "attempted", so a caller cannot run ahead
       // of what has been durably written.
       for
-        source  <- recording(List(1), settleDelay = 300.millis)
-        result  <- ZIO.scoped {
-                     for
-                       worker <- DemandDriven.Worker.make(source, concurrency = 2, pollSize = 4, nackDelay = 1.second)
-                       fiber  <- worker.consume(_ => ZIO.unit).fork
-                       _      <- ZIO.sleep(150.millis)
-                       early  <- fiber.poll.map(_.isEmpty) // still waiting on the write
-                       _      <- fiber.join
-                       calls  <- source.ackCalls.get
-                     yield assertTrue(early, calls.flat == List(1))
-                   }
+        source <- recording(List(1), settleDelay = 300.millis)
+        result <- ZIO.scoped {
+                    for
+                      worker <- DemandDriven.Worker.make(source, concurrency = 2, pollSize = 4, nackDelay = 1.second)
+                      fiber  <- worker.consume(_ => ZIO.unit).fork
+                      _      <- ZIO.sleep(150.millis)
+                      early  <- fiber.poll.map(_.isEmpty) // still waiting on the write
+                      _      <- fiber.join
+                      calls  <- source.ackCalls.get
+                    yield assertTrue(early, calls.flat == List(1))
+                  }
       yield result
     },
     test("a dead settler aborts its workers instead of leaving them unrecorded") {
@@ -206,12 +204,11 @@ object DemandDrivenSpec extends ZIOSpecDefault:
         override def tryAcquire(upTo: Int): IO[String, List[Int]]                = ZIO.succeed(List(1))
         override def ack(elements: List[Int]): IO[String, Unit]                  = ZIO.fail("store is gone")
         override def nack(elements: List[Int], wait: Duration): IO[String, Unit] = ZIO.unit
-      for
-        outcome <- ZIO.scoped {
-                     DemandDriven.Worker
-                       .make(broken, concurrency = 2, pollSize = 4, nackDelay = 1.second)
-                       .flatMap(_.consume(_ => ZIO.unit).either)
-                   }
+      for outcome <- ZIO.scoped {
+                       DemandDriven.Worker
+                         .make(broken, concurrency = 2, pollSize = 4, nackDelay = 1.second)
+                         .flatMap(_.consume(_ => ZIO.unit).either)
+                     }
       yield assertTrue(outcome == Left("store is gone"))
     },
     test("claims nothing beyond the demand in hand") {

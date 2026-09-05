@@ -25,7 +25,7 @@ object PollConsumerSpec extends ZIOSpecDefault:
     override def pollSize: Int                             = poll
     override def maxInFlight: Int                          = inFlightCap
     override def running: Ref[Int]                         = inFlight
-    override def signal: PollConsumer.Signal                = queue
+    override def signal: PollConsumer.Signal               = queue
     override def source: PollConsumer.Source[Nothing, Int] = src
 
   private def emptySource(polls: Ref[Int]): PollConsumer.Source[Nothing, Int] =
@@ -45,10 +45,12 @@ object PollConsumerSpec extends ZIOSpecDefault:
         acked     <- Ref.make(List.empty[Int])
         processed <- Ref.make(List.empty[Int])
         source     = new PollConsumer.Source[Nothing, Int]:
-                       override def tryAcquire(upTo: Int): IO[Nothing, List[Int]] =
-                         polls.getAndUpdate(_ + 1).flatMap:
-                           case 0 => queue.offer(()).as(Nil) // *after* the check, *before* the wait
-                           case _ => ZIO.succeed(List(1))
+                       override def tryAcquire(upTo: Int): IO[Nothing, List[Int]]         =
+                         polls
+                           .getAndUpdate(_ + 1)
+                           .flatMap:
+                             case 0 => queue.offer(()).as(Nil) // *after* the check, *before* the wait
+                             case _ => ZIO.succeed(List(1))
                        override def ack(element: Int): IO[Nothing, Unit]                  = acked.update(_ :+ element)
                        override def nack(element: Int, wait: Duration): IO[Nothing, Unit] = ZIO.unit
         _         <- consumerOf(source, queue, running)
@@ -77,20 +79,20 @@ object PollConsumerSpec extends ZIOSpecDefault:
       // would be offered 0. Asserting on what the *source is asked for* tests the consequence rather than
       // the counter, and cannot pass by accident.
       for
-        queue    <- PollConsumer.Signal.make
-        running  <- Ref.make(0)
-        asks     <- Ref.make(List.empty[Int])
-        source    = new PollConsumer.Source[Nothing, Int]:
-                      override def tryAcquire(upTo: Int): IO[Nothing, List[Int]] = asks.update(_ :+ upTo).as(Nil)
-                      override def ack(element: Int): IO[Nothing, Unit]          = ZIO.unit
-                      override def nack(element: Int, wait: Duration): IO[Nothing, Unit] = ZIO.unit
-        parked   <- consumerOf(source, queue, running, poll = 4, inFlightCap = 4).consume(_ => ZIO.unit).forever.fork
-        _        <- ZIO.sleep(150.millis)
-        sibling  <- consumerOf(source, queue, running, poll = 4, inFlightCap = 4).consume(_ => ZIO.unit).forever.fork
-        _        <- ZIO.sleep(150.millis)
-        offered  <- asks.get
-        held     <- running.get
-        _        <- parked.interrupt *> sibling.interrupt
+        queue   <- PollConsumer.Signal.make
+        running <- Ref.make(0)
+        asks    <- Ref.make(List.empty[Int])
+        source   = new PollConsumer.Source[Nothing, Int]:
+                     override def tryAcquire(upTo: Int): IO[Nothing, List[Int]]         = asks.update(_ :+ upTo).as(Nil)
+                     override def ack(element: Int): IO[Nothing, Unit]                  = ZIO.unit
+                     override def nack(element: Int, wait: Duration): IO[Nothing, Unit] = ZIO.unit
+        parked  <- consumerOf(source, queue, running, poll = 4, inFlightCap = 4).consume(_ => ZIO.unit).forever.fork
+        _       <- ZIO.sleep(150.millis)
+        sibling <- consumerOf(source, queue, running, poll = 4, inFlightCap = 4).consume(_ => ZIO.unit).forever.fork
+        _       <- ZIO.sleep(150.millis)
+        offered <- asks.get
+        held    <- running.get
+        _       <- parked.interrupt *> sibling.interrupt
       yield assertTrue(offered == List(4, 4), held == 0)
     },
   ) @@ TestAspect.withLiveClock @@ TestAspect.timeout(15.seconds)

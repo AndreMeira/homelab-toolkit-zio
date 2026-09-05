@@ -28,7 +28,7 @@ object PollConsumerTeardownSpec extends ZIOSpecDefault:
    * @param nacked every `nack` call, batches kept apart
    * @param gate held before each claim, when present
    */
-  private final class Store(
+  final private class Store(
     available: Queue[Int],
     val asks: Ref[List[Int]],
     val claimed: Ref[List[Int]],
@@ -97,29 +97,29 @@ object PollConsumerTeardownSpec extends ZIOSpecDefault:
       // still running* — the assertion is made inside the scope, not after it. Without the canceller they
       // would sit claimed until teardown's drain, or until their leases expired.
       for
-        gate    <- Promise.make[Nothing, Unit]
-        source  <- store((1 to 4).toList, gate = Some(gate))
-        _       <- ZIO.scoped {
-                     for
-                       consumer <- PollConsumer.make(source, concurrency = 4, pollSize = 4, nackDelay = 1.second)
-                       callers  <- ZIO.foreach(1 to 4)(_ => consumer.consume(_ => ZIO.unit).fork)
-                       _        <- source.asks.get.repeatUntil(_.nonEmpty) // demand spent, the claim in flight
-                       _        <- Fiber.interruptAll(callers)             // and now nobody is left to take it
-                       _        <- gate.succeed(())
-                       _        <- source.awaitClaimed(4)
-                       // the canceller returns them without waiting for the scope to close
-                       _        <- source.nacked.get.repeatUntil(_.flatten.size == 4)
-                     yield ()
-                   }
-        claims  <- source.claimed.get
-        nacked  <- source.nacked.get
-        acked   <- source.acked.get
-        waits   <- source.nackWaits.get
+        gate   <- Promise.make[Nothing, Unit]
+        source <- store((1 to 4).toList, gate = Some(gate))
+        _      <- ZIO.scoped {
+                    for
+                      consumer <- PollConsumer.make(source, concurrency = 4, pollSize = 4, nackDelay = 1.second)
+                      callers  <- ZIO.foreach(1 to 4)(_ => consumer.consume(_ => ZIO.unit).fork)
+                      _        <- source.asks.get.repeatUntil(_.nonEmpty) // demand spent, the claim in flight
+                      _        <- Fiber.interruptAll(callers)             // and now nobody is left to take it
+                      _        <- gate.succeed(())
+                      _        <- source.awaitClaimed(4)
+                      // the canceller returns them without waiting for the scope to close
+                      _        <- source.nacked.get.repeatUntil(_.flatten.size == 4)
+                    yield ()
+                  }
+        claims <- source.claimed.get
+        nacked <- source.nacked.get
+        acked  <- source.acked.get
+        waits  <- source.nackWaits.get
       yield assertTrue(
         claims.sorted == List(1, 2, 3, 4),
         nacked.flatten.sorted == claims.sorted, // everything claimed was handed back
         acked.isEmpty,                          // and nothing was retired: no worker ever saw them
-        waits.forall(_ == Duration.Zero),       // untouched, so no backoff: available again at once
+        waits.forall(_ == Duration.Zero), // untouched, so no backoff: available again at once
       )
     },
     test("nothing is left claimed once the scope has closed") {
@@ -128,21 +128,21 @@ object PollConsumerTeardownSpec extends ZIOSpecDefault:
       // `logic`, or stranded in the supply queue. Any leak shows up as a claim with no settlement.
       val elements = 24
       for
-        source  <- store((1 to elements).toList)
-        _       <- ZIO.scoped {
-                     for
-                       consumer <- PollConsumer.make(source, concurrency = 8, pollSize = 8, nackDelay = 1.second)
-                       _        <- ZIO.foreachParDiscard(1 to 8) { _ =>
-                                     consumer.consume(element => ZIO.sleep((element % 5 * 20).millis)).forever.forkScoped
-                                   }
-                       _        <- source.awaitClaimed(elements) // the store is empty; only in-flight work is left
-                       _        <- ZIO.sleep(100.millis)         // and the last claim has reached a caller
-                     yield ()
-                   }
-        claims  <- source.claimed.get
-        acked   <- source.acked.get
-        nacked  <- source.nacked.get
-        settled  = (acked.flatten ++ nacked.flatten).sorted
+        source <- store((1 to elements).toList)
+        _      <- ZIO.scoped {
+                    for
+                      consumer <- PollConsumer.make(source, concurrency = 8, pollSize = 8, nackDelay = 1.second)
+                      _        <- ZIO.foreachParDiscard(1 to 8) { _ =>
+                                    consumer.consume(element => ZIO.sleep((element % 5 * 20).millis)).forever.forkScoped
+                                  }
+                      _        <- source.awaitClaimed(elements) // the store is empty; only in-flight work is left
+                      _        <- ZIO.sleep(100.millis)         // and the last claim has reached a caller
+                    yield ()
+                  }
+        claims <- source.claimed.get
+        acked  <- source.acked.get
+        nacked <- source.nacked.get
+        settled = (acked.flatten ++ nacked.flatten).sorted
       yield assertTrue(claims.sorted == (1 to elements).toList, settled == (1 to elements).toList)
     },
     test("closing terminates when the settler has already died") {
@@ -154,14 +154,13 @@ object PollConsumerTeardownSpec extends ZIOSpecDefault:
         override def claim(upTo: Int): IO[String, List[Int]]                     = ZIO.succeed(List(1))
         override def ack(elements: List[Int]): IO[String, Unit]                  = ZIO.fail("store is gone")
         override def nack(elements: List[Int], wait: Duration): IO[String, Unit] = ZIO.unit
-      for
-        outcome <- ZIO
-                     .scoped {
-                       PollConsumer
-                         .make(broken, concurrency = 2, pollSize = 4, nackDelay = 1.second)
-                         .flatMap(_.consume(_ => ZIO.unit).either)
-                     }
-                     .timeout(10.seconds)
+      for outcome <- ZIO
+                       .scoped {
+                         PollConsumer
+                           .make(broken, concurrency = 2, pollSize = 4, nackDelay = 1.second)
+                           .flatMap(_.consume(_ => ZIO.unit).either)
+                       }
+                       .timeout(10.seconds)
       yield assertTrue(outcome.contains(Left("store is gone")))
     },
     test("a consumer that was never used closes promptly and touches nothing") {

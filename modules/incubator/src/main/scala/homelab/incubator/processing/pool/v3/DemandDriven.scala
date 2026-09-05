@@ -324,7 +324,7 @@ object DemandDriven:
           val verdicts = batch.collect { case Settlement.Filed(pending) => pending }
           val closed   = batch.exists:
             case Settlement.Closed => true
-            case _                   => false
+            case _                 => false
           write(verdicts).unless(verdicts.isEmpty).as(!closed)
 
     /**

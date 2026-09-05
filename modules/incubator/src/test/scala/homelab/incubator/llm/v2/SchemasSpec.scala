@@ -14,17 +14,17 @@ object SchemasSpec extends ZIOSpecDefault:
   /** Opting in, for this pair only. */
   private given Schema[Map[String, Int]] = mapAsEntries
 
-  private final case class Tagged(name: String, scores: Map[String, Int]) derives Schema
+  final private case class Tagged(name: String, scores: Map[String, Int]) derives Schema
 
   /** A map of a pair that was *not* opted in — still outside the subset. */
-  private final case class Untagged(flags: Map[String, Boolean]) derives Schema
+  final private case class Untagged(flags: Map[String, Boolean]) derives Schema
 
   /** The decode direction of the transform, reached without needing a JSON codec. */
   private def decode(entries: List[Entry[String, Int]]): Either[String, Map[String, Int]] =
     mapAsEntries[String, Int] match
       case transform: Schema.Transform[?, ?, ?] =>
         transform.asInstanceOf[Schema.Transform[List[Entry[String, Int]], Map[String, Int], ?]].f(entries)
-      case other => Left(s"expected a transform, got $other")
+      case other                                => Left(s"expected a transform, got $other")
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("Schemas")(
     test("renders a map as an array of closed key/value objects") {

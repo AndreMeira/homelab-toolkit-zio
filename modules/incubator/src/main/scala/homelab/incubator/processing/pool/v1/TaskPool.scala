@@ -21,7 +21,3 @@ trait TaskPool[E, A, B]:
         .ignore
         .forever
     } *> ZIO.never
-
-  
-  
-  

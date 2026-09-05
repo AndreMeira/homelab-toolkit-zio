@@ -18,12 +18,12 @@ import java.nio.charset.StandardCharsets.UTF_8
 object ToolSketchSpec extends ZIOSpecDefault:
 
   /** The trusted half of a tool's arguments: who is calling. Never serialised, never in a schema. */
-  private final case class Caller(userId: String, admin: Boolean)
+  final private case class Caller(userId: String, admin: Boolean)
 
   /** The untrusted half: what the model chose. */
-  private final case class Search(text: String)
+  final private case class Search(text: String)
 
-  private final case class Order(id: String, owner: String)
+  final private case class Order(id: String, owner: String)
 
   private given Decoder[Search] with
     override def decode(value: Array[Byte]): Either[ApplicationError.DecodingError, Search] =
@@ -37,29 +37,29 @@ object ToolSketchSpec extends ZIOSpecDefault:
 
   /** Context-bound: the namespace comes from the caller, never from the model. */
   private val orders: Tool[Caller, Search, String] = new Tool[Caller, Search, String]:
-    override def name    = "orders"
-    override def schema  = """{"type":"object","properties":{"text":{"type":"string"}}}"""
-    override def decoder = summon[Decoder[Search]]
-    override def encoder = summon[Encoder[String]]
+    override def name                                                                = "orders"
+    override def schema                                                              = """{"type":"object","properties":{"text":{"type":"string"}}}"""
+    override def decoder                                                             = summon[Decoder[Search]]
+    override def encoder                                                             = summon[Encoder[String]]
     override def handle(context: Caller, args: Search): IO[ApplicationError, String] =
       ZIO.succeed(allOrders.filter(_.owner == context.userId).map(_.id).mkString(","))
 
   /** Admin-only: absent from a non-admin session entirely. */
   private val audit: Tool[Caller, Search, String] = new Tool[Caller, Search, String]:
-    override def name                          = "audit"
-    override def schema                        = """{"type":"object","properties":{}}"""
-    override def decoder                       = summon[Decoder[Search]]
-    override def encoder                       = summon[Encoder[String]]
-    override def permits(context: Caller)      = context.admin
+    override def name                                                                = "audit"
+    override def schema                                                              = """{"type":"object","properties":{}}"""
+    override def decoder                                                             = summon[Decoder[Search]]
+    override def encoder                                                             = summon[Encoder[String]]
+    override def permits(context: Caller)                                            = context.admin
     override def handle(context: Caller, args: Search): IO[ApplicationError, String] =
       ZIO.succeed(allOrders.map(_.id).mkString(","))
 
   /** Context-free: `Tool[Any, …]` in a `Registry[Caller]`, which is what the contravariance buys. */
   private val echo: Tool[Any, Search, String] = new Tool[Any, Search, String]:
-    override def name    = "echo"
-    override def schema  = """{"type":"object","properties":{"text":{"type":"string"}}}"""
-    override def decoder = summon[Decoder[Search]]
-    override def encoder = summon[Encoder[String]]
+    override def name                                                             = "echo"
+    override def schema                                                           = """{"type":"object","properties":{"text":{"type":"string"}}}"""
+    override def decoder                                                          = summon[Decoder[Search]]
+    override def encoder                                                          = summon[Encoder[String]]
     override def handle(context: Any, args: Search): IO[ApplicationError, String] = ZIO.succeed(args.text)
 
   private val registry: Registry[Caller] = Registry.of[Caller](orders, audit, echo)

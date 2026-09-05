@@ -15,13 +15,13 @@ import zio.test.*
 object DemandDrivenSpec extends ZIOSpecDefault:
 
   /** A leased source over a fixed pool of elements, recording every ask and every settlement. */
-  private final class Recording(
+  final private class Recording(
     available: Queue[Int],
     val asks: Ref[List[Int]],
     val acked: Ref[List[Int]],
     val nacked: Ref[List[Int]],
   ) extends DemandDriven.Source[Nothing, Int]:
-    override def tryAcquire(upTo: Int): IO[Nothing, List[Int]] =
+    override def tryAcquire(upTo: Int): IO[Nothing, List[Int]]                =
       asks.update(_ :+ upTo) *> available.takeUpTo(upTo).map(_.toList)
     override def ack(elements: List[Int]): IO[Nothing, Unit]                  = acked.update(_ ++ elements)
     override def nack(elements: List[Int], wait: Duration): IO[Nothing, Unit] = nacked.update(_ ++ elements)
@@ -40,7 +40,9 @@ object DemandDrivenSpec extends ZIOSpecDefault:
     source: DemandDriven.Source[E, Int],
     workers: Int,
     pollSize: Int = 4,
-  )(logic: Int => UIO[Unit]): ZIO[Scope, Nothing, DemandDriven.Worker[E, Int]] =
+  )(
+    logic: Int => UIO[Unit]
+  ): ZIO[Scope, Nothing, DemandDriven.Worker[E, Int]] =
     DemandDriven.Worker
       .make(source, concurrency = workers, pollSize = pollSize, nackDelay = 1.second)
       .tap(worker => ZIO.foreachDiscard(1 to workers)(_ => worker.consume(logic).forever.forkScoped))
@@ -88,13 +90,15 @@ object DemandDrivenSpec extends ZIOSpecDefault:
         handedAt  <- Ref.make(Option.empty[Int]) // which poll the single element came back on
         acked     <- Ref.make(List.empty[Int])
         source     = new DemandDriven.Source[Nothing, Int]:
-                       override def tryAcquire(upTo: Int): IO[Nothing, List[Int]] =
-                         polls.getAndUpdate(_ + 1).flatMap:
-                           case 0    => waker.await.flatten.as(Nil) // *after* the check, *before* the wait
-                           case poll =>
-                             handedAt.modify:
-                               case None  => List(1) -> Some(poll)
-                               case taken => Nil     -> taken
+                       override def tryAcquire(upTo: Int): IO[Nothing, List[Int]]                =
+                         polls
+                           .getAndUpdate(_ + 1)
+                           .flatMap:
+                             case 0    => waker.await.flatten.as(Nil) // *after* the check, *before* the wait
+                             case poll =>
+                               handedAt.modify:
+                                 case None  => List(1) -> Some(poll)
+                                 case taken => Nil     -> taken
                        override def ack(elements: List[Int]): IO[Nothing, Unit]                  = acked.update(_ ++ elements)
                        override def nack(elements: List[Int], wait: Duration): IO[Nothing, Unit] = ZIO.unit
         processed <- Ref.make(List.empty[Int])
@@ -163,15 +167,14 @@ object DemandDrivenSpec extends ZIOSpecDefault:
       // The cost of forking inside `make`: the failure has nowhere to go on its own. Without the race in
       // `consume` this test times out — the worker waits on a supply nothing will ever fill again.
       val broken = new DemandDriven.Source[String, Int]:
-        override def tryAcquire(upTo: Int): IO[String, List[Int]]         = ZIO.fail("source is gone")
+        override def tryAcquire(upTo: Int): IO[String, List[Int]]                = ZIO.fail("source is gone")
         override def ack(elements: List[Int]): IO[String, Unit]                  = ZIO.unit
         override def nack(elements: List[Int], wait: Duration): IO[String, Unit] = ZIO.unit
-      for
-        outcome <- ZIO.scoped {
-                     DemandDriven.Worker
-                       .make(broken, concurrency = 2, pollSize = 4, nackDelay = 1.second)
-                       .flatMap(_.consume(_ => ZIO.unit).either)
-                   }
+      for outcome <- ZIO.scoped {
+                       DemandDriven.Worker
+                         .make(broken, concurrency = 2, pollSize = 4, nackDelay = 1.second)
+                         .flatMap(_.consume(_ => ZIO.unit).either)
+                     }
       yield assertTrue(outcome == Left("source is gone"))
     },
   ) @@ TestAspect.withLiveClock @@ TestAspect.timeout(20.seconds)

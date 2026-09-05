@@ -272,8 +272,8 @@ object JsonSchema {
     def get: Either[Unsupported, JsonSchema]
 
   object Encoder:
-    
-    def apply[A : Encoder]: Encoder[A] = summon
+
+    def apply[A: Encoder]: Encoder[A] = summon
 
     /**
      * Describe `A` from its `zio.schema.Schema`. Total: every type has an encoder, and one that cannot be

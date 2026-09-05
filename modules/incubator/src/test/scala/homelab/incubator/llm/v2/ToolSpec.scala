@@ -12,22 +12,22 @@ import zio.test.*
 /** Registration is where a tool meets the wire; dispatch is where the caller meets the model's arguments. */
 object ToolSpec extends ZIOSpecDefault:
 
-  private final case class Caller(userId: String)
+  final private case class Caller(userId: String)
 
-  private final case class Search(text: String) derives Schema
+  final private case class Search(text: String) derives Schema
 
   private val allOrders = List("alice" -> "a-1", "alice" -> "a-2", "bob" -> "b-1")
 
   private val orders = new Tool[Caller, Search, List[String]]:
-    override def name        = "orders"
-    override def description = "Find the caller's orders"
+    override def name                                                                       = "orders"
+    override def description                                                                = "Find the caller's orders"
     override def handle(context: Caller, input: Search): IO[ApplicationError, List[String]] =
       ZIO.succeed(allOrders.collect { case (owner, id) if owner == context.userId => id })
 
   /** A map, described as an association list — the case where schema and codec used to disagree. */
   private given Schema[Map[String, Int]] = Schemas.mapAsEntries
 
-  private final case class Report(title: String, counts: Map[String, Int]) derives Schema
+  final private case class Report(title: String, counts: Map[String, Int]) derives Schema
 
   private val report = new Tool[Caller, Report, String]:
     override def name                                                                 = "report"

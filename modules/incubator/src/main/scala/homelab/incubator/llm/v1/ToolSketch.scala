@@ -1,5 +1,6 @@
 package homelab.incubator.llm.v1
 
+
 import homelab.common.data.Codec.{ Decoder, Encoder }
 import homelab.common.error.ApplicationError
 import zio.*

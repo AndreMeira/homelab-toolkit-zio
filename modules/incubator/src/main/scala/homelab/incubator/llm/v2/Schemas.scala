@@ -74,7 +74,8 @@ object Schemas {
         entries =>
           val duplicates = entries.map(_.key).groupBy(identity).collect { case (key, occurrences) if occurrences.sizeIs > 1 => key }
           if duplicates.isEmpty then Right(entries.map(entry => entry.key -> entry.value).toMap)
-          else Left(s"duplicate keys: ${duplicates.mkString(", ")}"),
+          else Left(s"duplicate keys: ${duplicates.mkString(", ")}")
+        ,
         map => Right(map.map((key, value) => Entry(key, value)).toList),
       )
 }

@@ -470,10 +470,12 @@ object PollConsumer:
     private def step: UIO[Unit] = ZIO.uninterruptibleMask: restore =>
       restore(channel.cancels.takeBetween(1, batchSize)).flatMap: debts =>
         restore(channel.supply.take).flatMap: first =>
-          channel.supply.takeUpTo(debts.size - 1).flatMap: rest =>
-            val elements = first :: rest.toList
-            source.nack(elements, Duration.Zero).ignore
-              *> channel.cancels.offerAll(debts.drop(elements.size)).unit
+          channel.supply
+            .takeUpTo(debts.size - 1)
+            .flatMap: rest =>
+              val elements = first :: rest.toList
+              source.nack(elements, Duration.Zero).ignore
+                *> channel.cancels.offerAll(debts.drop(elements.size)).unit
 
   private[PollConsumer] object Canceller:
 
@@ -497,7 +499,6 @@ object PollConsumer:
       batchSize: Int,
     ): ZIO[Scope, Nothing, Canceller[E, A]] =
       ZIO.succeed(Canceller(source, channel, batchSize)).tap(_.run.forkScoped)
-
 
   /**
    * Writes verdicts to the store, as many at a time as have accumulated.

@@ -73,7 +73,9 @@ object BoundedListening {
    */
   private def listen[E](
     parallelism: Int
-  )(listener: (Semaphore, Promise[E, Nothing], Promise[Nothing, Unit]) => IO[Nothing, Unit]): ZIO[Scope, E, Nothing] =
+  )(
+    listener: (Semaphore, Promise[E, Nothing], Promise[Nothing, Unit]) => IO[Nothing, Unit]
+  ): ZIO[Scope, E, Nothing] =
     for
       scope   <- ZIO.scope
       sem     <- Semaphore.make(parallelism)

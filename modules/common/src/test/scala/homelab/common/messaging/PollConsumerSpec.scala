@@ -15,7 +15,7 @@ import zio.test.*
 object PollConsumerSpec extends ZIOSpecDefault:
 
   /** A store recording every claim and every settlement '''call''', so batching is observable, not inferred. */
-  private final class Recording(
+  final private class Recording(
     available: Queue[Int],
     val asks: Ref[List[Int]],
     val handed: Ref[List[Int]],
@@ -24,13 +24,13 @@ object PollConsumerSpec extends ZIOSpecDefault:
     val nackWaits: Ref[List[Duration]],
     settleDelay: Duration,
   ) extends PollConsumer.Source[Nothing, Int]:
-    override def claim(upTo: Int): IO[Nothing, List[Int]] =
+    override def claim(upTo: Int): IO[Nothing, List[Int]]                     =
       for
         _      <- asks.update(_ :+ upTo)
         claims <- available.takeUpTo(upTo).map(_.toList)
         _      <- handed.update(_ ++ claims)
       yield claims
-    override def ack(elements: List[Int]): IO[Nothing, Unit] =
+    override def ack(elements: List[Int]): IO[Nothing, Unit]                  =
       ZIO.sleep(settleDelay) *> ackCalls.update(_ :+ elements)
     override def nack(elements: List[Int], wait: Duration): IO[Nothing, Unit] =
       ZIO.sleep(settleDelay) *> nackCalls.update(_ :+ elements) *> nackWaits.update(_ :+ wait)
@@ -83,12 +83,10 @@ object PollConsumerSpec extends ZIOSpecDefault:
                      PollConsumer
                        .make(source, concurrency = 4, pollSize = 4, nackDelay = 1.second)
                        .flatMap: consumer =>
-                         ZIO.foreachParDiscard(1 to 4)(_ =>
-                           consumer.consume(_ => done.update(_ + 1)).forkScoped
-                         )
-                       // Every handler has returned, so four Done verdicts are guaranteed to be filed — the
-                       // offer sits in the uninterruptible half of `process`. None can have been written yet.
-                       *> done.get.repeatUntil(_ == 4)
+                         ZIO.foreachParDiscard(1 to 4)(_ => consumer.consume(_ => done.update(_ + 1)).forkScoped)
+                         // Every handler has returned, so four Done verdicts are guaranteed to be filed — the
+                         // offer sits in the uninterruptible half of `process`. None can have been written yet.
+                           *> done.get.repeatUntil(_ == 4)
                    }
         settled <- source.ackCalls.get
       yield assertTrue(settled.flat == List(1, 2, 3, 4))
@@ -103,9 +101,9 @@ object PollConsumerSpec extends ZIOSpecDefault:
         result <- ZIO.scoped {
                     for
                       consumer <- PollConsumer.make(source, concurrency = 4, pollSize = 4, nackDelay = 1.second)
-                      _      <- ZIO.foreachParDiscard(1 to 4)(_ => consumer.consume(_ => ZIO.unit).forkScoped)
-                      _      <- source.ackCalls.get.map(_.flat.size).repeatUntil(_ == 4)
-                      calls  <- source.ackCalls.get
+                      _        <- ZIO.foreachParDiscard(1 to 4)(_ => consumer.consume(_ => ZIO.unit).forkScoped)
+                      _        <- source.ackCalls.get.map(_.flat.size).repeatUntil(_ == 4)
+                      calls    <- source.ackCalls.get
                     yield assertTrue(calls.size < 4, calls.flat == List(1, 2, 3, 4))
                   }
       yield result
@@ -119,23 +117,23 @@ object PollConsumerSpec extends ZIOSpecDefault:
         result <- ZIO.scoped {
                     for
                       consumer <- PollConsumer.make(source, concurrency = 4, pollSize = 4, nackDelay = 1.second)
-                      _      <- ZIO.foreachParDiscard(1 to 4) { _ =>
-                                  consumer
-                                    .consume(element => ZIO.fail("rejected").when(element % 2 == 0).unit)
-                                    .either
-                                    .forkScoped
-                                }
-                      _      <- (source.ackCalls.get <*> source.nackCalls.get)
-                                  .map((acks, nacks) => acks.flat.size + nacks.flat.size)
-                                  .repeatUntil(_ == 4)
-                      acks   <- source.ackCalls.get
-                      nacks  <- source.nackCalls.get
-                      waits  <- source.nackWaits.get
+                      _        <- ZIO.foreachParDiscard(1 to 4) { _ =>
+                                    consumer
+                                      .consume(element => ZIO.fail("rejected").when(element % 2 == 0).unit)
+                                      .either
+                                      .forkScoped
+                                  }
+                      _        <- (source.ackCalls.get <*> source.nackCalls.get)
+                                    .map((acks, nacks) => acks.flat.size + nacks.flat.size)
+                                    .repeatUntil(_ == 4)
+                      acks     <- source.ackCalls.get
+                      nacks    <- source.nackCalls.get
+                      waits    <- source.nackWaits.get
                     yield assertTrue(
-                      acks.flat == List(1, 3),               // odd elements succeeded
-                      nacks.flat == List(2, 4),              // even elements failed
-                      acks.size + nacks.size < 4,            // and they still shared statements
-                      waits.forall(_ == 1.second),           // a *failed* element backs off by nackDelay
+                      acks.flat == List(1, 3),    // odd elements succeeded
+                      nacks.flat == List(2, 4),   // even elements failed
+                      acks.size + nacks.size < 4, // and they still shared statements
+                      waits.forall(_ == 1.second), // a *failed* element backs off by nackDelay
                     )
                   }
       yield result
@@ -151,28 +149,28 @@ object PollConsumerSpec extends ZIOSpecDefault:
       val unbatched = perCall * elements.toDouble
       val ceiling   = unbatched * 0.5
       for
-        source  <- recording((1 to elements).toList, settleDelay = perCall)
-        start   <- Clock.nanoTime
-        _       <- ZIO.scoped {
-                     for
-                       consumer <- PollConsumer
-                                   .make(source, concurrency = callers, pollSize = callers, nackDelay = 1.second)
-                       _      <- ZIO.foreachParDiscard(1 to callers)(_ => consumer.consume(_ => ZIO.unit).forever.forkScoped)
-                       _      <- source.ackCalls.get.map(_.flat.size).repeatUntil(_ == elements)
-                     yield ()
-                   }
-        finish  <- Clock.nanoTime
-        calls   <- source.ackCalls.get
-        elapsed  = Duration.fromNanos(finish - start)
-        average  = elements.toDouble / calls.size
-        _       <- ZIO.debug(
-                     f"batching: ${calls.size} calls for $elements elements (avg ${average}%.1f per call), "
-                       + f"${elapsed.toMillis}ms against an unbatched floor of ${unbatched.toMillis}ms"
-                   )
+        source <- recording((1 to elements).toList, settleDelay = perCall)
+        start  <- Clock.nanoTime
+        _      <- ZIO.scoped {
+                    for
+                      consumer <- PollConsumer
+                                    .make(source, concurrency = callers, pollSize = callers, nackDelay = 1.second)
+                      _        <- ZIO.foreachParDiscard(1 to callers)(_ => consumer.consume(_ => ZIO.unit).forever.forkScoped)
+                      _        <- source.ackCalls.get.map(_.flat.size).repeatUntil(_ == elements)
+                    yield ()
+                  }
+        finish <- Clock.nanoTime
+        calls  <- source.ackCalls.get
+        elapsed = Duration.fromNanos(finish - start)
+        average = elements.toDouble / calls.size
+        _      <- ZIO.debug(
+                    f"batching: ${calls.size} calls for $elements elements (avg ${average}%.1f per call), "
+                      + f"${elapsed.toMillis}ms against an unbatched floor of ${unbatched.toMillis}ms"
+                  )
       yield assertTrue(
-        calls.flat == (1 to elements).toList,   // nothing lost or duplicated on the way
-        calls.size <= elements / 4,             // average batch of at least four
-        calls.forall(_.size <= callers),        // and never more than the settler was allowed to take
+        calls.flat == (1 to elements).toList, // nothing lost or duplicated on the way
+        calls.size <= elements / 4,           // average batch of at least four
+        calls.forall(_.size <= callers),      // and never more than the settler was allowed to take
         elapsed < ceiling,
       )
     },
@@ -193,17 +191,17 @@ object PollConsumerSpec extends ZIOSpecDefault:
       // Capacity stays end-to-end: `consume` means "recorded", not "attempted", so a caller cannot run ahead
       // of what has been durably written.
       for
-        source  <- recording(List(1), settleDelay = 300.millis)
-        result  <- ZIO.scoped {
-                     for
-                       consumer <- PollConsumer.make(source, concurrency = 2, pollSize = 4, nackDelay = 1.second)
-                       fiber  <- consumer.consume(_ => ZIO.unit).fork
-                       _      <- ZIO.sleep(150.millis)
-                       early  <- fiber.poll.map(_.isEmpty) // still waiting on the write
-                       _      <- fiber.join
-                       calls  <- source.ackCalls.get
-                     yield assertTrue(early, calls.flat == List(1))
-                   }
+        source <- recording(List(1), settleDelay = 300.millis)
+        result <- ZIO.scoped {
+                    for
+                      consumer <- PollConsumer.make(source, concurrency = 2, pollSize = 4, nackDelay = 1.second)
+                      fiber    <- consumer.consume(_ => ZIO.unit).fork
+                      _        <- ZIO.sleep(150.millis)
+                      early    <- fiber.poll.map(_.isEmpty) // still waiting on the write
+                      _        <- fiber.join
+                      calls    <- source.ackCalls.get
+                    yield assertTrue(early, calls.flat == List(1))
+                  }
       yield result
     },
     test("a dead settler aborts its callers instead of leaving them unrecorded") {
@@ -213,12 +211,11 @@ object PollConsumerSpec extends ZIOSpecDefault:
         override def claim(upTo: Int): IO[String, List[Int]]                     = ZIO.succeed(List(1))
         override def ack(elements: List[Int]): IO[String, Unit]                  = ZIO.fail("store is gone")
         override def nack(elements: List[Int], wait: Duration): IO[String, Unit] = ZIO.unit
-      for
-        outcome <- ZIO.scoped {
-                     PollConsumer
-                       .make(broken, concurrency = 2, pollSize = 4, nackDelay = 1.second)
-                       .flatMap(_.consume(_ => ZIO.unit).either)
-                   }
+      for outcome <- ZIO.scoped {
+                       PollConsumer
+                         .make(broken, concurrency = 2, pollSize = 4, nackDelay = 1.second)
+                         .flatMap(_.consume(_ => ZIO.unit).either)
+                     }
       yield assertTrue(outcome == Left("store is gone"))
     },
     test("interrupting one caller records its verdict and leaves the consumer usable") {
@@ -229,30 +226,30 @@ object PollConsumerSpec extends ZIOSpecDefault:
       // A caller spends a demand token *before* it takes from supply, so a cancelled one leaves a token it
       // never used; if that stranded the fetcher, the next caller would hang here instead of being served.
       for
-        source   <- recording(List(1, 2))
-        running  <- Promise.make[Nothing, Int]  // the first caller has an element and is inside `logic`
-        gate     <- Promise.make[Nothing, Unit] // never completed: it is interrupted, not finished
-        processed <- Promise.make[Nothing, Int] // what the caller *after* the interruption received
-        result   <- ZIO.scoped {
-                      for
-                        consumer <- PollConsumer.make(source, concurrency = 2, pollSize = 4, nackDelay = 1.second)
-                        first    <- consumer.consume(element => running.succeed(element) *> gate.await).fork
-                        held     <- running.await
-                        exit     <- first.interrupt
-                        _        <- source.nackCalls.get.repeatUntil(_.nonEmpty) // its verdict was written
-                        second   <- consumer.consume(element => processed.succeed(element).unit).timeout(5.seconds)
-                        handled  <- processed.await
-                      yield (held, exit, second, handled)
-                    }
-        acked    <- source.ackCalls.get
-        nacked   <- source.nackCalls.get
+        source    <- recording(List(1, 2))
+        running   <- Promise.make[Nothing, Int]  // the first caller has an element and is inside `logic`
+        gate      <- Promise.make[Nothing, Unit] // never completed: it is interrupted, not finished
+        processed <- Promise.make[Nothing, Int]  // what the caller *after* the interruption received
+        result    <- ZIO.scoped {
+                       for
+                         consumer <- PollConsumer.make(source, concurrency = 2, pollSize = 4, nackDelay = 1.second)
+                         first    <- consumer.consume(element => running.succeed(element) *> gate.await).fork
+                         held     <- running.await
+                         exit     <- first.interrupt
+                         _        <- source.nackCalls.get.repeatUntil(_.nonEmpty) // its verdict was written
+                         second   <- consumer.consume(element => processed.succeed(element).unit).timeout(5.seconds)
+                         handled  <- processed.await
+                       yield (held, exit, second, handled)
+                     }
+        acked     <- source.ackCalls.get
+        nacked    <- source.nackCalls.get
       yield
         val (held, exit, second, handled) = result
         assertTrue(
           held == 1,
-          exit.isInterrupted,        // the cancellation reached the caller, not swallowed
-          nacked.flat == List(1),    // and its element went back to the store
-          second.isDefined,          // the next caller was served rather than left waiting
+          exit.isInterrupted,     // the cancellation reached the caller, not swallowed
+          nacked.flat == List(1), // and its element went back to the store
+          second.isDefined,       // the next caller was served rather than left waiting
           handled == 2,
           acked.flat == List(2),
         )
@@ -264,28 +261,28 @@ object PollConsumerSpec extends ZIOSpecDefault:
       // that is the requirement, and it is why redemption lives in a fiber that can block rather than in
       // the departing caller's finalizer, which cannot.
       for
-        source  <- recording(Nil)
-        ran     <- Ref.make(0)
-        result  <- ZIO.scoped {
-                     for
-                       consumer <- PollConsumer.make(source, concurrency = 2, pollSize = 4, nackDelay = 1.second)
-                       caller   <- consumer.consume(_ => ran.update(_ + 1)).fork
-                       _        <- source.asks.get.repeatUntil(_.nonEmpty) // the first poll came back empty
-                       _        <- caller.interrupt                        // its demand outlives it
-                       _        <- source.add(7) *> consumer.wakeUp        // work arrives for nobody
-                       nacked   <- source.nackCalls.get.repeatUntil(_.nonEmpty).timeout(5.seconds)
-                       handed   <- source.handed.get
-                     yield (nacked, handed)
-                   }
-        worked  <- ran.get
-        acked   <- source.ackCalls.get
+        source <- recording(Nil)
+        ran    <- Ref.make(0)
+        result <- ZIO.scoped {
+                    for
+                      consumer <- PollConsumer.make(source, concurrency = 2, pollSize = 4, nackDelay = 1.second)
+                      caller   <- consumer.consume(_ => ran.update(_ + 1)).fork
+                      _        <- source.asks.get.repeatUntil(_.nonEmpty) // the first poll came back empty
+                      _        <- caller.interrupt                        // its demand outlives it
+                      _        <- source.add(7) *> consumer.wakeUp        // work arrives for nobody
+                      nacked   <- source.nackCalls.get.repeatUntil(_.nonEmpty).timeout(5.seconds)
+                      handed   <- source.handed.get
+                    yield (nacked, handed)
+                  }
+        worked <- ran.get
+        acked  <- source.ackCalls.get
       yield
         val (nacked, handed) = result
         assertTrue(
-          handed == List(7),               // it was claimed…
-          nacked.isDefined,                // …and handed straight back, inside the consumer's lifetime
+          handed == List(7), // it was claimed…
+          nacked.isDefined,  // …and handed straight back, inside the consumer's lifetime
           nacked.get.flatten == List(7),
-          worked == 0,                     // no handler ever saw it
+          worked == 0,       // no handler ever saw it
           acked.isEmpty,
         )
     },

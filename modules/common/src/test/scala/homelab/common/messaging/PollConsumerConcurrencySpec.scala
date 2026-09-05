@@ -22,7 +22,7 @@ object PollConsumerConcurrencySpec extends ZIOSpecDefault:
    * @param now how many elements the store currently has handed out and unsettled
    * @param peak the high-water mark of `now`
    */
-  private final case class Leases(now: Int, peak: Int):
+  final private case class Leases(now: Int, peak: Int):
 
     /**
      * Record a claim.
@@ -49,7 +49,7 @@ object PollConsumerConcurrencySpec extends ZIOSpecDefault:
    * @param asks every `upTo` the fetcher offered
    * @param settled every element acked or nacked, in the order it was settled
    */
-  private final class Leased(
+  final private class Leased(
     available: Queue[Int],
     val leases: Ref[Leases],
     val asks: Ref[List[Int]],
@@ -121,7 +121,7 @@ object PollConsumerConcurrencySpec extends ZIOSpecDefault:
    * @param open completed by the caller that makes the count
    * @param width how many must arrive
    */
-  private final class Barrier(arrived: Ref[Int], open: Promise[Nothing, Unit], width: Int):
+  final private class Barrier(arrived: Ref[Int], open: Promise[Nothing, Unit], width: Int):
 
     /**
      * Wait for the barrier to open, opening it if this caller is the one that fills it.
@@ -210,14 +210,14 @@ object PollConsumerConcurrencySpec extends ZIOSpecDefault:
       val elements = 40
       val pollSize = 2
       for
-        source <- leased((1 to elements).toList)
-        _      <- ZIO.scoped {
-                    for
-                      consumer <- PollConsumer.make(source, concurrency = 8, pollSize = pollSize, nackDelay = 1.second)
-                      _        <- ZIO.foreachParDiscard(1 to 8)(_ => consumer.consume(_ => ZIO.unit).forever.forkScoped)
-                      _        <- source.awaitSettled(elements)
-                    yield ()
-                  }
+        source  <- leased((1 to elements).toList)
+        _       <- ZIO.scoped {
+                     for
+                       consumer <- PollConsumer.make(source, concurrency = 8, pollSize = pollSize, nackDelay = 1.second)
+                       _        <- ZIO.foreachParDiscard(1 to 8)(_ => consumer.consume(_ => ZIO.unit).forever.forkScoped)
+                       _        <- source.awaitSettled(elements)
+                     yield ()
+                   }
         asks    <- source.asks.get
         settled <- source.settled.get
       yield assertTrue(asks.forall(_ <= pollSize), settled.sorted == (1 to elements).toList)

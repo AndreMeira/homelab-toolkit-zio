@@ -62,7 +62,7 @@ final class KeyedQueue[K, A](
       restore(ready.take).flatMap { key =>
         // From here to the `ensuring` attachment we are uninterruptible: the claimed key cannot leak.
         state.modify(_.claim(key)).flatMap {
-          case None        => ZIO.dieMessage(s"KeyedQueue.takeWith: claimed key $key had no value")
+          case None        => takeWith(logic) // the key was published but has no backlog; try again
           case Some(value) => permit.release *> restore(logic(key, value)).ensuring(releaseKey(key))
         }
       }
