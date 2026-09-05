@@ -56,11 +56,10 @@ final class OtelMonitor private (
   def start[R, E, A](name: String, tags: (String, String)*)(effect: => ZIO[R, E, A]): ZIO[R, E, A] =
     val attributes = attributesOf(name, tags)
     for
-      _          <- hits.inc(attributes)
-      outcome    <- (effect.onError(recordError(name, attributes, _))
-                      @@ span(name, spanKind = SpanKind.SERVER, attributes = attributes)).timed
-      (time, res) = outcome
-      _          <- latency.record(time.toMillis.toDouble, attributes)
+      _           <- hits.inc(attributes)
+      spanned      = effect @@ span(name, attributes = attributes)
+      (time, res) <- spanned.onError(recordError(name, attributes, _)).timed
+      _           <- latency.record(time.toMillis.toDouble, attributes)
     yield res
 
   /**
@@ -78,11 +77,10 @@ final class OtelMonitor private (
   def track[R, E, A](name: String, tags: (String, String)*)(effect: => ZIO[R, E, A]): ZIO[R, E, A] =
     val attributes = attributesOf(name, tags)
     for
-      _          <- hits.inc(attributes)
-      outcome    <- (effect.onError(recordError(name, attributes, _))
-                      @@ span(name, spanKind = SpanKind.INTERNAL, attributes = attributes)).timed
-      (time, res) = outcome
-      _          <- latency.record(time.toMillis.toDouble, attributes)
+      _           <- hits.inc(attributes)
+      spanned      = effect @@ span(name, attributes = attributes)
+      (time, res) <- spanned.onError(recordError(name, attributes, _)).timed
+      _           <- latency.record(time.toMillis.toDouble, attributes)
     yield res
 
   /**
