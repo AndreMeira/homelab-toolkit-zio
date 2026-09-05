@@ -50,7 +50,7 @@ final class JwtUserAuthenticator(verifier: TokenVerifier, monitor: Monitor = Mon
    *         forwards the verifier's `AdapterError | UnauthorisedError`
    */
   def authenticate(token: SignedToken): IO[AdapterError | UnauthorisedError, User.Authenticated] =
-    monitor.track("JwtUserAuthenticator.authenticate", "resource" -> "auth"):
+    monitor.measure("JwtUserAuthenticator.authenticate", "resource" -> "auth"):
       for
         claim <- verifier.verify(token)
         user  <- authenticated(claim)

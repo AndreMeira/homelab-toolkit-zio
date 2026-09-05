@@ -42,7 +42,7 @@ final class PostgresDatabase(dataSource: DataSource, monitor: Monitor) extends D
   def transaction[R, E <: ApplicationError, A](
     effect: ZIO[R & PostgresTransaction, E, A]
   ): ZIO[R, PostgresTransaction.Error | E, A] =
-    monitor.track("PostgresDatabase.transaction", PostgresDatabase.Tag):
+    monitor.measure("PostgresDatabase.transaction", PostgresDatabase.Tag):
       ZIO.acquireReleaseExitWith(acquire)(release): tx =>
         effect.provideSomeEnvironment[R](_.add[PostgresTransaction](tx)) <* tx.commit
 

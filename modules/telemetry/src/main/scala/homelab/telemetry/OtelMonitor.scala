@@ -3,16 +3,16 @@ package homelab.telemetry
 
 import homelab.common.monitor.Monitor
 import io.opentelemetry.api.common.Attributes
-import io.opentelemetry.api.trace.SpanKind
 import zio.*
 import zio.telemetry.opentelemetry.metrics.{ Counter, Histogram, Meter }
 import zio.telemetry.opentelemetry.tracing.Tracing
 
 
 /**
- * OpenTelemetry [[Monitor]] (via zio-telemetry). Each observed operation opens a span (named per
- * operation) and records into three **shared** instruments — a hit counter, a latency histogram, and an
- * error counter — tagging every measurement with `operation = <name>` plus the caller's tags.
+ * OpenTelemetry [[Monitor]] (via zio-telemetry). Every observed operation opens a span named for it and
+ * records a failure against a **shared** error counter; [[measure]] additionally records into a shared hit
+ * counter and latency histogram. Every measurement is tagged with `operation = <name>` plus the caller's
+ * tags.
  *
  * The instruments are built once by [[OtelMonitor.make]], not per call, and the operation name is a metric
  * *attribute* rather than part of the metric name — so one metric covers all operations and a dashboard
@@ -41,47 +41,72 @@ final class OtelMonitor private (
   import tracing.aspects.span
 
   /**
-   * Observe a top-level operation as a `SERVER`-kind span — a child of the inbound trace context when one
-   * is in scope (so a trace links across services), otherwise a new root — recording the shared
-   * hit/latency/error metrics tagged with this `operation`.
+   * Observe an operation on the trace: a span named `name`, tagged with `operation` and the caller's tags,
+   * continuing the inbound trace context when one is in scope and starting a new trace otherwise.
+   *
+   * A failure still reaches the error counter and the span; what this does not do is touch the hit counter
+   * or the latency histogram, so no `operation` series is created for an operation that never fails.
+   *
+   * The span kind is left at the default for now — telling a `SERVER` entry point from an `INTERNAL` step
+   * is a separate axis from whether an operation is worth a metric, and hanging it on this pair would
+   * conflate the two.
    *
    * @tparam R the wrapped effect's environment
    * @tparam E the wrapped effect's error
    * @tparam A the wrapped effect's result
    * @param name the span name and `operation` tag value
-   * @param tags extra span/metric attributes
+   * @param tags extra span attributes
    * @param effect the work to observe
    * @return `effect`'s result unchanged
    */
-  def start[R, E, A](name: String, tags: (String, String)*)(effect: => ZIO[R, E, A]): ZIO[R, E, A] =
+  def trace[R, E, A](name: String, tags: (String, String)*)(effect: => ZIO[R, E, A]): ZIO[R, E, A] =
+    trace(name, attributesOf(name, tags), effect)
+
+  /**
+   * Observe an operation on the trace, and record the shared hit/latency/error instruments against it.
+   *
+   * The span is what [[trace]] opens; what is added here is `hits.inc` before the work and
+   * `latency.record` after it, both tagged with this `operation`. The hit is counted before the span
+   * opens on purpose — an operation that was attempted counts even if opening the span or the work itself
+   * blows up, so hits and errors stay comparable.
+   *
+   * @tparam R the wrapped effect's environment
+   * @tparam E the wrapped effect's error
+   * @tparam A the wrapped effect's result
+   * @param name the span name and `operation` tag value
+   * @param tags extra span and metric attributes
+   * @param effect the work to observe
+   * @return `effect`'s result unchanged
+   */
+  def measure[R, E, A](name: String, tags: (String, String)*)(effect: => ZIO[R, E, A]): ZIO[R, E, A] =
     val attributes = attributesOf(name, tags)
     for
       _           <- hits.inc(attributes)
-      spanned      = effect @@ span(name, attributes = attributes)
-      (time, res) <- spanned.onError(recordError(name, attributes, _)).timed
+      (time, res) <- trace(name, attributes, effect).timed
       _           <- latency.record(time.toMillis.toDouble, attributes)
     yield res
 
   /**
-   * Observe a nested step as an `INTERNAL`-kind child span under the current one, recording the shared
-   * hit/latency/error metrics tagged with this `operation`.
+   * The span both public methods put around the work, and the failure reporting that goes with it.
+   *
+   * Takes the attributes already built rather than the caller's tags, because [[measure]] needs the same
+   * set for its hit and latency instruments and should not build it twice.
+   *
+   * `onError` rather than a fold: the outcome is observed and re-raised untouched, so neither the error
+   * channel nor the success value is disturbed by being monitored. What counts as an error is
+   * [[recordError]]'s decision, not this method's.
    *
    * @tparam R the wrapped effect's environment
    * @tparam E the wrapped effect's error
    * @tparam A the wrapped effect's result
-   * @param name the span name and `operation` tag value
-   * @param tags extra span/metric attributes
+   * @param name the span name
+   * @param attributes the span attributes, and the tags any recorded error carries
    * @param effect the work to observe
-   * @return `effect`'s result unchanged
+   * @return `effect`'s result unchanged, failing exactly as it would have unobserved
    */
-  def track[R, E, A](name: String, tags: (String, String)*)(effect: => ZIO[R, E, A]): ZIO[R, E, A] =
-    val attributes = attributesOf(name, tags)
-    for
-      _           <- hits.inc(attributes)
-      spanned      = effect @@ span(name, attributes = attributes)
-      (time, res) <- spanned.onError(recordError(name, attributes, _)).timed
-      _           <- latency.record(time.toMillis.toDouble, attributes)
-    yield res
+  private def trace[R, E, A](name: String, attributes: Attributes, effect: => ZIO[R, E, A]): ZIO[R, E, A] =
+    (effect @@ span(name, attributes = attributes))
+      .onError(recordError(name, attributes, _))
 
   /**
    * Report a failure — unless it was a pure interruption (a cancelled fiber isn't an error). Uses the
@@ -138,20 +163,41 @@ object OtelMonitor:
   /**
    * Build an [[OtelMonitor]], creating the three shared instruments once from `meter`.
    *
+   * By convention the toolkit leaves layers wiring responsibility to the application.
+   * Here is what that looks like with zio-telemetry supplying `Tracing` and `Meter`:
+   *
+   * {{{
+   * val otel    = OpenTelemetry.global ++ OpenTelemetry.contextJVM
+   * val tracing = otel >>> OpenTelemetry.tracing("orders-service")
+   * val metrics = otel >>> OpenTelemetry.metrics("orders-service")
+   *
+   * val monitor: ZLayer[Any, Throwable, Monitor] =
+   *   (tracing ++ metrics) >>> ZLayer:
+   *     for
+   *       tracer  <- ZIO.service[Tracing]
+   *       meter   <- ZIO.service[Meter]
+   *       monitor <- OtelMonitor.make(tracer, meter)
+   *     yield monitor
+   * }}}
+   *
+   * `ContextStorage` is what carries the current span across fibers, so `contextJVM` feeds both the tracer
+   * and the meter; the error channel is `Throwable` because `OpenTelemetry.global` is a `TaskLayer`. A
+   * service that wants nothing observed provides [[Monitor.Noop]] instead, and no call site changes.
+   *
    * @param tracing the zio-telemetry tracer
    * @param meter the zio-telemetry meter
-   * @param classify how failures map to their `error.kind` label and server/client side
-   *                 (defaults to [[ErrorType.defaultClassifier]])
+   * @param classify how failures map to their `error.kind` label and server/client side. A total function;
+   *                 to override only some failures, wrap a partial one with [[ErrorType.refine]], which
+   *                 falls back to [[ErrorType.defaultClassifier]] for everything else
    * @return         the monitor, with its instruments pre-built
    */
   def make(
     tracing: Tracing,
     meter: Meter,
-  )(
-    classify: PartialFunction[Any, ErrorType] = PartialFunction.empty
+    classify: ErrorType.Classifier = ErrorType.defaultClassifier,
   ): UIO[OtelMonitor] =
     for
       hits    <- meter.counter("operation.hits")
       latency <- meter.histogram("operation.latency", unit = Some("ms"))
       errors  <- meter.counter("operation.errors")
-    yield new OtelMonitor(tracing, hits, latency, errors, ErrorType.refine(classify))
+    yield new OtelMonitor(tracing, hits, latency, errors, classify)

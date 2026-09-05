@@ -29,7 +29,7 @@ final class PostgresMigration(flyway: Flyway, monitor: Monitor):
    * @return noop; fails with [[MigrationFailed]] if a migration fails
    */
   def applyMigrations: IO[MigrationFailed, Unit] =
-    monitor.track("PostgresMigration.applyMigrations", PostgresDatabase.Tag):
+    monitor.measure("PostgresMigration.applyMigrations", PostgresDatabase.Tag):
       ZIO.attemptBlocking(flyway.migrate()).mapError(MigrationFailed(_)).unit
 
   /**
@@ -38,7 +38,7 @@ final class PostgresMigration(flyway: Flyway, monitor: Monitor):
    * @return noop; fails with [[CleanFailed]] if the clean fails or is disabled
    */
   def cleanMigrations: IO[CleanFailed, Unit] =
-    monitor.track("PostgresMigration.cleanMigrations", PostgresDatabase.Tag):
+    monitor.measure("PostgresMigration.cleanMigrations", PostgresDatabase.Tag):
       ZIO.attemptBlocking(flyway.clean()).mapError(CleanFailed(_)).unit
 
 

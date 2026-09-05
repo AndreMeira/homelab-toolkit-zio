@@ -38,7 +38,7 @@ final class JwtServiceAuthenticator(
    *         or the subject is missing, or forwards the verifier's `AdapterError | UnauthorisedError`
    */
   def authenticate(token: SignedToken): IO[AdapterError | UnauthorisedError, Service] =
-    monitor.track("JwtServiceAuthenticator.authenticate", "resource" -> "auth"):
+    monitor.measure("JwtServiceAuthenticator.authenticate", "resource" -> "auth"):
       for
         claim   <- verifier.verify(token)
         _       <- checkAudience(claim)
