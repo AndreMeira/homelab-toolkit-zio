@@ -32,7 +32,8 @@ import zio.telemetry.opentelemetry.tracing.Tracing
  * span yet: that is the inbound edge of a request, still running on the thread the agent made its span
  * current on, so the tree joins the agent's trace and then stays joined across any number of parks. Spans
  * the agent opens for itself — a Redis or JDBC call — still read the thread-local and so may fall outside;
- * the operation measured around them is the compensation.
+ * the operation measured around them is the compensation. Neither storage alone produces a correct trace,
+ * and the way each fails is measured in `docs/learning-material/tracing-context-across-fibers.md`.
  *
  * Failures are classified ([[ErrorType]]): the error counter is tagged with a bounded `error.kind`,
  * and the span is marked errored only for server-side errors — client errors (validation, unauthorised, …)
