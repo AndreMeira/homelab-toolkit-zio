@@ -143,8 +143,10 @@ final class OtelMonitor private (
     storage.get.flatMap: carried =>
       if recorded(carried) then observed
       else
-        ZIO.succeed(Context.current()).flatMap: ambient =>
-          if recorded(ambient) then storage.locally(ambient)(observed) else observed
+        ZIO
+          .succeed(Context.current())
+          .flatMap: ambient =>
+            if recorded(ambient) then storage.locally(ambient)(observed) else observed
 
   /**
    * Whether a context names a span worth being the parent of one — a root context does not.
@@ -200,7 +202,7 @@ final class OtelMonitor private (
   private def attributesOf(name: String, tags: Seq[(String, String)]): Attributes =
     tags
       .foldLeft(Attributes.builder()):
-        case (builder, (key, value)) => builder.put(key, value)
+        case builder -> (key, value) => builder.put(key, value)
       .put("operation", name)
       .build()
 
