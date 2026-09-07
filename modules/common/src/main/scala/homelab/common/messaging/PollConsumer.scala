@@ -8,7 +8,8 @@ import zio.*
  * runs `logic` on it, and returns once the store has durably recorded the outcome.
  *
  * Build it with [[PollConsumer.make]], which is where the shape and the trade-offs are documented. Call
- * `consume` from up to `concurrency` fibers at once, and give [[wakeUp]] to whatever knows work has arrived.
+ * `consume` from up to `concurrency` fibers at once — a requirement, not a suggestion, and one nothing here
+ * enforces — and give [[wakeUp]] to whatever knows work has arrived.
  *
  * '''It holds no [[PollConsumer.Source]].''' Claiming belongs to the fetcher behind it and writing to the
  * settler, so a caller is only the work — take, run, file a verdict, wait for it to land. Both directions of
@@ -62,6 +63,11 @@ final class PollConsumer[E, A] private (channel: PollConsumer.Channel[E, A]) ext
    * One narrow hole is left, and it belongs to the race rather than to the mask: if `failure` completes at
    * the instant the take yields, `raceFirst` returns the failure and that element is dropped, recovered on
    * lease expiry. It is reachable only once the fetcher or settler has already died.
+   *
+   * '''The `concurrency` bound is relied on, not enforced.''' Demand is offered uninterruptibly and the
+   * demand queue holds exactly `concurrency`, so a surplus caller parks inside the uninterruptible region:
+   * it cannot be interrupted, and it frees only when the fetcher next takes demand — never, if the fetcher
+   * is the reason it filled up.
    *
    * '''A caller that leaves while parked leaves a debt, not an orphan.''' Its demand has already been
    * offered and may already have been spent, so an element may be claimed for a caller that no longer
@@ -277,7 +283,8 @@ object PollConsumer:
    * All three are sized to `concurrency`, and the same argument covers all of them: one token exists per
    * caller, and at any instant it is in exactly one place — the demand queue, the fetcher's hand, the supply
    * queue, a worker's hand, the settlement queue, or the settler's hand. So no queue can be asked to hold
-   * more than `concurrency`, and no offer to any of them can block.
+   * more than `concurrency`, and no offer to any of them can block — while callers respect that bound, which
+   * is the one part of the argument nothing here checks (see [[PollConsumer.consume]]).
    *
    * @param demand capacity offered by callers — one token is the right to claim one element
    * @param supply elements claimed and waiting for the worker whose demand paid for them
@@ -377,11 +384,13 @@ object PollConsumer:
      *
      * @return noop once the supply is empty
      */
-    private def drain: UIO[Unit] =
-      channel.supply.takeAll
-        .flatMap(stranded => source.nack(stranded.toList, Duration.Zero).ignore.unless(stranded.isEmpty))
-        .unit
-        .uninterruptible
+    private def drain: UIO[Unit] = ZIO.uninterruptible {
+      for {
+        stranded <- channel.supply.takeAll
+        _        <- if stranded.isEmpty then ZIO.unit
+                    else source.nack(stranded.toList, Duration.Zero).ignore
+      } yield ()
+    }
 
   private[PollConsumer] object Fetcher:
 
