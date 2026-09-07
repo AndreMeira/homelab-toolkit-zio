@@ -65,7 +65,7 @@ object PollConsumerSpec extends ZIOSpecDefault:
         gate    <- Promise.make[Nothing, Unit] // never completed: the handler is interrupted, not finished
         _       <- ZIO.scoped {
                      PollConsumer
-                       .make(source, concurrency = 2, pollSize = 4, nackDelay = 1.second)
+                       .make(source, pollSize = 4, writeSize = 2, nackDelay = 1.second)
                        .flatMap(_.consume(_ => running.succeed(()) *> gate.await).forkScoped)
                        *> running.await
                    }
@@ -81,7 +81,7 @@ object PollConsumerSpec extends ZIOSpecDefault:
         done    <- Ref.make(0)
         _       <- ZIO.scoped {
                      PollConsumer
-                       .make(source, concurrency = 4, pollSize = 4, nackDelay = 1.second)
+                       .make(source, pollSize = 4, writeSize = 4, nackDelay = 1.second)
                        .flatMap: consumer =>
                          ZIO.foreachParDiscard(1 to 4)(_ => consumer.consume(_ => done.update(_ + 1)).forkScoped)
                          // Every handler has returned, so four Done verdicts are guaranteed to be filed — the
@@ -100,7 +100,7 @@ object PollConsumerSpec extends ZIOSpecDefault:
         source <- recording((1 to 4).toList, settleDelay = 200.millis)
         result <- ZIO.scoped {
                     for
-                      consumer <- PollConsumer.make(source, concurrency = 4, pollSize = 4, nackDelay = 1.second)
+                      consumer <- PollConsumer.make(source, pollSize = 4, writeSize = 4, nackDelay = 1.second)
                       _        <- ZIO.foreachParDiscard(1 to 4)(_ => consumer.consume(_ => ZIO.unit).forkScoped)
                       _        <- source.ackCalls.get.map(_.flat.size).repeatUntil(_ == 4)
                       calls    <- source.ackCalls.get
@@ -116,7 +116,7 @@ object PollConsumerSpec extends ZIOSpecDefault:
         source <- recording((1 to 4).toList, settleDelay = 300.millis)
         result <- ZIO.scoped {
                     for
-                      consumer <- PollConsumer.make(source, concurrency = 4, pollSize = 4, nackDelay = 1.second)
+                      consumer <- PollConsumer.make(source, pollSize = 4, writeSize = 4, nackDelay = 1.second)
                       _        <- ZIO.foreachParDiscard(1 to 4) { _ =>
                                     consumer
                                       .consume(element => ZIO.fail("rejected").when(element % 2 == 0).unit)
@@ -154,7 +154,7 @@ object PollConsumerSpec extends ZIOSpecDefault:
         _      <- ZIO.scoped {
                     for
                       consumer <- PollConsumer
-                                    .make(source, concurrency = callers, pollSize = callers, nackDelay = 1.second)
+                                    .make(source, pollSize = callers, writeSize = callers, nackDelay = 1.second)
                       _        <- ZIO.foreachParDiscard(1 to callers)(_ => consumer.consume(_ => ZIO.unit).forever.forkScoped)
                       _        <- source.ackCalls.get.map(_.flat.size).repeatUntil(_ == elements)
                     yield ()
@@ -181,7 +181,7 @@ object PollConsumerSpec extends ZIOSpecDefault:
         source <- recording(List(1))
         result <- ZIO.scoped {
                     PollConsumer
-                      .make(source, concurrency = 4, pollSize = 4, nackDelay = 1.second)
+                      .make(source, pollSize = 4, writeSize = 4, nackDelay = 1.second)
                       .flatMap(_.consume(_ => ZIO.unit).timeout(2.seconds))
                   }
         calls  <- source.ackCalls.get
@@ -194,7 +194,7 @@ object PollConsumerSpec extends ZIOSpecDefault:
         source <- recording(List(1), settleDelay = 300.millis)
         result <- ZIO.scoped {
                     for
-                      consumer <- PollConsumer.make(source, concurrency = 2, pollSize = 4, nackDelay = 1.second)
+                      consumer <- PollConsumer.make(source, pollSize = 4, writeSize = 2, nackDelay = 1.second)
                       fiber    <- consumer.consume(_ => ZIO.unit).fork
                       _        <- ZIO.sleep(150.millis)
                       early    <- fiber.poll.map(_.isEmpty) // still waiting on the write
@@ -213,7 +213,7 @@ object PollConsumerSpec extends ZIOSpecDefault:
         override def nack(elements: List[Int], wait: Duration): IO[String, Unit] = ZIO.unit
       for outcome <- ZIO.scoped {
                        PollConsumer
-                         .make(broken, concurrency = 2, pollSize = 4, nackDelay = 1.second)
+                         .make(broken, pollSize = 4, writeSize = 2, nackDelay = 1.second)
                          .flatMap(_.consume(_ => ZIO.unit).either)
                      }
       yield assertTrue(outcome == Left("store is gone"))
@@ -232,7 +232,7 @@ object PollConsumerSpec extends ZIOSpecDefault:
         processed <- Promise.make[Nothing, Int]  // what the caller *after* the interruption received
         result    <- ZIO.scoped {
                        for
-                         consumer <- PollConsumer.make(source, concurrency = 2, pollSize = 4, nackDelay = 1.second)
+                         consumer <- PollConsumer.make(source, pollSize = 4, writeSize = 2, nackDelay = 1.second)
                          first    <- consumer.consume(element => running.succeed(element) *> gate.await).fork
                          held     <- running.await
                          exit     <- first.interrupt
@@ -265,7 +265,7 @@ object PollConsumerSpec extends ZIOSpecDefault:
         ran    <- Ref.make(0)
         result <- ZIO.scoped {
                     for
-                      consumer <- PollConsumer.make(source, concurrency = 2, pollSize = 4, nackDelay = 1.second)
+                      consumer <- PollConsumer.make(source, pollSize = 4, writeSize = 2, nackDelay = 1.second)
                       caller   <- consumer.consume(_ => ran.update(_ + 1)).fork
                       _        <- source.asks.get.repeatUntil(_.nonEmpty) // the first poll came back empty
                       _        <- caller.interrupt                        // its demand outlives it
@@ -295,7 +295,7 @@ object PollConsumerSpec extends ZIOSpecDefault:
         source <- recording(Nil)
         result <- ZIO.scoped {
                     for
-                      consumer <- PollConsumer.make(source, concurrency = 2, pollSize = 4, nackDelay = 1.second)
+                      consumer <- PollConsumer.make(source, pollSize = 4, writeSize = 2, nackDelay = 1.second)
                       caller   <- consumer.consume(_ => ZIO.unit).fork
                       _        <- source.asks.get.repeatUntil(_.nonEmpty) // the first poll came back empty
                       _        <- ZIO.sleep(100.millis)                   // and the fetcher is parked on the signal
@@ -315,7 +315,7 @@ object PollConsumerSpec extends ZIOSpecDefault:
         blocked <- Promise.make[Nothing, Unit]
         _       <- ZIO.scoped {
                      PollConsumer
-                       .make(source, concurrency = 4, pollSize = 4, nackDelay = 1.second)
+                       .make(source, pollSize = 4, writeSize = 4, nackDelay = 1.second)
                        .flatMap(_.consume(_ => blocked.await).forkScoped) *> ZIO.sleep(250.millis)
                    }
         offered <- source.asks.get

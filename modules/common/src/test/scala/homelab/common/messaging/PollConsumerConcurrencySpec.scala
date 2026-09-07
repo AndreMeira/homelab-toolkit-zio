@@ -157,7 +157,7 @@ object PollConsumerConcurrencySpec extends ZIOSpecDefault:
         barrier <- Barrier.make(callers)
         _       <- ZIO.scoped {
                      for
-                       consumer <- PollConsumer.make(source, concurrency = callers, pollSize = 16, nackDelay = 1.second)
+                       consumer <- PollConsumer.make(source, pollSize = 16, writeSize = callers, nackDelay = 1.second)
                        _        <- ZIO.foreachParDiscard(1 to callers)(_ => consumer.consume(_ => barrier.pass).forever.forkScoped)
                        _        <- source.awaitSettled(elements)
                      yield ()
@@ -176,7 +176,7 @@ object PollConsumerConcurrencySpec extends ZIOSpecDefault:
         processed <- Ref.make(List.empty[Int])
         _         <- ZIO.scoped {
                        for
-                         consumer <- PollConsumer.make(source, concurrency = callers, pollSize = 8, nackDelay = 1.second)
+                         consumer <- PollConsumer.make(source, pollSize = 8, writeSize = callers, nackDelay = 1.second)
                          _        <- ZIO.foreachParDiscard(1 to callers) { _ =>
                                        consumer.consume(element => processed.update(_ :+ element)).forever.forkScoped
                                      }
@@ -195,7 +195,7 @@ object PollConsumerConcurrencySpec extends ZIOSpecDefault:
         source <- leased((1 to 40).toList)
         _      <- ZIO.scoped {
                     for
-                      consumer <- PollConsumer.make(source, concurrency = callers, pollSize = 16, nackDelay = 1.second)
+                      consumer <- PollConsumer.make(source, pollSize = 16, writeSize = callers, nackDelay = 1.second)
                       _        <- ZIO.foreachParDiscard(1 to callers)(_ => consumer.consume(_ => ZIO.unit).forever.forkScoped)
                       _        <- source.awaitSettled(40)
                     yield ()
@@ -213,7 +213,7 @@ object PollConsumerConcurrencySpec extends ZIOSpecDefault:
         source  <- leased((1 to elements).toList)
         _       <- ZIO.scoped {
                      for
-                       consumer <- PollConsumer.make(source, concurrency = 8, pollSize = pollSize, nackDelay = 1.second)
+                       consumer <- PollConsumer.make(source, pollSize = pollSize, writeSize = 8, nackDelay = 1.second)
                        _        <- ZIO.foreachParDiscard(1 to 8)(_ => consumer.consume(_ => ZIO.unit).forever.forkScoped)
                        _        <- source.awaitSettled(elements)
                      yield ()

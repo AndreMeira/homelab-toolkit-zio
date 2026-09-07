@@ -8,15 +8,16 @@ import zio.*
  * runs `logic` on it, and returns once the store has durably recorded the outcome.
  *
  * Build it with [[PollConsumer.make]], which is where the shape and the trade-offs are documented. Call
- * `consume` from up to `concurrency` fibers at once — a requirement, not a suggestion, and one nothing here
- * enforces — and give [[wakeUp]] to whatever knows work has arrived.
+ * `consume` from as many fibers as you want work done in parallel, and give [[wakeUp]] to whatever knows
+ * work has arrived.
  *
  * '''It holds no [[PollConsumer.Source]].''' Claiming belongs to the fetcher behind it and writing to the
  * settler, so a caller is only the work — take, run, file a verdict, wait for it to land. Both directions of
  * store traffic are therefore batched without any caller having to know.
  *
- * Because `consume` returns only once the outcome is recorded, '''outstanding leases never exceed
- * `concurrency`''': nobody can claim a second element while their first is recorded only in memory. Under
+ * Because `consume` returns only once the outcome is recorded, '''outstanding leases never exceed the
+ * number of fibers calling it''': nobody can claim a second element while their first is recorded only in
+ * memory. Under
  * load that costs nothing — callers finishing together are written by one statement and released together,
  * which is precisely where the batching comes from.
  *
@@ -63,11 +64,6 @@ final class PollConsumer[E, A] private (channel: PollConsumer.Channel[E, A]) ext
    * One narrow hole is left, and it belongs to the race rather than to the mask: if `failure` completes at
    * the instant the take yields, `raceFirst` returns the failure and that element is dropped, recovered on
    * lease expiry. It is reachable only once the fetcher or settler has already died.
-   *
-   * '''The `concurrency` bound is relied on, not enforced.''' Demand is offered uninterruptibly and the
-   * demand queue holds exactly `concurrency`, so a surplus caller parks inside the uninterruptible region:
-   * it cannot be interrupted, and it frees only when the fetcher next takes demand — never, if the fetcher
-   * is the reason it filled up.
    *
    * '''A caller that leaves while parked leaves a debt, not an orphan.''' Its demand has already been
    * offered and may already have been spent, so an element may be claimed for a caller that no longer
@@ -280,11 +276,10 @@ object PollConsumer:
   /**
    * The three queues, plus the wake-up and the pool's death certificate.
    *
-   * All three are sized to `concurrency`, and the same argument covers all of them: one token exists per
-   * caller, and at any instant it is in exactly one place — the demand queue, the fetcher's hand, the supply
-   * queue, a worker's hand, the settlement queue, or the settler's hand. So no queue can be asked to hold
-   * more than `concurrency`, and no offer to any of them can block — while callers respect that bound, which
-   * is the one part of the argument nothing here checks (see [[PollConsumer.consume]]).
+   * '''Unbounded, and bounded in fact by the callers.''' One token exists per caller, and at any instant it
+   * is in exactly one place — the demand queue, the fetcher's hand, the supply queue, a worker's hand, the
+   * settlement queue, or the settler's hand. So no queue holds more than there are callers, whatever that
+   * number turns out to be, and no offer to any of them can block.
    *
    * @param demand capacity offered by callers — one token is the right to claim one element
    * @param supply elements claimed and waiting for the worker whose demand paid for them
@@ -307,22 +302,18 @@ object PollConsumer:
   private[PollConsumer] object Channel:
 
     /**
-     * A channel sized for `concurrency` concurrent callers.
+     * A channel for however many callers there turn out to be.
      *
-     * @param concurrency the caller concurrency — see the class doc for why all three queues take it
      * @param signal the wake-up the fetcher parks on
      * @tparam E the error the store aborts with
      * @tparam A the element carried
      * @return the channel; never fails
      */
-    def make[E, A](concurrency: Int, signal: Signal): UIO[Channel[E, A]] =
+    def make[E, A](signal: Signal): UIO[Channel[E, A]] =
       for
-        demand     <- Queue.bounded[Unit](concurrency)
-        supply     <- Queue.bounded[A](concurrency)
-        settlement <- Queue.bounded[Settlement[A]](concurrency + 1) // +1 so the Closed message always fits
-        // Unbounded on purpose, and the one queue here that is: a cancellation is posted from a caller's
-        // interrupt finalizer, where blocking on a full queue would stall the interruption itself. The
-        // count is self-limiting anyway — one token per leaked demand, each redeemed by one claim.
+        demand     <- Queue.unbounded[Unit]
+        supply     <- Queue.unbounded[A]
+        settlement <- Queue.unbounded[Settlement[A]]
         cancels    <- Queue.unbounded[Unit]
         failure    <- Promise.make[E, Nothing]
       yield Channel(demand, supply, settlement, cancels, signal, failure)
@@ -424,8 +415,8 @@ object PollConsumer:
    *
    * A caller posts a cancellation when it leaves the queue empty-handed, because its demand may already have
    * bought an element it will never take. This fiber redeems cancellations against elements — take the debts
-   * that have accumulated, take an element for each it can serve now, hand them back in one statement. It exists because '''the redemption has to
-   * be able to block'''. A departing caller cannot do this work itself — its finalizer would have to wait for
+   * that have accumulated, take an element for each it can serve now, hand them back in one statement. It
+   * exists because '''the redemption has to be able to block'''. A departing caller cannot do this work itself — its finalizer would have to wait for
    * an element that may still be mid-claim, and waiting inside an uninterruptible finalizer is a deadlock. A
    * fiber can wait; a finalizer cannot.
    *
@@ -583,8 +574,7 @@ object PollConsumer:
      * settler sees the message, and because nothing is interrupted, none can be lost in the hand-off window
      * described on [[run]].
      *
-     * The post cannot block: the settlement queue is sized one larger than the caller concurrency precisely so
-     * that this message always fits. Awaiting cannot hang either — a settler that has already died is a
+     * The post cannot block: the settlement queue is unbounded. Awaiting cannot hang either — a settler that has already died is a
      * completed fiber, so `await` returns at once and its unwritten verdicts fall back on lease expiry.
      *
      * @param fiber the running settler
@@ -645,9 +635,8 @@ object PollConsumer:
    * first if you intend to compose.
    *
    * @param source the leased store to claim from and write to
-   * @param concurrency how many fibers will call `consume` at once — the size of all three queues, and the
-   *                    ceiling on outstanding leases
    * @param pollSize the most the fetcher will claim in one query
+   * @param writeSize the most verdicts, or nacks, written in one statement
    * @param nackDelay how long an element whose handler *failed* stays unavailable — a retry backoff. It
    *                  does not apply to elements handed back untouched at shutdown or after a cancellation;
    *                  those return immediately (see [[Fetcher.drain]] and [[Canceller.step]])
@@ -657,14 +646,14 @@ object PollConsumer:
    */
   def make[E, A](
     source: Source[E, A],
-    concurrency: Int,
     pollSize: Int,
+    writeSize: Int,
     nackDelay: Duration,
   ): ZIO[Scope, Nothing, PollConsumer[E, A]] =
     for
       signal  <- Signal.make
-      channel <- Channel.make[E, A](concurrency, signal)
-      _       <- Settler.make(source, channel, concurrency, nackDelay)
+      channel <- Channel.make[E, A](signal)
+      _       <- Settler.make(source, channel, writeSize, nackDelay)
       _       <- Fetcher.make(source, channel, pollSize)
-      _       <- Canceller.make(source, channel, concurrency)
+      _       <- Canceller.make(source, channel, writeSize)
     yield PollConsumer(channel)

@@ -101,7 +101,7 @@ object PollConsumerTeardownSpec extends ZIOSpecDefault:
         source <- store((1 to 4).toList, gate = Some(gate))
         _      <- ZIO.scoped {
                     for
-                      consumer <- PollConsumer.make(source, concurrency = 4, pollSize = 4, nackDelay = 1.second)
+                      consumer <- PollConsumer.make(source, pollSize = 4, writeSize = 4, nackDelay = 1.second)
                       callers  <- ZIO.foreach(1 to 4)(_ => consumer.consume(_ => ZIO.unit).fork)
                       _        <- source.asks.get.repeatUntil(_.nonEmpty) // demand spent, the claim in flight
                       _        <- Fiber.interruptAll(callers)             // and now nobody is left to take it
@@ -131,7 +131,7 @@ object PollConsumerTeardownSpec extends ZIOSpecDefault:
         source <- store((1 to elements).toList)
         _      <- ZIO.scoped {
                     for
-                      consumer <- PollConsumer.make(source, concurrency = 8, pollSize = 8, nackDelay = 1.second)
+                      consumer <- PollConsumer.make(source, pollSize = 8, writeSize = 8, nackDelay = 1.second)
                       _        <- ZIO.foreachParDiscard(1 to 8) { _ =>
                                     consumer.consume(element => ZIO.sleep((element % 5 * 20).millis)).forever.forkScoped
                                   }
@@ -157,7 +157,7 @@ object PollConsumerTeardownSpec extends ZIOSpecDefault:
       for outcome <- ZIO
                        .scoped {
                          PollConsumer
-                           .make(broken, concurrency = 2, pollSize = 4, nackDelay = 1.second)
+                           .make(broken, pollSize = 4, writeSize = 2, nackDelay = 1.second)
                            .flatMap(_.consume(_ => ZIO.unit).either)
                        }
                        .timeout(10.seconds)
@@ -169,7 +169,7 @@ object PollConsumerTeardownSpec extends ZIOSpecDefault:
       // is the cheapest way to prove that path does not depend on any traffic having gone through it.
       for
         source  <- store(Nil)
-        elapsed <- ZIO.scoped(PollConsumer.make(source, concurrency = 4, pollSize = 4, nackDelay = 1.second).unit).timed
+        elapsed <- ZIO.scoped(PollConsumer.make(source, pollSize = 4, writeSize = 4, nackDelay = 1.second).unit).timed
         acked   <- source.acked.get
         nacked  <- source.nacked.get
       yield assertTrue(elapsed._1 < 5.seconds, acked.isEmpty, nacked.isEmpty)
