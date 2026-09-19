@@ -100,7 +100,7 @@ object RecursionSpec extends ZIOSpecDefault:
           counted   <- completed.get
         yield assertTrue(answer == "done", counted == 50)
       },
-      test("a enum map works") {
+      test("an enum map works") {
         enum State { case One, Two, Three }
         Recursion(State.One) {
           case State.One   => ZIO.succeed(State.Two)
