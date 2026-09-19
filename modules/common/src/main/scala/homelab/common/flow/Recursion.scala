@@ -32,6 +32,19 @@ trait Recursion[-R, +E, S]:
    */
   def next: ZIO[R, E, Recursion[R, E, S]]
 
+  /**
+   * Follow this recursion until `fn` recognises the state it has reached.
+   *
+   * The fluent form of [[Recursion.run]], and its contract: a step runs interruptible, the space between
+   * two steps does not, and what one step takes for another to release falls outside that.
+   *
+   * @param fn the states that end this run, and what each of them reports
+   * @tparam A what this run reports
+   * @return what `fn` read from the state it stopped at; aborts with `E` when a step fails
+   */
+  def terminate[A](fn: PartialFunction[S, A]): ZIO[R, E, A] =
+    Recursion.run(this)(fn)
+
 
 object Recursion:
 
@@ -55,7 +68,7 @@ object Recursion:
     def transition: S => ZIO[R, E, S]
 
     override def next: ZIO[R, E, Recursion[R, E, S]] =
-      transition(state).map(reached => Recursion.make(reached)(transition))
+      transition(state).map(reached => Recursion(reached)(transition))
 
   /**
    * A state that is its own step.
@@ -112,7 +125,7 @@ object Recursion:
    * @tparam S the state
    * @return the recursion
    */
-  def make[R, E, S](initial: S)(step: S => ZIO[R, E, S]): Recursion[R, E, S] =
+  def apply[R, E, S](initial: S)(step: S => ZIO[R, E, S]): Recursion[R, E, S] =
     new Driven[R, E, S]:
       override def state: S                      = initial
       override def transition: S => ZIO[R, E, S] = step

@@ -33,7 +33,7 @@ object RecursionSpec extends ZIOSpecDefault:
   def spec: Spec[TestEnvironment & Scope, Any] = suite("Recursion")(
     suite("following")(
       test("a driven recursion follows the step it was made with") {
-        val counting = Recursion.make(0)(n => ZIO.succeed(n + 1))
+        val counting = Recursion(0)(n => ZIO.succeed(n + 1))
         Recursion.run(counting) { case 5 => "five" }.map(answer => assertTrue(answer == "five"))
       },
       test("a reflective recursion follows each state's own step") {
@@ -48,17 +48,17 @@ object RecursionSpec extends ZIOSpecDefault:
       test("a state the question already recognises is not stepped") {
         for
           steps  <- Ref.make(0)
-          from    = Recursion.make(0)(n => steps.update(_ + 1).as(n + 1))
+          from    = Recursion(0)(n => steps.update(_ + 1).as(n + 1))
           answer <- Recursion.run(from) { case 0 => "already there" }
           taken  <- steps.get
         yield assertTrue(answer == "already there", taken == 0)
       },
       test("a failing step aborts the run") {
-        val breaks = Recursion.make(0)(n => if n == 3 then ZIO.fail("broke at 3") else ZIO.succeed(n + 1))
+        val breaks = Recursion(0)(n => if n == 3 then ZIO.fail("broke at 3") else ZIO.succeed(n + 1))
         Recursion.run(breaks) { case 10 => "ten" }.either.map(result => assertTrue(result == Left("broke at 3")))
       },
       test("depth costs no stack") {
-        val counting = Recursion.make(0)(n => ZIO.succeed(n + 1))
+        val counting = Recursion(0)(n => ZIO.succeed(n + 1))
         Recursion.run(counting) { case 100000 => "deep" }.map(answer => assertTrue(answer == "deep"))
       },
     ),
@@ -66,9 +66,12 @@ object RecursionSpec extends ZIOSpecDefault:
       test("a parked step can be interrupted, at depth and not only first") {
         for
           parked <- Promise.make[Nothing, Unit]
-          parking = Recursion.make(0): n =>
-                      if n < 10 then ZIO.succeed(n + 1) else parked.succeed(()) *> ZIO.never.as(n)
-          fiber  <- Recursion.run(parking) { case -1 => () }.fork
+          fiber  <- Recursion(0) {
+                      case n if n < 10 => ZIO.succeed(n + 1)
+                      case n           => parked.succeed(()) *> ZIO.never.as(n)
+                    }.terminate {
+                      case -1 => ()
+                    }.fork
           _      <- parked.await // the tenth step has parked; no guess about how long that took
           ended  <- fiber.interrupt.timeout(2.seconds)
         yield assertTrue(ended.isDefined)
@@ -78,7 +81,7 @@ object RecursionSpec extends ZIOSpecDefault:
         for
           released <- Ref.make(false)
           parked   <- Promise.make[Nothing, Unit]
-          holding   = Recursion.make(0): _ =>
+          holding   = Recursion(0): _ =>
                         (parked.succeed(()) *> ZIO.never.as(1)).onExit(_ => released.set(true))
           fiber    <- Recursion.run(holding) { case -1 => () }.fork
           _        <- parked.await
@@ -91,11 +94,23 @@ object RecursionSpec extends ZIOSpecDefault:
         // completed and the run is stopped at a state, never between two.
         for
           completed <- Ref.make(0)
-          stepping   = Recursion.make(0)(n => completed.update(_ + 1).as(n + 1))
+          stepping   = Recursion(0)(n => completed.update(_ + 1).as(n + 1))
           fiber     <- Recursion.run(stepping) { case 50 => "done" }.fork
           answer    <- fiber.join
           counted   <- completed.get
         yield assertTrue(answer == "done", counted == 50)
+      },
+      test("an enum map works") {
+        enum State { case One, Two, Three }
+        Recursion(State.One) {
+          case State.One   => ZIO.succeed(State.Two)
+          case State.Two   => ZIO.succeed(State.Three)
+          case State.Three => ZIO.succeed(State.Three)
+        }.terminate {
+          case State.Three => "three"
+        }.map { result =>
+          assertTrue(result == "three")
+        }
       },
     ),
   ) @@ TestAspect.withLiveClock @@ TestAspect.timeout(30.seconds)
