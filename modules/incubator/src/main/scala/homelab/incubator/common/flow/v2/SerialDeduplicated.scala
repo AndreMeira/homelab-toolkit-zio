@@ -1,11 +1,10 @@
-package homelab.incubator.flow.v2
-
+package homelab.incubator.common.flow.v2
 
 import scala.collection.immutable.Queue
 
 import homelab.common.data.Batch
 import homelab.common.data.Batch.LineageMismatch
-import homelab.incubator.flow.v2.SerialDeduplicated.State
+import SerialDeduplicated.State
 import zio.*
 
 
