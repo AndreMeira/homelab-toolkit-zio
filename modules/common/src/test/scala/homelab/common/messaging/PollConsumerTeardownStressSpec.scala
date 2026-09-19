@@ -35,7 +35,7 @@ object PollConsumerTeardownStressSpec extends ZIOSpecDefault:
                        nacked.update(_ :+ elements)
       _         <- ZIO.scoped {
                      PollConsumer
-                       .make(source, concurrency = 2, pollSize = 4, nackDelay = 1.second)
+                       .make(source, pollSize = 4, writeSize = 2, nackDelay = 1.second)
                        .flatMap(_.consume(_ => running.succeed(()) *> gate.await).forkScoped)
                        *> running.await
                    }

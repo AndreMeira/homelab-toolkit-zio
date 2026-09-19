@@ -4,6 +4,7 @@ package homelab.incubator.flow.v2
 import homelab.common.data.Batch
 import homelab.common.data.Batch.LineageMismatch
 import homelab.common.error.ApplicationError
+import homelab.incubator.common.flow.v2.{Batcher, Serial, SerialDeduplicated}
 import zio.*
 import zio.test.*
 

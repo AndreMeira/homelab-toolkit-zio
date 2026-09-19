@@ -1,5 +1,4 @@
-package homelab.incubator.flow.v2
-
+package homelab.incubator.common.flow.v2
 
 import homelab.common.data.Batch
 import zio.*

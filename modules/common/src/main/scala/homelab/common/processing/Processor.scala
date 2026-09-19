@@ -175,6 +175,9 @@ object Processor {
    * captured inside its fiber into `failure` (it is otherwise unobserved), which is what aborts
    * [[parallel]].
    *
+   * '''The await is what bounds the loop.''' Every other step here is non-blocking, so without it
+   * [[parallel]]'s `.forever` forks listeners without limit.
+   *
    * @param input   the intake the spawned listener consumes from
    * @param sem     caps concurrent `handle` runs at `parallelism`
    * @param failure the sink a listener's failure is reported to

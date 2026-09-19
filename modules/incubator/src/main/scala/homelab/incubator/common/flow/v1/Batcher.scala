@@ -1,5 +1,4 @@
-package homelab.incubator.flow.v1
-
+package homelab.incubator.common.flow.v1
 
 import scala.collection.immutable.Queue
 
