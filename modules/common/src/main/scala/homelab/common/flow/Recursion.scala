@@ -77,8 +77,12 @@ object Recursion:
    * Follow the remainder until a question recognises the state it has reached.
    *
    * A step runs interruptible and the space between two steps does not, so a step's own handlers are what
-   * decide the fate of anything that step holds. The question is the caller's: the same machine stopped at
-   * one answers with a grant, and stopped at another reports where it stands.
+   * decide the fate of anything that step holds. What one step takes for another to release is outside
+   * that: an interrupt pending when the next step is reached ends the run before that step, and its
+   * handlers with it. A resource that crosses a step boundary needs a deadline of its own.
+   *
+   * The question is the caller's: the same states stopped at one answer with a grant, and stopped at
+   * another report where they stand.
    *
    * @param from where to start
    * @param terminal the states that end this run, and what each reports
@@ -91,7 +95,7 @@ object Recursion:
   def run[R, E, S, A](from: Recursion[R, E, S])(terminal: PartialFunction[S, A]): ZIO[R, E, A] =
     ZIO.uninterruptibleMask: restore =>
       terminal.lift(from.state) match
-        case Some(answer) => Exit.succeed(answer)
+        case Some(answer) => ZIO.succeed(answer)
         case None         =>
           for
             reached <- restore(from.next)

@@ -8,14 +8,18 @@ import zio.test.*
 object MarkovSpec extends ZIOSpecDefault:
 
   // the reflective shape: a lock-shaped family, each state carrying its own step
-  sealed trait Wait                extends Markov.Reflective[Any, Nothing, Wait]
+  sealed trait Wait extends Markov.Reflective[Any, Nothing, Wait]
+
   case class Placing(attempt: Int) extends Wait:
     def next: UIO[Wait] = ZIO.succeed(Queued(attempt))
-  case class Queued(ticket: Int)   extends Wait:
+
+  case class Queued(ticket: Int) extends Wait:
     def next: UIO[Wait] = ZIO.succeed(Granted(s"hold-$ticket"))
+
   case class Granted(hold: String) extends Wait:
     def next: UIO[Wait] = ZIO.succeed(this)
-  case object GaveUp               extends Wait:
+
+  case object GaveUp extends Wait:
     def next: UIO[Wait] = ZIO.succeed(this)
 
   private def held: PartialFunction[Wait, Option[String]] =
