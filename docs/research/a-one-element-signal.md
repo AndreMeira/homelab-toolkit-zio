@@ -103,14 +103,43 @@ what stops the chain.
 - **dkq's `ready` set and wake streams.** The same idea across instances: `ZADD NX` makes a key present at
   most once however many messages arrive for it, and a wake stream entry names a queue that *may* have work.
   The reader then asks the store what is true.
-- **The agent loop sketched in [`llm-conversation-model.md`](./llm-conversation-model.md)** — unbuilt. One
-  contentless message per conversation, its id and its key both the conversation id; the transcript is the
-  truth, and the message only says to read it again.
+- **dkq's client, as an API.** `Provider.signalProducer(queue)` and `Provider.signalConsumer(config)` over a
+  `Ready(id)` whose id is a key. Nothing is encoded or decoded: the producer writes the key into the
+  envelope and the consumer reads it back off, so there is no payload for the two halves to disagree about.
+  A claim's worth of announcements folds to the distinct keys they name, and the logic runs once per key.
+- **The agent loop sketched in [`llm-conversation-model.md`](./llm-conversation-model.md)** — unbuilt, and
+  now with the above to stand on. One contentless message per conversation, its key the conversation id;
+  the transcript is the truth, and the message only says to read it again.
 
 The `Ref`-based election in [`drain-fiber-over-a-state.md`](./drain-fiber-over-a-state.md) is a near
 relative rather than an instance: its state is *both* the signal and the work list, which is exactly the
 coupling §3 warns against — permissible there because both live behind one atomic `modify`, and impossible
 the moment they are two systems.
+
+## A signal may also grant the subject
+
+The in-process forms above wake a fiber and nothing more: what the woken reader does about the subject is
+between it and whatever else is running. A signal delivered as a **claim** does something stronger — it
+hands over the subject exclusively, and nothing else may act on it until the claim settles.
+
+That is dkq's queue rather than a property of the pattern, but it changes what the pattern is good for
+enough to be worth separating. A reader woken this way can read state, decide and write it back without
+guarding any of it, because there is no second reader inside that key. A fan-out notification cannot offer
+it: every subscriber wakes, they race for the same state, and keeping one out is a lock added afterwards
+with its own lease and its own failure modes. Here the wake and the exclusion are one act, since what is
+handed over is the key.
+
+Two things follow that the plain form does not have:
+
+- **A signal for a subject already claimed waits.** It is not fanned out to a second reader and not
+  dropped; it is delivered when the claim ends, which is what makes announcing into someone else's work
+  safe rather than merely harmless.
+- **The exclusion outlives a process.** It is a lease in a store, so a reader that dies releases the
+  subject rather than stranding it — where an in-process election survives exactly as long as the process
+  holding it.
+
+The cost is the lease being real: a reader whose work outlives one must renew it, and must stop when told
+its claim is stale. That obligation is the price of not needing a lock.
 
 ## What it solves
 
