@@ -392,6 +392,33 @@ This holds for user input too, and it is why the queue never carries any payload
 on a stream, a consumer writes its text to the store, and the queue is told only that the conversation is
 worth looking at. Where in the store it is written, and why the landing is safe, is the next section.
 
+### What the client already offers
+
+Written since this section was: dkq's client ships the signal as an API, so none of the above needs
+building.
+
+```scala
+signals  <- Provider(client).signalProducer("conversations")
+consumer <- Provider(client).signalConsumer(Provider.BatchConsumerConfig("conversations", size = 32))
+_        <- consumer.consume(runTurn).forever
+
+def runTurn(ready: Ready): IO[ApplicationError, Unit] = ???
+```
+
+`Ready(id)` is the conversation id and nothing else — no payload is written or read, so there is no codec
+between the two halves and nothing for them to disagree about. Waking a conversation is
+`signals.emit(Ready(conversation))`, whoever is doing the waking: the landing consumer, a finished child,
+or a turn handing on to the next.
+
+`signalConsumer` is already a `Consumer[AdapterError, Ready]`, which is what a `Processor`'s `input` is, so
+the runner is a `Processor` over it and the toolkit still contributes nothing new.
+
+**It also decides where the owner comes from, and the answer is better than the one §6 assumed.** A signal
+carries a key, so it cannot carry a `ConversationRef`. The runner therefore reads the conversation to learn
+whose it is, which means the owner comes from the store rather than from the message — and enqueuing a
+forged signal names a conversation someone else owns without becoming that someone. §6's `ConversationRef`
+stays the workflow's `I`, assembled after the read rather than delivered.
+
 ### So `wait` never parks a fiber
 
 This replaces what §6 assumed. The parent's run **ends** when it must wait: the turn stops, the suspension is
@@ -409,9 +436,9 @@ what happens when there is something to wait for, not a step in the protocol.
 - **§6's restart hole closes.** "Nothing restarts a crashed turn" was the one real argument for keeping
   `persisted`; a lapsed lease returning the work *is* the restart, and it is the same mechanism that delivers
   a wake. Two pressures, one component, again.
-- **The toolkit gains no machinery.** The runner is a `Processor[E, ConversationRef]` whose `input` is a
-  `Consumer` — both exist. DKQ is an adapter the *application* wires, which keeps the toolkit free of it
-  exactly as `Consumer` keeps it free of NATS, and respects DKQ's own rule that it is one per service.
+- **The toolkit gains no machinery.** The runner is a `Processor[E, …]` whose `input` is a `Consumer` —
+  both exist. DKQ is an adapter the *application* wires, which keeps the toolkit free of it exactly as
+  `Consumer` keeps it free of NATS, and respects DKQ's own rule that it is one per service.
 
 ### Interleaving: what a second question does to a suspended turn
 
