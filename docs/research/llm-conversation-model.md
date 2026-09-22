@@ -772,12 +772,23 @@ case ToolResult(callId: String, content: Chunk[Content], standing: ToolResult.St
 object ToolResult:
   enum Standing:
     case Answered
-    case Promised(handle: String)
-    case Delivered(handle: String)
+    case Promised(handles: NonEmptyChunk[String])
+    case Delivered(handles: NonEmptyChunk[String])
 ```
 
 Outstanding is `promised − delivered` over the transcript — the same set difference that already tells a
-runner a turn is suspended, asked at the same place, with nothing new to learn.
+runner a turn is suspended, asked at the same place, with nothing new to learn. Several handles rather than
+one, because a single call can settle a batch of them.
+
+**A tool says this by returning it, not by being asked.** The obvious alternative is a second method on the
+tool, `standing(output)`, read off the value the handler produced. It costs less ceremony and is worse
+twice over: a handle only exists once the call has run, so the output type has to be shaped to carry it —
+a tool answering in prose has nowhere to put one — and a tool can override `handle` without overriding
+`standing`, which answers silently where it meant to promise. Returning `Result(value, standing)` from
+`handle` makes both unrepresentable, and the ordinary tool pays one `Result.answered(…)` for it.
+
+Sketched as `llm/v3/Tool.scala` in the incubator, with `ToolSpec` covering the fold: a promise surviving
+rendering, a failure promising nothing, and outstanding computed across a turn without naming a tool.
 
 **What this buys is larger than the mitigation.** The loop stops needing to know what a subagent is.
 Recognising `launch` and `wait` by name, and parsing a handle out of text some tool wrote, would put
@@ -804,6 +815,17 @@ Neither reaches the worst risk, and the thing that does is narrower: **a subagen
 side-effecting tools unless its parent granted them.** `Tool.permits` already takes the context, so this is
 a flag in `Ctx` rather than new machinery — and it turns the dangerous orphan into a merely wasteful one,
 which is the difference between an incident and a bill.
+
+#### The gap this does not close
+
+A tool that mints a handle and *then* fails has started work its outcome cannot mention. The failure is
+rendered as text and stands `Answered`, which is right for a tool that failed before doing anything and
+wrong for this one: the child is running, nothing is outstanding, and nothing will cancel it. An orphan
+invisible to the machinery built to catch orphans.
+
+No type prevents it, and the rule belongs with the handler rather than in `Tool`: **a tool that mints does
+not fail afterwards.** Whatever went wrong after the minting goes back as a result carrying the promise,
+with the trouble in its text, so the handle stays visible to whatever will cancel it.
 
 #### What a promise still owes
 
