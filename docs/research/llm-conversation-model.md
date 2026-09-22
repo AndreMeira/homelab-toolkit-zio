@@ -747,6 +747,71 @@ user-visible rather than internal:
 The stash is what the first two have in common, so building it does not commit to either: cancellation is a
 policy an application can add on top once input has somewhere to sit that is not the transcript.
 
+### The subagent nobody waits for
+
+A model can call `launch` and then answer without calling `wait`. Nothing in §7 catches it: the `wait`
+timeout is the liveness backstop, and it only fires on a wait that was made.
+
+What the orphan costs, worst first. **Its side effects land unread** — a subagent holds tools, so it can
+send the mail, write the row, call the service, and no one reads the answer saying so. **It bills** a tree
+of work whose results are discarded, and since children may launch children, one turn's carelessness is a
+multiplier. **The parent answers without what it asked for**, which reads as a complete answer and so is
+worse than an error. Behind those: conversations accumulating in the store unread, a claim spent per orphan
+nudging a parent with nothing to do, and a replayed turn launching a second child for the same task.
+
+#### A result that is a promise, not an answer
+
+The tempting fix is a flag on the result saying it is pending. A boolean cannot work: the transcript only
+ever appends, so a result marked pending stays marked, and the loop could never tell *still outstanding*
+from *waited on, three turns ago*. The marker has to name what is owed, and a later result has to say it
+delivered it:
+
+```scala
+case ToolResult(callId: String, content: Chunk[Content], standing: ToolResult.Standing)
+
+object ToolResult:
+  enum Standing:
+    case Answered
+    case Promised(handle: String)
+    case Delivered(handle: String)
+```
+
+Outstanding is `promised − delivered` over the transcript — the same set difference that already tells a
+runner a turn is suspended, asked at the same place, with nothing new to learn.
+
+**What this buys is larger than the mitigation.** The loop stops needing to know what a subagent is.
+Recognising `launch` and `wait` by name, and parsing a handle out of text some tool wrote, would put
+subagents into the one algorithm §7 keeps free of them. With a standing, any tool may say *my result is a
+promise*, and the loop enforces a rule about promises while staying as ignorant as it already is.
+
+It is also the first field the transcript holds that the wire does not, and §2 chose wire-identical
+messages deliberately. §4 is what authorises it: model what the loop must reason about, pass everything
+else through verbatim. Whether a turn may end is as load-bearing as reasoning gets, so it is modelled, and
+the renderer strips it.
+
+#### The two mitigations it makes structural
+
+**The loop refuses to finish with promises outstanding.** An `intercept` sees a `Done`, finds the
+undelivered handles, and returns a `Continue` carrying a message naming them. The model cannot forget it,
+because the model is not the one enforcing it. Two things it needs: the hop cap underneath, so a model that
+declines to wait terminates rather than loops; and a per-tool say in whether its promises block — some
+launches are genuinely fire-and-forget, and a rule that admits no exception will be turned off entirely.
+
+**Cancellation gets its set for free.** Outstanding at `Done` is exactly what to cancel, so a parent that
+finishes anyway stops its orphans at their next step boundary rather than leaving them running.
+
+Neither reaches the worst risk, and the thing that does is narrower: **a subagent's context should exclude
+side-effecting tools unless its parent granted them.** `Tool.permits` already takes the context, so this is
+a flag in `Ctx` rather than new machinery — and it turns the dangerous orphan into a merely wasteful one,
+which is the difference between an incident and a bill.
+
+#### What a promise still owes
+
+A `Promised(handle)` with nothing behind it is the liveness hole in a new place: a turn that can never
+finish because a child never answers. The deadline has to attach to the **promise** rather than to the wait
+call, since the case being covered is the one where no wait was ever made. That is the same clock §7's
+obligations already require, moved to where it is now needed.
+
 ### The obligations
 
 **Heartbeat, and stop when told.** A turn runs for minutes; the default lease is thirty seconds. The runner
@@ -768,8 +833,9 @@ exist.
 
 **A timeout is a requirement, not a nicety, and it is data.** A `wait` that expires returns a tool result
 saying so, and the model decides what to do next; `Receipt`'s deadline-is-the-authority semantics is the
-right model to copy, even though the receipt itself is not. What promotes this from an obligation to a
-requirement is the stash. A stashed message survives a turn only while the conversation is suspended, a
+right model to copy, even though the receipt itself is not. It covers a wait that was made — the turn that
+launches and never waits needs the clock on the promise instead, which is the subsection above. What
+promotes this from an obligation to a requirement is the stash. A stashed message survives a turn only while the conversation is suspended, a
 suspended conversation is always waiting on something, and that something is what will nudge it. Give the
 wait no deadline and a user's second question can sit unread for as long as a subagent stays silent. With
 one, every stashed entry has an unblocking event with a clock behind it, and no state waits on nothing.
