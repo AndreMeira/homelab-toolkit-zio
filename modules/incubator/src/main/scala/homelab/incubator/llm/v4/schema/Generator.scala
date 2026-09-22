@@ -247,11 +247,11 @@ object Generator {
    */
   private def discriminated(tag: String, name: String, node: Node): Either[Unsupported, Node] =
     node.shape match {
-      case Shape.Obj(properties) if properties.contains(tag) =>
+      case Shape.Obj(fields) if fields.exists(_.name == tag) =>
         Left(Unsupported(s"case '$name' already has a property named '$tag', which the discriminator needs"))
 
-      case Shape.Obj(properties) =>
-        Right(Node(Shape.Obj(ListMap(tag -> Shape.Obj.Field(Node.enumeration(name))) ++ properties), node.description))
+      case Shape.Obj(fields) =>
+        Right(Node(Shape.Obj(Shape.Obj.Field(tag, Node.enumeration(name)) :: fields), node.description))
 
       case _ =>
         Left(Unsupported(s"case '$name' does not render as an object, so it cannot carry the '$tag' discriminator"))
@@ -287,13 +287,13 @@ object Generator {
     record: Schema.Record[?],
     recursive: Set[TypeId],
     defs: Defs,
-  ): Either[Unsupported, (List[(String, Shape.Obj.Field)], Defs)] = {
-    type Acc = Either[Unsupported, (List[(String, Shape.Obj.Field)], Defs)]
+  ): Either[Unsupported, (List[Shape.Obj.Field], Defs)] = {
+    type Acc = Either[Unsupported, (List[Shape.Obj.Field], Defs)]
     record.fields.foldLeft[Acc](Right(Nil -> defs)): (acc, field) =>
       acc.flatMap { (fields, carried) =>
         generateNodes(field.schema, recursive, carried).map { (node, after) =>
-          val entry = field.name -> Shape.Obj.Field(describe(node, field.annotations), required = !optional(field.schema))
-          (fields :+ entry) -> after
+          val described = Shape.Obj.Field(field.name, describe(node, field.annotations), !optional(field.schema))
+          (fields :+ described) -> after
         }
       }
   }
@@ -305,7 +305,7 @@ object Generator {
    * @param fields its rendered properties
    * @return the object node
    */
-  private def object0(record: Schema.Record[?], fields: List[(String, Shape.Obj.Field)]): Node =
+  private def object0(record: Schema.Record[?], fields: List[Shape.Obj.Field]): Node =
     describe(Node.obj(fields*), record.annotations)
 
   /**

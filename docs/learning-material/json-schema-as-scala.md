@@ -21,6 +21,7 @@ Scala says about the schemas it refuses to express.
 final case class JsonSchema(root: Node, definitions: ListMap[String, Node] = ListMap.empty)
 final case class Node(shape: Shape, description: Option[String] = None)
 enum Shape { case Text, Number, Integer, Bool, Null, Enumeration, Obj, Arr, AnyOf, Reference }
+// Shape.Obj holds List[Shape.Obj.Field], and Field is (name, node, required)
 ```
 
 They are three levels, not three names for one thing:
@@ -53,8 +54,8 @@ An object is the one case that renders more than it stores:
 
 ```scala
 Node.obj(
-  "city" -> Shape.Obj.Field(Node.text.describedAs("city name")),
-  "unit" -> Shape.Obj.Field(Node.enumeration("c", "f"), required = false),
+  Shape.Obj.Field("city", Node.text.describedAs("city name")),
+  Shape.Obj.Field("unit", Node.enumeration("c", "f"), required = false),
 )
 ```
 
@@ -74,8 +75,8 @@ And a document adds its table at the end, only when there is one:
 
 ```scala
 JsonSchema(
-  root        = Node.obj("children" -> Shape.Obj.Field(Node.array(Node.ref("Tree")))),
-  definitions = ListMap("Tree" -> Node.obj("value" -> Shape.Obj.Field(Node.text))),
+  root        = Node.obj(Shape.Obj.Field("children", Node.array(Node.ref("Tree")))),
+  definitions = ListMap("Tree" -> Node.obj(Shape.Obj.Field("value", Node.text))),
 )
 ```
 
@@ -96,6 +97,11 @@ Four decisions in the types stop a schema being wrong, rather than documenting t
 **`required` is not a list.** JSON Schema puts required property names in an array beside `properties`,
 which lets a document require a property it never describes. Here each property carries its own
 `Shape.Obj.Field.required`, and the array is *computed* at render. The mismatch cannot be written down.
+
+**Properties are a list, not a map.** A property is a described thing that *has* a name — `Field(name,
+node, required)` — rather than a name pointing at a description, and nothing ever looks one up. The
+rendering turns that list into the two JSON members it implies. A zero-argument tool is `Obj(Nil)`, which
+renders as an object with no properties and nothing required.
 
 **`additionalProperties` is not a field.** It renders as `false`, always. Strict-mode providers demand it,
 and offering the choice invites someone to set it true and lose strictness without noticing.

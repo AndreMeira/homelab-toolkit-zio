@@ -104,12 +104,12 @@ object Node:
   def enumeration(first: String, rest: String*): Node = Node(Shape.Enumeration(first, rest.toList))
 
   /**
-   * An object. Properties are required unless their [[Shape.Obj.Field]] says otherwise.
+   * An object. Fields are required unless their [[Shape.Obj.Field]] says otherwise.
    *
-   * @param properties the properties, in the order the model should read them
+   * @param fields the properties, in the order the model should read them
    * @return the schema
    */
-  def obj(properties: (String, Shape.Obj.Field)*): Node = Node(Shape.Obj(ListMap.from(properties)))
+  def obj(fields: Shape.Obj.Field*): Node = Node(Shape.Obj(fields.toList))
 
   /**
    * An array of `items`.

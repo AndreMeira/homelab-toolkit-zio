@@ -2,8 +2,6 @@ package homelab.incubator.llm.v4.schema
 
 import zio.json.ast.Json
 
-import scala.collection.immutable.ListMap
-
 
 /** What kind of value a node describes — the closed set this subset admits. */
 enum Shape {
@@ -26,8 +24,14 @@ enum Shape {
   /** A closed set of string values: a Scala `enum` of case objects, or any sum type without payloads. */
   case Enumeration(first: String, rest: List[String])
 
-  /** An object with known properties. `additionalProperties` is always rendered as `false`. */
-  case Obj(properties: ListMap[String, Obj.Field])
+  /**
+   * An object with known properties, in the order the model should read them.
+   *
+   * A list rather than a map because a property is a described thing that *has* a name, not a name pointing
+   * at a description — and nothing here ever looks one up. `additionalProperties` is always rendered as
+   * `false`, and `required` is computed from the fields.
+   */
+  case Obj(fields: List[Obj.Field])
 
   /** A homogeneous array. Tuple-typed arrays (`prefixItems`) are deliberately absent — see the note below. */
   case Arr(items: Node)
@@ -54,11 +58,11 @@ enum Shape {
     case AnyOf(a, b, rest) => Json.Obj("anyOf" -> Json.Arr((a :: b :: rest).map(_.json)*))
     case Reference(name)   => Json.Obj("$ref" -> Json.Str(s"#/$$defs/$name"))
     case Enumeration(h, t) => Json.Obj("type" -> Json.Str("string"), "enum" -> Json.Arr((h :: t).map(Json.Str(_))*))
-    case Obj(properties)   =>
+    case Obj(fields)       =>
       Json.Obj(
         "type"                 -> Json.Str("object"),
-        "properties"           -> Json.Obj(properties.map((name, field) => name -> field.node.json).toSeq*),
-        "required"             -> Json.Arr(properties.collect { case (name, f) if f.required => Json.Str(name) }.toSeq*),
+        "properties"           -> Json.Obj(fields.map(field => field.name -> field.node.json)*),
+        "required"             -> Json.Arr(fields.filter(_.required).map(field => Json.Str(field.name))*),
         "additionalProperties" -> Json.Bool(false),
       )
 
@@ -66,14 +70,19 @@ enum Shape {
 
 
 object Shape:
+  
+  /**
+   * 
+   */
   object Obj:
     /**
-     * One property of a [[Obj]] — its schema and whether it must be present.
+     * One property of an [[Obj]] — its name, what it holds, and whether it must be present.
      *
-     * Holding `required` here, rather than in a list beside the properties, is what stops a schema requiring a
-     * property it does not describe.
+     * Holding `required` here, rather than in a list beside the properties, is what stops a schema requiring
+     * a property it does not describe.
      *
+     * @param name     what the model calls it
      * @param node     what the property holds
      * @param required whether the model must supply it
      */
-    final case class Field(node: Node, required: Boolean = true)
+    final case class Field(name: String, node: Node, required: Boolean = true)

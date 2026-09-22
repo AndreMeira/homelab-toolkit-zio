@@ -63,7 +63,7 @@ final case class JsonSchema(root: Node, definitions: ListMap[String, Node] = Lis
    */
   private def names(node: Node): Set[String] = node.shape match
     case Shape.Reference(name)   => Set(name)
-    case Shape.Obj(properties)   => properties.values.flatMap(field => names(field.node)).toSet
+    case Shape.Obj(fields)       => fields.flatMap(field => names(field.node)).toSet
     case Shape.Arr(items)        => names(items)
     case Shape.AnyOf(a, b, rest) => (a :: b :: rest).flatMap(names).toSet
     case _                       => Set.empty
