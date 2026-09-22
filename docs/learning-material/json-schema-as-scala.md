@@ -53,8 +53,8 @@ An object is the one case that renders more than it stores:
 
 ```scala
 Node.obj(
-  "city" -> Shape.Field(Node.text.describedAs("city name")),
-  "unit" -> Shape.Field(Node.enumeration("c", "f"), required = false),
+  "city" -> Shape.Obj.Field(Node.text.describedAs("city name")),
+  "unit" -> Shape.Obj.Field(Node.enumeration("c", "f"), required = false),
 )
 ```
 
@@ -74,8 +74,8 @@ And a document adds its table at the end, only when there is one:
 
 ```scala
 JsonSchema(
-  root        = Node.obj("children" -> Shape.Field(Node.array(Node.ref("Tree")))),
-  definitions = ListMap("Tree" -> Node.obj("value" -> Shape.Field(Node.text))),
+  root        = Node.obj("children" -> Shape.Obj.Field(Node.array(Node.ref("Tree")))),
+  definitions = ListMap("Tree" -> Node.obj("value" -> Shape.Obj.Field(Node.text))),
 )
 ```
 
@@ -95,7 +95,7 @@ Four decisions in the types stop a schema being wrong, rather than documenting t
 
 **`required` is not a list.** JSON Schema puts required property names in an array beside `properties`,
 which lets a document require a property it never describes. Here each property carries its own
-`Shape.Field.required`, and the array is *computed* at render. The mismatch cannot be written down.
+`Shape.Obj.Field.required`, and the array is *computed* at render. The mismatch cannot be written down.
 
 **`additionalProperties` is not a field.** It renders as `false`, always. Strict-mode providers demand it,
 and offering the choice invites someone to set it true and lose strictness without noticing.

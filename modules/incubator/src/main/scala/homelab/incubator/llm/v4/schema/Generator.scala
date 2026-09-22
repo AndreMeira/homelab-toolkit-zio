@@ -1,6 +1,13 @@
 package homelab.incubator.llm.v4.schema
 
+
 import homelab.common.error.ApplicationError
+import zio.Chunk
+import zio.schema.annotation.{ caseName, description, discriminatorName }
+import zio.schema.{ Schema, StandardType, TypeId }
+
+import scala.annotation.tailrec
+import scala.collection.immutable.ListMap
 
 
 /**
@@ -22,7 +29,7 @@ import homelab.common.error.ApplicationError
  * case still reads as "may be omitted". Flipping that one flag, and leaving the null branch alone, is what a
  * strict-mode provider wants; it is a render-time choice rather than a limit of the ADT.
  */
-object JsonSchemaGenerator {
+object Generator {
 
   /**
    * Why a type cannot be described to a model.
@@ -39,12 +46,12 @@ object JsonSchemaGenerator {
   /**
    * Derive the document describing `A`.
    *
-   * @tparam A the type to describedAs, with a `zio.schema.Schema` in scope
+   * @tparam A the type to describe, with a `zio.schema.Schema` in scope
    * @return the document, or why `A` cannot be described
    */
-  def derive[A](using schema: Schema[A]): Either[Unsupported, JsonSchema] =
+  def generate[A](using schema: Schema[A]): Either[Unsupported, JsonSchema] =
     val recursive = recursiveTypes(schema, Set.empty, Set.empty)
-    JsonSchemaGenerator.of(schema, recursive, Defs.empty).map((node, defs) => JsonSchema(node, defs.definitions))
+    Generator.generateNodes(schema, recursive, Defs.empty).map((node, defs) => JsonSchema(node, defs.definitions))
 
   /**
    * The definitions gathered so far, and the types whose definition is still being built.
@@ -52,7 +59,7 @@ object JsonSchemaGenerator {
    * @param definitions the completed `$defs` entries, in discovery order
    * @param visiting the names currently under construction — meeting one again is the recursive knot
    */
-  final private case class Defs(definitions: ListMap[String, JsonSchema.Node], visiting: Set[String])
+  final private case class Defs(definitions: ListMap[String, Node], visiting: Set[String])
 
   private object Defs:
     val empty: Defs = Defs(ListMap.empty, Set.empty)
@@ -98,32 +105,38 @@ object JsonSchemaGenerator {
    * @param defs the definitions gathered so far
    * @return the node and the definitions after it, or why it cannot be described
    */
-  private def of(schema: Schema[?], recursive: Set[TypeId], defs: Defs): Either[Unsupported, (JsonSchema.Node, Defs)] =
+  private def generateNodes(
+    schema: Schema[?],
+    recursive: Set[TypeId],
+    defs: Defs,
+  ): Either[Unsupported, (Node, Defs)] =
     force(schema) match
       case Schema.Primitive(standardType, annotations) =>
-        primitive(standardType).map(node => describe(node, annotations) -> defs)
+        Node
+          .primitive(standardType)
+          .toRight(unsupported(standardType))
+          .map(node => describe(node, annotations) -> defs)
 
       case Schema.Optional(inner, _) =>
         // Every optional value says so, wherever it sits: inside a list, an either, or a field. A field is
         // additionally left out of `required`, which is what makes the common case read normally.
-        of(inner, recursive, defs).map((node, next) => JsonSchema.nullable(node) -> next)
+        generateNodes(inner, recursive, defs).map((node, next) => Node.nullable(node) -> next)
 
       case sequence: Schema.Sequence[?, ?, ?] =>
-        of(sequence.elementSchema, recursive, defs).map((node, next) => JsonSchema.array(node) -> next)
+        generateNodes(sequence.elementSchema, recursive, defs).map((node, next) => Node.array(node) -> next)
 
       case set: Schema.Set[?] =>
-        of(set.elementSchema, recursive, defs).map((node, next) => JsonSchema.array(node) -> next)
+        generateNodes(set.elementSchema, recursive, defs).map((node, next) => Node.array(node) -> next)
 
       case Schema.Either(left, right, _) =>
         for
-          (leftNode, afterLeft)   <- of(left, recursive, defs)
-          (rightNode, afterRight) <- of(right, recursive, afterLeft)
-        yield JsonSchema.anyOf(leftNode, rightNode) -> afterRight
+          (leftNode, afterLeft)   <- generateNodes(left, recursive, defs)
+          (rightNode, afterRight) <- generateNodes(right, recursive, afterLeft)
+        yield Node.anyOf(leftNode, rightNode) -> afterRight
 
-      case transform: Schema.Transform[?, ?, ?] => of(transform.schema, recursive, defs)
-
-      case record: Schema.Record[?]    => ofRecord(record, recursive, defs)
-      case enumeration: Schema.Enum[?] => ofEnum(enumeration, recursive, defs)
+      case transform: Schema.Transform[?, ?, ?] => generateNodes(transform.schema, recursive, defs)
+      case record: Schema.Record[?]             => fromRecord(record, recursive, defs)
+      case enumeration: Schema.Enum[?]          => fromEnum(enumeration, recursive, defs)
 
       case Schema.Map(_, _, _)     => Left(Unsupported("a map has open keys; this subset closes every object"))
       case Schema.Tuple2(_, _, _)  => Left(Unsupported("a tuple needs positional array items"))
@@ -138,20 +151,21 @@ object JsonSchemaGenerator {
    * @param defs the definitions gathered so far
    * @return the node and the definitions after it, or why it cannot be described
    */
-  private def ofRecord(
+  private def fromRecord(
     record: Schema.Record[?],
     recursive: Set[TypeId],
     defs: Defs,
-  ): Either[Unsupported, (JsonSchema.Node, Defs)] =
+  ): Either[Unsupported, (Node, Defs)] =
     val name = nameOf(record.id)
-    if !recursive.contains(record.id) || name.isEmpty then properties(record, recursive, defs).map((fields, next) => object0(record, fields) -> next)
+    if !recursive.contains(record.id) || name.isEmpty
+    then properties(record, recursive, defs).map((fields, next) => object0(record, fields) -> next)
     else
       val key = name.get
-      if defs.visiting.contains(key) || defs.definitions.contains(key) then Right(JsonSchema.ref(key) -> defs)
+      if defs.visiting.contains(key) || defs.definitions.contains(key) then Right(Node.ref(key) -> defs)
       else
         properties(record, recursive, defs.copy(visiting = defs.visiting + key)).map { (fields, next) =>
           val definition = object0(record, fields)
-          JsonSchema.ref(key) -> next.copy(
+          Node.ref(key) -> next.copy(
             definitions = next.definitions + (key -> definition),
             visiting = next.visiting - key,
           )
@@ -172,16 +186,16 @@ object JsonSchemaGenerator {
    * @param defs the definitions gathered so far
    * @return the node and the definitions after it, or why it cannot be described
    */
-  private def ofEnum(
+  private def fromEnum(
     enumeration: Schema.Enum[?],
     recursive: Set[TypeId],
     defs: Defs,
-  ): Either[Unsupported, (JsonSchema.Node, Defs)] =
+  ): Either[Unsupported, (Node, Defs)] =
     val cases = enumeration.cases.toList
     if cases.isEmpty then Left(Unsupported("a sum type with no cases describes no value"))
     else if cases.forall(one => payloadless(one.schema)) then
       val labels = cases.map(label)
-      Right(describe(JsonSchema.enumeration(labels.head, labels.tail*), enumeration.annotations) -> defs)
+      Right(describe(Node.enumeration(labels.head, labels.tail*), enumeration.annotations) -> defs)
     else
       discriminator(enumeration.annotations) match
         case None      =>
@@ -194,8 +208,8 @@ object JsonSchemaGenerator {
           branches(cases, tag, recursive, defs).map { (nodes, next) =>
             val union = nodes match
               case single :: Nil           => single
-              case first :: second :: rest => JsonSchema.anyOf(first, second, rest*)
-              case Nil                     => JsonSchema.nothing
+              case first :: second :: rest => Node.anyOf(first, second, rest*)
+              case Nil                     => Node.nothing
             describe(union, enumeration.annotations) -> next
           }
 
@@ -213,11 +227,11 @@ object JsonSchemaGenerator {
     tag: String,
     recursive: Set[TypeId],
     defs: Defs,
-  ): Either[Unsupported, (List[JsonSchema.Node], Defs)] =
-    cases.foldLeft[Either[Unsupported, (List[JsonSchema.Node], Defs)]](Right(Nil -> defs)) { (acc, next) =>
+  ): Either[Unsupported, (List[Node], Defs)] =
+    cases.foldLeft[Either[Unsupported, (List[Node], Defs)]](Right(Nil -> defs)) { (acc, next) =>
       acc.flatMap { (nodes, carried) =>
         for
-          (node, after) <- of(next.schema, recursive, carried)
+          (node, after) <- generateNodes(next.schema, recursive, carried)
           tagged        <- discriminated(tag, label(next), node)
         yield (nodes :+ tagged) -> after
       }
@@ -231,14 +245,17 @@ object JsonSchemaGenerator {
    * @param node the case's rendered schema
    * @return the tagged object, or why the case cannot carry a tag
    */
-  private def discriminated(tag: String, name: String, node: JsonSchema.Node): Either[Unsupported, JsonSchema.Node] =
-    node.shape match
-      case JsonSchema.Shape.Obj(properties) if properties.contains(tag) =>
+  private def discriminated(tag: String, name: String, node: Node): Either[Unsupported, Node] =
+    node.shape match {
+      case Shape.Obj(properties) if properties.contains(tag) =>
         Left(Unsupported(s"case '$name' already has a property named '$tag', which the discriminator needs"))
-      case JsonSchema.Shape.Obj(properties)                             =>
-        Right(JsonSchema.Node(JsonSchema.Shape.Obj(ListMap(tag -> Field(JsonSchema.enumeration(name))) ++ properties), node.description))
-      case _                                                            =>
+
+      case Shape.Obj(properties) =>
+        Right(Node(Shape.Obj(ListMap(tag -> Shape.Obj.Field(Node.enumeration(name))) ++ properties), node.description))
+
+      case _ =>
         Left(Unsupported(s"case '$name' does not render as an object, so it cannot carry the '$tag' discriminator"))
+    }
 
   /**
    * The tag a sum type's cases are distinguished by, if it names one.
@@ -270,15 +287,16 @@ object JsonSchemaGenerator {
     record: Schema.Record[?],
     recursive: Set[TypeId],
     defs: Defs,
-  ): Either[Unsupported, (List[(String, Field)], Defs)] =
-    record.fields.foldLeft[Either[Unsupported, (List[(String, Field)], Defs)]](Right(Nil -> defs)) { (acc, field) =>
+  ): Either[Unsupported, (List[(String, Shape.Obj.Field)], Defs)] = {
+    type Acc = Either[Unsupported, (List[(String, Shape.Obj.Field)], Defs)]
+    record.fields.foldLeft[Acc](Right(Nil -> defs)): (acc, field) =>
       acc.flatMap { (fields, carried) =>
-        of(field.schema, recursive, carried).map { (node, after) =>
-          val entry = field.name -> Field(describe(node, field.annotations), required = !optional(field.schema))
+        generateNodes(field.schema, recursive, carried).map { (node, after) =>
+          val entry = field.name -> Shape.Obj.Field(describe(node, field.annotations), required = !optional(field.schema))
           (fields :+ entry) -> after
         }
       }
-    }
+  }
 
   /**
    * Assemble an object node from rendered fields, carrying the type's own description.
@@ -287,8 +305,8 @@ object JsonSchemaGenerator {
    * @param fields its rendered properties
    * @return the object node
    */
-  private def object0(record: Schema.Record[?], fields: List[(String, Field)]): JsonSchema.Node =
-    describe(JsonSchema.obj(fields*), record.annotations)
+  private def object0(record: Schema.Record[?], fields: List[(String, Shape.Obj.Field)]): Node =
+    describe(Node.obj(fields*), record.annotations)
 
   /**
    * Whether a field's schema is optional, and therefore left out of `required`.
@@ -317,14 +335,19 @@ object JsonSchemaGenerator {
    * @param annotations the annotations found beside it
    * @return the node, described where a description was given
    */
-  private def describe(node: JsonSchema.Node, annotations: Chunk[Any]): JsonSchema.Node =
-    annotations.collectFirst { case described: description => described.text }.fold(node)(node.describedAs)
+  private def describe(node: Node, annotations: Chunk[Any]): Node =
+    annotations.collectFirst {
+      case described: description => described.text
+    } match {
+      case Some(text) => node.describedAs(text)
+      case None       => node
+    }
 
   /**
    * The `$defs` name for a type id.
    *
    * Uses the simple type name: it is what a model reads, and a fully-qualified one is noise in a prompt. Two
-   * distinct types sharing a simple name would collide — see the note in [[derive]]'s tests.
+   * distinct types sharing a simple name would collide — see the note in [[generate]]'s tests.
    *
    * @param id the type's id
    * @return the name, or nothing for a structural (anonymous) type
@@ -339,22 +362,13 @@ object JsonSchemaGenerator {
    * @param standardType the primitive met
    * @return the node, or why the primitive cannot be described
    */
-  private def primitive(standardType: StandardType[?]): Either[Unsupported, JsonSchema.Node] = standardType match
-    case StandardType.StringType     => Right(JsonSchema.text)
-    case StandardType.CharType       => Right(JsonSchema.text)
-    case StandardType.BoolType       => Right(JsonSchema.boolean)
-    case StandardType.ByteType       => Right(JsonSchema.integer)
-    case StandardType.ShortType      => Right(JsonSchema.integer)
-    case StandardType.IntType        => Right(JsonSchema.integer)
-    case StandardType.LongType       => Right(JsonSchema.integer)
-    case StandardType.BigIntegerType => Right(JsonSchema.integer)
-    case StandardType.FloatType      => Right(JsonSchema.number)
-    case StandardType.DoubleType     => Right(JsonSchema.number)
-    case StandardType.BigDecimalType => Right(JsonSchema.number)
-    case StandardType.UUIDType       => Right(JsonSchema.formatted("uuid"))
-    case StandardType.InstantType    => Right(JsonSchema.formatted("date-time"))
-    case StandardType.LocalDateType  => Right(JsonSchema.formatted("date"))
-    case StandardType.LocalTimeType  => Right(JsonSchema.formatted("time"))
-    case StandardType.UnitType       => Left(Unsupported("Unit describes no value a model could send"))
-    case other                       => Left(Unsupported(s"no rendering for the primitive ${other.tag}"))
+  /**
+   * Why a primitive this subset cannot express was refused.
+   *
+   * @param standardType what zio-schema said the value was
+   * @return the rejection, in terms a developer can act on
+   */
+  private def unsupported(standardType: StandardType[?]): Unsupported = standardType match
+    case StandardType.UnitType => Unsupported("Unit describes no value a model could send")
+    case other                 => Unsupported(s"no rendering for the primitive ${other.tag}")
 }
