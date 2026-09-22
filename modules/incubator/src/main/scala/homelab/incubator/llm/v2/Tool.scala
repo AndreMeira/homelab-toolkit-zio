@@ -52,6 +52,21 @@ trait Tool[Ctx, Input, Output] {
 
 object Tool {
 
+  def fromFunction[Ctx, Input, Output](
+    toolName: String,
+    toolDescription: String,
+    allows: Ctx => Boolean = (_: Ctx) => true,
+  )(
+    f: (Ctx, Input) => IO[ApplicationError, Output]
+  ): Tool[Ctx, Input, Output] =
+    new Tool[Ctx, Input, Output] {
+      override def name: String                   = toolName
+      override def description: String            = toolDescription
+      override def permits(context: Ctx): Boolean = allows(context)
+
+      override def handle(context: Ctx, input: Input): IO[ApplicationError, Output] = f(context, input)
+    }
+
   /** A tool call as the model emitted it — `arguments` is a JSON *string*, and a model wrote it. */
   final case class Call(id: String, name: String, arguments: String)
 
