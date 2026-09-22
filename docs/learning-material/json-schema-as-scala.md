@@ -51,6 +51,7 @@ repeated on every shape or wrapped in a case that could nest inside itself.
 | `node.describedAs("the city")` | adds `"description":"the city"`, rendered **first** |
 
 An object is the one case that renders more than it stores:
+```scala
 
 ```scala
 Node.obj(
@@ -75,7 +76,7 @@ And a document adds its table at the end, only when there is one:
 
 ```scala
 JsonSchema(
-  root        = Node.obj(Shape.Obj.Field("children", Node.array(Node.ref("Tree")))),
+  root        = Node.obj("children" -> Node.array(Node.ref("Tree"))),
   definitions = ListMap("Tree" -> Node.obj(Shape.Obj.Field("value", Node.text))),
 )
 ```
@@ -132,19 +133,168 @@ Everything else in JSON Schema. Worth knowing *why* for the ones people reach fo
   `$defs` table at the root is all a tool's arguments need, and skipping the rest is what lets
   `JsonSchema.unresolved` be four lines.
 
-## Where it comes from
+## From a case class to a schema
 
-Nothing hand-writes these. `Generator.derive[A]` turns a `zio.schema.Schema[A]` into a `JsonSchema`, or
-into `Unsupported` if `A` is outside the subset — a `Map`, a tuple, `Unit`. That is the only place a type
-can be rejected, and it happens when a registry is assembled rather than when a model guesses.
+Nothing hand-writes these. `Generator.derive[A]` takes the `zio.schema.Schema[A]` the compiler derived and
+turns it into a `JsonSchema`, or into `Unsupported` if `A` is outside the subset.
 
-Two behaviours are worth knowing when reading a derived schema:
+```scala
+final case class Weather(city: String, days: Option[Int]) derives Schema
 
-- **Scaladoc becomes `description`.** zio-schema lifts doc comments into the schema, so a stray comment on
-  an argument type ships to the model as prompt text.
-- **An `Option[A]` renders as `anyOf[A, null]` *and* leaves the field out of `required`.** Both, because the
-  codec derived from the same `Schema` reads and writes null — advertising anything less would describe a
-  shape our own decoder disagrees with.
+Generator.derive[Weather]      // Either[Unsupported, JsonSchema]
+```
+
+### Two passes, and why there are two
+
+```scala
+def derive[A](using schema: Schema[A]): Either[Unsupported, JsonSchema] =
+  val recursive = recursiveTypes(schema, Set.empty, Set.empty)
+  generateNodes(schema, recursive, Defs.empty).map((node, defs) => JsonSchema(node, defs.definitions))
+```
+
+**The first pass finds recursion; the second renders.** `recursiveTypes` walks the schema carrying the set
+of type ids on the *current path*; a type that re-enters its own path is recursive. Only those become
+`$defs` entries reached by `$ref` — everything else is inlined, so an ordinary record pays nothing for
+machinery it does not need.
+
+The pass is not an optimisation. zio-schema ties recursive knots with `Schema.Lazy`, and forcing one hands
+back the very same instance, so a single-pass walk would not terminate. Knowing the recursive ids up front
+is what lets the second pass stop and emit a `$ref` instead of descending forever.
+
+### What the second pass does with each shape
+
+`generateNodes` is one match over zio-schema's ADT. Threaded through it is `Defs` — the definitions
+gathered so far, plus which type ids are *currently being rendered*, so a type that refers to itself finds
+its own name already in flight and emits a reference rather than recursing.
+
+| zio-schema | becomes |
+|---|---|
+| `Schema.Primitive(t)` | `Node.primitive(t)`, or `Unsupported` for one this subset has no shape for |
+| `Schema.Optional(inner)` | `Node.nullable(inner)` — `anyOf[inner, null]` |
+| `Schema.Sequence` / `Schema.Set` | `Node.array(element)` |
+| `Schema.Either(l, r)` | `Node.anyOf(l, r)` |
+| `Schema.Transform(inner)` | whatever `inner` becomes — the transform is invisible on the wire |
+| `Schema.Record` | an object, inline or hoisted into `$defs` |
+| `Schema.Enum` | a string enum, or a union of discriminated objects |
+| `Schema.Map` | **refused** — a map has open keys; this subset closes every object |
+| `Schema.Tuple2` | **refused** — a tuple needs positional array items |
+| `Schema.Fail` | **refused** — an unsatisfiable schema describes nothing |
+
+### A record
+
+```scala
+final case class Weather(city: String, days: Option[Int]) derives Schema
+```
+
+```jsonc
+{
+  "type": "object",
+  "properties": {
+    "city": { "type": "string" },
+    "days": { "anyOf": [{ "type": "integer" }, { "type": "null" }] }
+  },
+  "required": ["city"],
+  "additionalProperties": false
+}
+```
+
+`days` is said to be optional **twice**: a null branch in its own schema, and absence from `required`. Both,
+because the codec derived from the same `Schema` reads and writes null — advertising only the missing
+`required` entry would describe a shape our own decoder disagrees with.
+
+### A sum type with no payloads
+
+```scala
+enum Unit0 derives Schema:
+  case Celsius, Fahrenheit
+```
+
+```jsonc
+{ "type": "string", "enum": ["Celsius", "Fahrenheit"] }
+```
+
+That is the shape a codec writes for a payloadless case: a bare string. `@caseName` renames a case, and the
+label the schema advertises is the label the decoder reads.
+
+### A sum type carrying data
+
+```scala
+@discriminatorName("kind")
+enum Ending derives Schema:
+  case Done(summary: String)
+  case GiveUp(reason: String)
+```
+
+```jsonc
+{
+  "anyOf": [
+    { "type": "object",
+      "properties": { "kind": { "type": "string", "enum": ["Done"] }, "summary": { "type": "string" } },
+      "required": ["kind", "summary"], "additionalProperties": false },
+    { "type": "object",
+      "properties": { "kind": { "type": "string", "enum": ["GiveUp"] }, "reason": { "type": "string" } },
+      "required": ["kind", "reason"], "additionalProperties": false }
+  ]
+}
+```
+
+Each branch gains the discriminator as a one-value enum — this subset's way of writing `const`.
+
+**Without `@discriminatorName` the derivation refuses**, and the message says why: *"a sum type carrying
+data needs `@discriminatorName`, so the tag the model writes is the tag the decoder reads."* Bare branches
+would be ambiguous to a model whenever two cases share a shape, and — worse — would be a shape no codec
+reads, since the decoder needs the tag to know which case it is holding. A schema nothing can decode is not
+a useful thing to emit.
+
+The other refusal here is a case that would carry the tag twice: if a case already has a property named
+`kind`, it is rejected rather than silently overwritten.
+
+### A recursive type
+
+```scala
+final case class Tree(value: String, children: List[Tree]) derives Schema
+```
+
+```jsonc
+{
+  "$ref": "#/$defs/Tree",
+  "$defs": {
+    "Tree": {
+      "type": "object",
+      "properties": {
+        "value": { "type": "string" },
+        "children": { "type": "array", "items": { "$ref": "#/$defs/Tree" } }
+      },
+      "required": ["value", "children"],
+      "additionalProperties": false
+    }
+  }
+}
+```
+
+`Tree` re-enters its own path, so the first pass marks it; the second hoists it into `$defs` and refers to
+it — at the root and at every recurrence. A record that is *not* recursive is never hoisted, so a schema
+only grows `$defs` when something actually needed it.
+
+### Descriptions come from scaladoc
+
+zio-schema lifts doc comments into the schema as `@description` annotations, and `Generator.describe`
+renders them onto the node:
+
+```scala
+final case class Weather(
+  /** The city to report on. */
+  city: String
+) derives Schema
+```
+
+```jsonc
+{ "properties": { "city": { "description": "The city to report on.", "type": "string" } }, … }
+```
+
+This is the sharpest edge in the whole derivation. **A description is prompt text**, so a comment written
+for a developer ships to the model, `/**` markers and all. It is worth reading a derived schema once before
+trusting what a type says to a model.
 
 ## Reading it back
 
