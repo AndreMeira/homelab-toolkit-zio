@@ -23,8 +23,8 @@ import zio.{ Chunk, IO, NonEmptyChunk, ZIO }
  */
 trait Basic[Ctx] extends Workflow[Any, ApplicationError, String, Chunk[Message], Chunk[Message.Content]] {
 
-  private type Current = Step.Current[String, Chunk[Message]]
-  private type Next    = Step.Next[Chunk[Message], Chunk[Message.Content]]
+  private type State = Step.Current[String, Chunk[Message]]
+  private type Next  = Step.Next[Chunk[Message], Chunk[Message.Content]]
 
   /** What the model is told before the question, and reads on every call. */
   def systemPrompt: String
@@ -46,7 +46,7 @@ trait Basic[Ctx] extends Workflow[Any, ApplicationError, String, Chunk[Message],
    *
    * @return the transition; aborts when the model, a tool, or the registry does
    */
-  final def next: Current => IO[ApplicationError, Next] =
+  final def next: State => IO[ApplicationError, Next] =
     case Step.Init(question)     => ZIO.succeed(Step.Continue(opening(question)))
     case Step.Continue(messages) => advance(messages)
 
