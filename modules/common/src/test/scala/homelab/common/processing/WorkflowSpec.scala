@@ -25,32 +25,20 @@ object WorkflowSpec extends ZIOSpecDefault:
       case Step.Continue(n) => if n >= target then Step.Done.succeed(n) else Step.Continue.succeed(n + 1)
     }
 
+  // An interceptor is handed the whole `Step`, so a pass-through has to say what it does with an `Init`.
+  private def asNext(step: Step[String, Int, Int]): Step.Next[Int, Int] = step match
+    case Step.Continue(n) => Step.Continue(n)
+    case Step.Done(n)     => Step.Done(n)
+    case Step.Init(_)     => Step.Continue(0)
+
   // A printable tag per step kind, so a tap's trace pins both the order and the kind of what it observed.
-  private def label(step: Step[String, Int, Int]): String = step match
-    case Step.Init(input)     => s"init $input"
+  private def label(step: Step.Next[Int, Int]): String = step match
     case Step.Continue(state) => s"continue $state"
     case Step.Done(output)    => s"done $output"
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("Workflow")(
     test("in-memory run steps Init → Continue* → Done and returns the output") {
       counter(3).run("run").map(out => assertTrue(out == 3))
-    },
-    test("a step may restart the workflow with Init, re-seeding its state") {
-      for
-        restarted <- Ref.make(false)
-        wf         = Workflow.make[Any, Nothing, String, Int, Int]("restart") {
-                       case Step.Init(_)     => Step.Continue.succeed(0)
-                       case Step.Continue(n) =>
-                         if n == 2 then
-                           restarted.getAndSet(true).map {
-                             case false => Step.Init("again") // restart once at n == 2, re-seeding to 0
-                             case true  => Step.Continue(n + 1)
-                           }
-                         else if n < 5 then Step.Continue.succeed(n + 1)
-                         else Step.Done.succeed(n)
-                     }
-        out       <- wf.run("start")
-      yield assertTrue(out == 5) // 0→1→2 (restart), 0→1→2→3→4→5, done at 5
     },
     suite("persisted")(
       test("runs to completion, returns the output, and deletes the checkpoint") {
@@ -103,27 +91,7 @@ object WorkflowSpec extends ZIOSpecDefault:
           leftB <- store.get("b")
         yield assertTrue(a == 3, b == 3, again == 3, leftA.isEmpty, leftB.isEmpty)
       },
-      test("a restart keeps checkpointing under the original input") {
-        for
-          store     <- KeyValueStore.inmemory[String, Int]
-          restarted <- Ref.make(false)
-          wf         = Workflow.make[Any, Nothing, String, Int, Int]("restart") {
-                         case Step.Init(_)     => Step.Continue.succeed(0)
-                         case Step.Continue(n) =>
-                           if n == 2 then
-                             restarted.getAndSet(true).map {
-                               case false => Step.Init("again") // re-seeds the state, NOT the slot
-                               case true  => Step.Continue(n + 1)
-                             }
-                           else if n < 5 then Step.Continue.succeed(n + 1)
-                           else Step.Done.succeed(n)
-                       }
-          out       <- wf.persisted(store).run("start")
-          atStart   <- store.get("start")
-          atAgain   <- store.get("again")
-        yield assertTrue(out == 5, atStart.isEmpty, atAgain.isEmpty) // "again" was never a slot at all
-      },
-      test("a shared store namespaces by workflow name, so two workflows never collide on one input") {
+        test("a shared store namespaces by workflow name, so two workflows never collide on one input") {
         // What Runner.Default's composite (name, input) key used to do, now composed at the call site.
         def crashing(name: String): Workflow[Any, RuntimeException, String, Int, Int] =
           Workflow
@@ -133,7 +101,7 @@ object WorkflowSpec extends ZIOSpecDefault:
             }
             .intercept {
               case Step.Continue(n) if n >= 2 => ZIO.fail(boom)
-              case step                       => ZIO.succeed(step)
+              case step                       => ZIO.succeed(asNext(step))
             }
 
         for
@@ -189,8 +157,8 @@ object WorkflowSpec extends ZIOSpecDefault:
         counter(3)
           .intercept[Any, Nothing, String] {
             case Step.Done(n)         => Step.Done.succeed(s"done at $n")
-            case Step.Init(input)     => Step.Init.succeed(input)
             case Step.Continue(state) => Step.Continue.succeed(state)
+            case Step.Init(_)         => Step.Continue.succeed(0)
           }
           .run("run")
           .map(out => assertTrue(out == "done at 3")) // O (Int) is consumed by fn, never propagated
@@ -199,7 +167,7 @@ object WorkflowSpec extends ZIOSpecDefault:
         counter(10)
           .intercept {
             case Step.Continue(n) if n >= 2 => Step.Done.succeed(n) // cut the loop short at 2…
-            case step                       => ZIO.succeed(step)
+            case step                       => ZIO.succeed(asNext(step))
           }
           .run("run")
           .map(out => assertTrue(out == 2)) // …so the workflow's own target of 10 is never reached
@@ -213,7 +181,7 @@ object WorkflowSpec extends ZIOSpecDefault:
                            case false => Step.Continue(n + 1) // send the finished run back into the loop, once
                            case true  => Step.Done(n)
                          }
-                       case step         => ZIO.succeed(step)
+                       case step         => ZIO.succeed(asNext(step))
                      }
           out     <- wf.run("run")
         yield assertTrue(out == 3) // done at 2, resumed from 3, done again at 3
@@ -223,7 +191,7 @@ object WorkflowSpec extends ZIOSpecDefault:
           store   <- KeyValueStore.inmemory[String, Int]
           wrapped  = counter(5).intercept {
                        case Step.Continue(n) if n >= 2 => ZIO.fail(boom) // crash after two checkpoints
-                       case step                       => ZIO.succeed(step)
+                       case step                       => ZIO.succeed(asNext(step))
                      }
           crashed <- wrapped.persisted(store).run("run").exit
           slot    <- store.get("run")
