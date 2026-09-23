@@ -246,14 +246,14 @@ object Workflow:
     case class Done[+O](output: O) extends Step[Nothing, Nothing, O]
 
     /**
-     * Smart constructor for [[Continue]] widened to [[Current]], so a call site produces a cursor without
+     * Smart constructor for [[Continue]], so a call site produces a cursor without
      * naming `I`.
      *
      * @param state the state to continue with
      * @tparam S the state type
      * @return the continue cursor
      */
-    def continue[S](state: S): Current[Nothing, S] = Continue(state)
+    def continue[S](state: S): Continue[S] = Continue(state)
 
     /**
      * Smart constructor for [[Init]] widened to [[Current]], so a call site produces a cursor without naming
