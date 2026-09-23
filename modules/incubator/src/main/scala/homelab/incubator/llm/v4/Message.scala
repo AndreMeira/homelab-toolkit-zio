@@ -70,3 +70,27 @@ object Message:
      * @param json the part, as it goes on the wire
      */
     case Raw(json: Json)
+
+  /**
+   * What the model said, as the conversation carries it.
+   *
+   * A turn goes back as it came — words and calls both — so what the model reads next is what it wrote.
+   * Why it stopped and what it cost are facts about the call rather than about the turn, and stay behind.
+   *
+   * @param completion what the model returned
+   * @return the assistant message to append
+   */
+  def from(completion: Model.Completion): Assistant =
+    Assistant(completion.content, completion.calls)
+
+  /**
+   * What a tool answered, as the conversation carries it.
+   *
+   * The text is whatever the result renders to, a failure included — everything a model can react to
+   * reaches it as words.
+   *
+   * @param outcome what dispatch produced
+   * @return the tool message to append
+   */
+  def from(outcome: Outcome): ToolResult =
+    ToolResult(outcome.callId, Chunk(Content.Text(outcome.result.render)))

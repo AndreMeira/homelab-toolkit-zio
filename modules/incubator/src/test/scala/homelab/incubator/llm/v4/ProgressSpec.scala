@@ -7,7 +7,7 @@ import zio.test.*
 
 
 /** What a conversation is waiting for is read from its messages, and from nothing else. */
-object TranscriptSpec extends ZIOSpecDefault:
+object ProgressSpec extends ZIOSpecDefault:
 
   private def text(value: String): Chunk[Content] = Chunk(Content.Text(value))
 
@@ -22,7 +22,7 @@ object TranscriptSpec extends ZIOSpecDefault:
   private def answering(callId: String): Message.ToolResult =
     Message.ToolResult(id(callId), text("done"))
 
-  def spec: Spec[TestEnvironment & Scope, Any] = suite("Transcript")(
+  def spec: Spec[TestEnvironment & Scope, Any] = suite("Progress")(
     test("nothing said is nothing to send") {
       assertTrue(Progress.from(Chunk.empty) == Progress.Empty)
     },
