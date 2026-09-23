@@ -69,3 +69,4 @@ final case class JsonSchema(root: Node, definitions: ListMap[String, Node] = Lis
     case _                       => Set.empty
 }
 
+

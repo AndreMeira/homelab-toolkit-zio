@@ -45,10 +45,10 @@ final case class Node(shape: Shape, description: Option[String] = None) {
 object Node:
 
   /** Any string. */
-  val text: Node    = Node(Shape.Text())
+  val text: Node = Node(Shape.Text())
 
   /** Any JSON number. */
-  val number: Node  = Node(Shape.Number)
+  val number: Node = Node(Shape.Number)
 
   /** A whole number. */
   val integer: Node = Node(Shape.Integer)
@@ -110,6 +110,19 @@ object Node:
    * @return the schema
    */
   def obj(fields: Shape.Obj.Field*): Node = Node(Shape.Obj(fields.toList))
+
+  /**
+   * An object whose properties are all required — the common case, written as pairs.
+   *
+   * The `using DummyImplicit` is what lets this share a name with the [[Shape.Obj.Field]] overload: both
+   * erase to one vararg parameter, and the extra empty parameter list is what tells them apart. Reach for
+   * the other one when a property is optional or carries its own description.
+   *
+   * @param fields the properties, in the order the model should read them
+   * @return the schema
+   */
+  def obj(fields: (String, Node)*)(using DummyImplicit): Node =
+    Node(Shape.Obj(fields.toList.map(Shape.Obj.Field(_, _))))
 
   /**
    * An array of `items`.

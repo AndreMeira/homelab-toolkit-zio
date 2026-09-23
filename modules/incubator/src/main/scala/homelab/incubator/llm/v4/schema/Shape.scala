@@ -70,7 +70,7 @@ enum Shape {
 
 
 object Shape:
-  
+
   /**
    * 
    */
