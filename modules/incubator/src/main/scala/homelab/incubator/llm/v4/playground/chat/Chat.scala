@@ -9,35 +9,35 @@ import zio.{ Chunk, IO, NonEmptyChunk, ZIO }
 
 
 /**
- * An agent whose conversation lives in a repository rather than in its own state.
+ * An agent whose conversation outlives the run that adds to it.
  *
- * The workflow's state is which conversation, not the conversation: every step reads it back and writes
- * what it did. Two things follow that a self-contained agent does not offer. A run can be given a
- * conversation that already has messages in it, so asking a second question continues the first. And
- * anything else holding the repository sees a turn the moment it lands, rather than when the run ends.
+ * The conversation is read once, when a question is put to it, and written a turn at a time as it grows.
+ * Two things follow that a self-contained agent does not offer: a run can be given a conversation that
+ * already has messages, so asking a second question continues the first, and anything else holding the
+ * repository sees a turn the moment it lands rather than when the run ends.
  *
- * What it costs is a read per step and a conversation that two concurrent runs can interleave — `serialised`
- * on the same id is the answer to the second, and this does not apply it, because which runs may overlap is
- * the caller's to say.
+ * A run reads once and then works from what it has, so turns another writer adds while it is running are
+ * not in what it sends. Two runs on one conversation therefore interleave — `serialised` on the id is the
+ * answer, and this does not apply it, because which runs may overlap is the caller's to say.
  *
  * Unimplemented where it touches storage: [[MessageRepository]] is a port and nothing here satisfies it.
  *
  * @param repository where the messages are kept
  * @param model what is asked for the next move
- * @param tools what the model may call
+ * @param tools what the model may call, bound to the conversation it is called in
  * @param systemPrompt what the model is told before the conversation, on every call
  * @param budget the most turns the model may take in one run
  */
 final class Chat(
   repository: MessageRepository,
   model: Model.Fixed[ApplicationError.AdapterError],
-  tools: Registry[Unit],
+  tools: Registry[Conversation],
   systemPrompt: String,
   budget: Int = 16,
-) extends Workflow[Any, ApplicationError, Chat.Ask, Conversation, Chunk[Message.Content]] {
+) extends Workflow[Any, ApplicationError, Chat.Ask, Chat.Ongoing, Chunk[Message.Content]] {
 
-  private type State = Step.Current[Chat.Ask, Conversation]
-  private type Next  = Step.Next[Conversation, Chunk[Message.Content]]
+  private type State = Step.Current[Chat.Ask, Chat.Ongoing]
+  private type Next  = Step.Next[Chat.Ongoing, Chunk[Message.Content]]
 
   override val name: String = "chat"
 
@@ -47,8 +47,8 @@ final class Chat(
    * @return the transition; aborts when the repository, the model or a tool does
    */
   def next: State => IO[ApplicationError, Next] =
-    case Step.Init(ask)              => open(ask)
-    case Step.Continue(conversation) => advance(conversation)
+    case Step.Init(ask)          => open(ask)
+    case Step.Continue(ongoing)  => advance(ongoing)
 
   /**
    * Add a question to a conversation, new or already running.
@@ -57,64 +57,57 @@ final class Chat(
    * @return the conversation to advance; aborts when the repository does
    */
   private def open(ask: Chat.Ask): IO[ApplicationError, Next] =
-    repository
-      .add(ask.conversation, Chunk(Message.User(text(ask.question))))
-      .as(Step.Continue(ask.conversation))
+    val question = Chunk(Message.User(text(ask.question)))
+    for
+      existing <- repository.get(ask.conversation)
+      _        <- repository.add(ask.conversation, question)
+    yield Step.Continue(Chat.Ongoing(ask.conversation, existing ++ question))
 
   /**
-   * Do whatever the conversation is waiting for, reading it back to find out.
+   * Do whatever the conversation is waiting for.
    *
-   * @param conversation which conversation to move on
+   * @param ongoing the conversation and what it holds
    * @return the next step; aborts when the repository, the model or a tool does
    */
-  private def advance(conversation: Conversation): IO[ApplicationError, Next] =
-    repository.get(conversation).flatMap(messages => act(conversation, messages))
-
-  /**
-   * Act on what a conversation's messages say is outstanding.
-   *
-   * @param conversation which conversation is being moved on
-   * @param messages what it holds right now
-   * @return the next step; aborts when the model or a tool does
-   */
-  private def act(conversation: Conversation, messages: Chunk[Message]): IO[ApplicationError, Next] =
-    Progress.from(messages) match
+  private def advance(ongoing: Chat.Ongoing): IO[ApplicationError, Next] =
+    Progress.from(ongoing.messages) match
       case Progress.Finished(answer)       => ZIO.succeed(Step.Done(answer))
-      case Progress.AwaitingTools(pending) => answer(conversation, pending)
-      case Progress.Empty                  => ask(conversation, messages)
-      case Progress.AwaitingModel          => ask(conversation, messages)
+      case Progress.AwaitingTools(pending) => answer(ongoing, pending)
+      case Progress.Empty                  => ask(ongoing)
+      case Progress.AwaitingModel          => ask(ongoing)
 
   /**
    * Ask the model what to do next, and record its turn.
    *
-   * @param conversation which conversation is being moved on
-   * @param messages what it holds right now
+   * @param ongoing the conversation and what it holds
    * @return the same conversation, one turn further on; aborts with [[Chat.Exhausted]] when the model has
    *         had its budget of turns, and with the model's own error when it refuses
    */
-  private def ask(conversation: Conversation, messages: Chunk[Message]): IO[ApplicationError, Next] =
-    if turns(messages) >= budget then ZIO.fail(Chat.Exhausted(conversation, budget))
+  private def ask(ongoing: Chat.Ongoing): IO[ApplicationError, Next] =
+    if turns(ongoing.messages) >= budget then ZIO.fail(Chat.Exhausted(ongoing.conversation, budget))
     else
       for
-        session    <- tools.forSession(())
-        completion <- model.complete(Model.Request(instructed(messages), session.advertised))
-        _          <- repository.add(conversation, Chunk(Message.from(completion)))
-      yield Step.Continue(conversation)
+        session    <- tools.forSession(ongoing.conversation)
+        completion <- model.complete(Model.Request(instructed(ongoing.messages), session.advertised))
+        spoken      = Chunk(Message.from(completion))
+        _          <- repository.add(ongoing.conversation, spoken)
+      yield Step.Continue(ongoing.and(spoken))
 
   /**
    * Run the calls the model is waiting on, and record their answers.
    *
-   * @param conversation which conversation is being moved on
+   * @param ongoing the conversation and what it holds
    * @param pending the calls with no result yet
    * @return the same conversation, with every call answered; aborts when a tool cannot say whether it
    *         permits this caller
    */
-  private def answer(conversation: Conversation, pending: NonEmptyChunk[Tool.Call]): IO[ApplicationError, Next] =
+  private def answer(ongoing: Chat.Ongoing, pending: NonEmptyChunk[Tool.Call]): IO[ApplicationError, Next] =
     for
-      session  <- tools.forSession(())
+      session  <- tools.forSession(ongoing.conversation)
       outcomes <- session.dispatchAll(pending.toList)
-      _        <- repository.add(conversation, Chunk.fromIterable(outcomes).map(answered))
-    yield Step.Continue(conversation)
+      answers   = Chunk.fromIterable(outcomes).map(answered)
+      _        <- repository.add(ongoing.conversation, answers)
+    yield Step.Continue(ongoing.and(answers))
 
   /**
    * A conversation as the model is asked to read it: the standing instructions, then what happened.
@@ -165,6 +158,25 @@ final class Chat(
 
 
 object Chat:
+
+  /**
+   * A conversation part-way through a run: which one, and everything said in it so far.
+   *
+   * The messages are carried rather than re-read because a run adds to them and nothing else does while it
+   * holds them. What is added is written to the repository as it happens, so the two say the same thing.
+   *
+   * @param conversation which conversation
+   * @param messages everything it holds, oldest first
+   */
+  final case class Ongoing(conversation: Conversation, messages: Chunk[Message]):
+
+    /**
+     * The same conversation with a turn added.
+     *
+     * @param added what just happened, in the order it happened
+     * @return the conversation including it
+     */
+    def and(added: Chunk[Message]): Ongoing = copy(messages = messages ++ added)
 
   /**
    * A question put to a conversation.
