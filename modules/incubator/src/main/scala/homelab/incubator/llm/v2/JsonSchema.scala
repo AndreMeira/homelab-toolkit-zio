@@ -108,9 +108,10 @@ object JsonSchema {
     def json: Json = Json.Obj(
       // Description first: it is what a reader — human or model — should meet before the mechanics of the
       // shape. Member order carries no meaning to a validator, so it is free to spend on legibility.
-      description.fold(shape.json.fields.toList) { text =>
-        ("description" -> Json.Str(text)) +: shape.json.fields.toList
-      }*
+      (description match {
+        case None       => shape.json.fields.toList
+        case Some(text) => ("description" -> Json.Str(text)) :: shape.json.fields.toList
+      })*
     )
   }
 
