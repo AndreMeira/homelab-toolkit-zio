@@ -1,12 +1,11 @@
-package homelab.incubator.llm.v4.playground
-
+package homelab.incubator.llm.v4.playground.robot
 
 import homelab.common.error.ApplicationError
 import homelab.incubator.llm.v4.Tool.Result
 import homelab.incubator.llm.v4.{ Registry, Tool }
 import zio.*
-import zio.schema.{ Schema, derived }
 import zio.schema.annotation.discriminatorName
+import zio.schema.{ Schema, derived }
 
 
 /**

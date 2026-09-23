@@ -1,10 +1,9 @@
-package homelab.incubator.llm.v4.playground
-
+package homelab.incubator.llm.v4.playground.robot
 
 import homelab.common.error.ApplicationError
 import homelab.common.processing.Workflow
 import homelab.common.processing.Workflow.Step
-import homelab.incubator.llm.v4.{ Message, Model, Outcome, Registry, Session, Tool }
+import homelab.incubator.llm.v4.*
 import zio.*
 
 

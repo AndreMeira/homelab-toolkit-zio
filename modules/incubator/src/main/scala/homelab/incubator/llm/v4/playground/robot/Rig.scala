@@ -1,5 +1,4 @@
-package homelab.incubator.llm.v4.playground
-
+package homelab.incubator.llm.v4.playground.robot
 
 import homelab.common.error.ApplicationError
 import zio.*
