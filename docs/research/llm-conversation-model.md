@@ -2,7 +2,7 @@
 title: "The conversation model — a store port, not a type that does everything"
 type: research
 status: draft
-updated: 2026-09-21
+updated: 2026-09-23
 tags: [llm, agent, conversation, transcript, ports, persistence, exploration, not-a-decision]
 ---
 
@@ -14,6 +14,11 @@ tags: [llm, agent, conversation, transcript, ports, persistence, exploration, no
 > the voice of working an idea out, not a commitment anything is expected to honour. Nothing in this note has
 > been implemented, reviewed against a running system, or promoted to [`../architecture/`](../architecture/).
 > Treat every shape in it as a candidate.
+
+> **Superseded in part (2026-09-23).** The `Standing` design below — `Promised`/`Delivered` handles on a
+> tool result, and `outstanding` folded over a conversation — was built in v4 and then removed. The reasons
+> and what replaces it are in [`tool-result-standing-removed.md`](./tool-result-standing-removed.md). The
+> rest of this note stands as written.
 
 Continues [`llm-design-exploration.md`](./llm-design-exploration.md), which left the transcript as a
 hand-wave — `state.asRequest`, `Conversation.from(request)` — while settling everything around it. That gap
