@@ -25,10 +25,30 @@ trait Model[+E <: ApplicationError.AdapterError] {
   /**
    * Send a conversation and read what the model does next.
    *
-   * @param request the conversation, the tools on offer, and the model to ask
+   * The model to ask is a parameter rather than part of the request, because it is a choice about where a
+   * conversation goes rather than part of the conversation: the same request can be put to two of them.
+   *
+   * @param model which model to ask for
+   * @param request the conversation and the tools on offer
    * @return what the model said, asked for, and cost; aborts with what the adapter refuses on
    */
-  def complete(request: Model.Request): IO[E, Model.Completion]
+  def complete(model: Model.Name, request: Model.Request): IO[E, Model.Completion]
+
+  /**
+   * This model with one name bound to it, for a caller that always asks the same one.
+   *
+   * Which model answers is a choice about where a conversation goes, and a caller that has made it once has
+   * nothing to say about it again — so what it holds afterwards is a [[Model.Fixed]], which takes the
+   * request alone.
+   *
+   * @param model which model every call through the result goes to
+   * @return the same model, asked only for `model`
+   */
+  def fixed(model: Model.Name): Model.Fixed[E] =
+    new Model.Fixed[E] {
+      override def complete(request: Model.Request): IO[E, Model.Completion] =
+        self.complete(model, request)
+    }
 
   /**
    * This model, falling back to another when it refuses.
@@ -43,8 +63,8 @@ trait Model[+E <: ApplicationError.AdapterError] {
    */
   def orElse[E2 <: ApplicationError.AdapterError](other: Model[E2]): Model[E | E2] =
     new Model[E | E2] {
-      override def complete(request: Model.Request): IO[E | E2, Model.Completion] =
-        self.complete(request).tapError(self.reportFallback).orElse(other.complete(request))
+      override def complete(model: Model.Name, request: Model.Request): IO[E | E2, Model.Completion] =
+        self.complete(model, request).tapError(self.reportFallback).orElse(other.complete(model, request))
     }
 
   /**
@@ -59,6 +79,44 @@ trait Model[+E <: ApplicationError.AdapterError] {
 
 
 object Model {
+
+  /**
+   * Which model to ask for, as the provider names it.
+   *
+   * A subtype of `String`, so it reaches the wire as the text the provider expects. It is named because a
+   * request carries several strings and this one selects what answers it — nothing else may stand where it
+   * does.
+   */
+  opaque type Name <: String = String
+
+  object Name:
+
+    /**
+     * A model's name, as the provider spells it.
+     *
+     * @param value the text
+     * @return the name
+     */
+    def apply(value: String): Name = value
+
+  /**
+   * A model whose name is already chosen: messages in, its next move out.
+   *
+   * What a caller holds once it has decided which model answers. Deliberately not a [[Model]]: a `Model` is
+   * what a [[Name]] is put to, and this is what putting one to it leaves, so the two are not
+   * interchangeable and a caller cannot re-aim one by accident.
+   *
+   * @tparam E what this model's adapter fails with
+   */
+  trait Fixed[+E <: ApplicationError.AdapterError]:
+
+    /**
+     * Send a conversation and read what the model does next.
+     *
+     * @param request the conversation and the tools on offer
+     * @return what the model said, asked for, and cost; aborts with what the adapter refuses on
+     */
+    def complete(request: Request): IO[E, Model.Completion]
 
   /**
    * Why the model stopped.
@@ -109,13 +167,11 @@ object Model {
    * same idea for the request body — temperature, routing preferences, a provider's own options — so a
    * caller is not held to what is modelled here.
    *
-   * @param model which model to ask, as the gateway names it
    * @param messages the conversation so far, oldest first
    * @param tools the tool objects to advertise, or empty to offer none
    * @param extra fields merged into the request body by the adapter
    */
   final case class Request(
-    model: String,
     messages: Chunk[Message],
     tools: List[Json] = Nil,
     extra: Json.Obj = Json.Obj(),
