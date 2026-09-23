@@ -117,4 +117,22 @@ object Consumer {
     def consume[E2 >: Nothing](logic: A => IO[E2, Unit]): IO[E2, Unit] =
       queue.takeWith((_, request) => logic(request))
   }
+
+  /**
+   * A [[Consumer]] over a [[KeyedQueue]] that keeps the key, for `logic` that needs to know which partition
+   * a value came from — to load that key's state, or to confine what it does to that key.
+   *
+   * The key is held for the length of `logic`, as in [[fromKeyedQueue]], so a value and the key it arrived
+   * under are the same claim. Never fails.
+   *
+   * @param queue the keyed queue to pull values from
+   * @tparam K the queue's partition key, delivered alongside the value
+   * @tparam A the value consumed
+   * @return a consumer delivering `queue`'s values paired with their keys, one pair per `consume` call
+   */
+  def fromKeyedQueueWithKeys[K, A](queue: KeyedQueue[K, A]): Consumer[Nothing, (K, A)] =
+    new Consumer[Nothing, (K, A)] {
+      def consume[E2 >: Nothing](logic: ((K, A)) => IO[E2, Unit]): IO[E2, Unit] =
+        queue.takeWith((key, value) => logic((key, value)))
+    }
 }
