@@ -30,7 +30,7 @@ back later as an ordinary message, put there by whoever a nudge wakes.
 | `Investigator` | what actually does the work, and what signals when it is done |
 | `Delivery` | what a nudge wakes: reads the row, puts the findings back to the agent |
 | `Incoming` | what arrives for a conversation — a question, or word that work has finished |
-| `Inbox` | the single way in — a `KeyedQueue[Conversation, Incoming]`, taken one arrival at a time |
+| `Attendant` | the single way in — a `Processor` over a `KeyedQueue[Conversation, Incoming]` |
 
 They sit on top of `playground/chat`, unchanged apart from one thing: `Chat` takes a
 `Registry[Conversation]` rather than a `Registry[Unit]`, so a tool can be told which conversation it is
@@ -48,12 +48,12 @@ sequenceDiagram
     participant Store as InvestigationStore
     participant Worker as Investigator
     participant Queue as DKQ
-    participant Inbox
+    participant Attendant
     participant Delivery
 
     Caller->>Queue: enqueue(key = c, Asked(question))
-    Queue->>Inbox: receive(c, Asked(question))
-    Inbox->>Chat: run(Ask(c, question))
+    Queue->>Attendant: process(c, Asked(question))
+    Attendant->>Chat: run(Ask(c, question))
     Chat->>Repo: get(c), add(c, User(question))
     Chat->>Model: complete(messages)
     Model-->>Chat: tool call c1 → investigate
@@ -71,8 +71,8 @@ sequenceDiagram
 
     Worker->>Store: finish(id, answer)
     Worker->>Queue: enqueue(key = c, Delivered(id))
-    Queue->>Inbox: receive(c, Delivered(id))
-    Inbox->>Delivery: deliver(c, id)
+    Queue->>Attendant: process(c, Delivered(id))
+    Attendant->>Delivery: deliver(c, id)
     Delivery->>Store: get(id)
     Delivery->>Chat: run(Ask(c, "Findings for investigation id ..."))
     Chat->>Repo: get(c), add(c, User(findings))
@@ -118,18 +118,25 @@ enum Incoming:
   case Delivered(investigation: Investigation.Id)
 ```
 
-`Inbox` is then the only way in, and the only place that chooses between running the agent and delivering
+`Attendant` is then the only way in, and the only place that chooses between running the agent and delivering
 findings. The conversation is not in the payload — it is the key the arrival is queued under:
 
 ```scala
 def ask(conversation: Conversation, question: String): UIO[Unit]
 def delivered(conversation: Conversation, investigation: Investigation.Id): UIO[Unit]
-def attending: IO[ApplicationError, Nothing]      // takeWith, forever
+def process(arrival: (Conversation, Incoming)): IO[ApplicationError, Unit]
 ```
 
-It is built on the toolkit's `KeyedQueue`, whose `takeWith` claims one value, runs the logic while
-holding its key, and frees the key when that settles — per-key FIFO, one holder at a time. That is the
-shape the arrangement needs, and it is why nothing here takes a lock.
+It is a `Processor`, so the loop that drives it is the toolkit's and it plugs into a graph like anything
+else. Its intake is `Consumer.fromKeyedQueueWithKeys(queue)` — the key matters here, since the key *is*
+the conversation.
+
+Underneath, `KeyedQueue.takeWith` claims one value, runs the logic while holding its key, and frees the key
+when that settles — per-key FIFO, one holder at a time. That is the shape the arrangement needs, and it is
+why nothing here takes a lock.
+
+`process` answers nothing. The agent's words went into the conversation as it worked, and whoever wants
+them reads them there; nobody is waiting on the processor.
 
 `KeyedQueue` holds its work in memory, so a process that dies loses what it had claimed. A distributed
 keyed queue is the same shape with a lease on top, which is what makes a lost claim come back, and is what
@@ -140,8 +147,8 @@ a deployment would use.
 Three things happen outside this code, in this order:
 
 1. `Investigator` finishes and calls `store.finish(id, answer)` — **the answer is recorded first**;
-2. it calls `Inbox.delivered(conversation, id)`, queueing under **key = the conversation**;
-3. whatever is `attending` claims it and dispatches.
+2. it calls `Attendant.delivered(conversation, id)`, queueing under **key = the conversation**;
+3. the processor claims it and dispatches.
 
 The ordering in (1) is why `Delivery.Unfinished` is a `TransientError` rather than a defect: a nudge that
 arrives ahead of the write is ahead of a write already on its way, so the same nudge delivered again lands
@@ -192,6 +199,6 @@ the key, `handle` has to be given it, and that is a change to the port rather th
 
 ## What is not here
 
-The `Investigator` that does the work and signals when it is done, and — behind `Inbox` — the durable
+The `Investigator` that does the work and signals when it is done, and — behind `Attendant` — the durable
 queue a deployment would put there instead of an in-memory one. Both are the other side of a port; the
 example stops where the toolkit stops.

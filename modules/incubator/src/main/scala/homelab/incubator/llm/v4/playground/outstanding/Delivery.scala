@@ -16,7 +16,7 @@ import zio.{ Chunk, IO, ZIO }
  *
  * A nudge carries only an id, so one that arrives twice delivers the same findings twice. What stops that
  * being a problem is not this: it is the queue giving one conversation to one consumer at a time, and a
- * second delivery reading the same row. Reaching this any way other than through [[Inbox]] is outside that
+ * second delivery reading the same row. Reaching this any way other than through [[Attendant]] is outside that
  * guarantee.
  *
  * @param store where the work was recorded

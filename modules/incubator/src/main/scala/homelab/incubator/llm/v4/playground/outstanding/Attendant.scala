@@ -3,18 +3,24 @@ package homelab.incubator.llm.v4.playground.outstanding
 
 import homelab.common.error.ApplicationError
 import homelab.common.flow.KeyedQueue
-import homelab.incubator.llm.v4.Message
+import homelab.common.messaging.Consumer
+import homelab.common.processing.Processor
 import homelab.incubator.llm.v4.playground.chat.{ Chat, Conversation }
-import zio.{ Chunk, IO, UIO, ZIO }
+import zio.{ IO, UIO }
 
 
 /**
- * The one way into a conversation: everything that moves one on is queued under it and taken one at a time.
+ * What attends to a conversation: everything that moves one on is queued under it and taken one at a time,
+ * and this is what takes them.
  *
  * Both kinds of arrival come through here because both take the conversation exclusively, and a queue can
  * only give it exclusively to what it delivers. A question put straight to the agent would be outside that
  * and could run beside a delivery on the same conversation, which is what the key is there to stop. That
  * exclusivity is also why the agent needs no lock of its own.
+ *
+ * A [[Processor]], so what runs it is the standard loop and what it plugs into is a graph. Its `process`
+ * answers nothing: the agent's words went into the conversation as it worked, and whoever wants them reads
+ * them there — nobody is waiting on this.
  *
  * The queue here is [[KeyedQueue]], which holds its work in memory: a process that dies loses what it had
  * claimed. A distributed keyed queue has the same shape and adds the lease that makes a lost claim come
@@ -24,7 +30,26 @@ import zio.{ Chunk, IO, UIO, ZIO }
  * @param chat the agent a question is put to
  * @param delivery what puts finished work back
  */
-final class Inbox(queue: KeyedQueue[Conversation, Incoming], chat: Chat, delivery: Delivery) {
+final class Attendant(queue: KeyedQueue[Conversation, Incoming], chat: Chat, delivery: Delivery)
+    extends Processor[ApplicationError, (Conversation, Incoming)] {
+
+  /**
+   * Arrivals as they are claimed, each paired with the conversation it is for.
+   *
+   * @return the intake, which never fails of its own accord
+   */
+  override def input: Consumer[ApplicationError, (Conversation, Incoming)] =
+    Consumer.fromKeyedQueueWithKeys(queue)
+
+  /**
+   * Act on one arrival, which is the only place the two kinds part company.
+   *
+   * @param arrival the conversation it arrived under, and what arrived
+   * @return noop once the agent has finished with it; aborts with whatever the agent or the delivery does
+   */
+  override def process(arrival: (Conversation, Incoming)): IO[ApplicationError, Unit] = arrival match
+    case (conversation, Incoming.Asked(question))          => chat.run(Chat.Ask(conversation, question)).unit
+    case (conversation, Incoming.Delivered(investigation)) => delivery.deliver(conversation, investigation).unit
 
   /**
    * Queue a question for a conversation.
@@ -48,39 +73,10 @@ final class Inbox(queue: KeyedQueue[Conversation, Incoming], chat: Chat, deliver
    */
   def delivered(conversation: Conversation, investigation: Investigation.Id): UIO[Unit] =
     queue.offer(conversation, Incoming.Delivered(investigation))
-
-  /**
-   * Wait for one arrival and act on it, holding its conversation until it is done.
-   *
-   * @return what the agent said once it had read it; aborts with whatever the agent or the delivery does
-   */
-  def attend: IO[ApplicationError, Chunk[Message.Content]] = queue.takeWith(receive)
-
-  /**
-   * Attend to arrivals for as long as this runs.
-   *
-   * @return never returns normally; aborts with the first failure an arrival produces
-   */
-  def attending: IO[ApplicationError, Nothing] = attend.forever
-
-  /**
-   * Act on one arrival, which is the only place the two kinds part company.
-   *
-   * @param conversation the key it arrived under
-   * @param incoming what arrived
-   * @return what the agent said once it had read it; aborts with whatever the agent or the delivery does
-   */
-  private def receive(
-    conversation: Conversation,
-    incoming: Incoming,
-  ): IO[ApplicationError, Chunk[Message.Content]] =
-    incoming match
-      case Incoming.Asked(question)          => chat.run(Chat.Ask(conversation, question))
-      case Incoming.Delivered(investigation) => delivery.deliver(conversation, investigation)
 }
 
 
-object Inbox:
+object Attendant:
 
   /**
    * An inbox with nothing queued.
@@ -90,5 +86,5 @@ object Inbox:
    * @param delivery what puts finished work back
    * @return the inbox; aborts when the backlog bound is not a usable one
    */
-  def make(backlog: Option[Int], chat: Chat, delivery: Delivery): IO[ApplicationError, Inbox] =
-    KeyedQueue.make[Conversation, Incoming](backlog).map(queue => new Inbox(queue, chat, delivery))
+  def make(backlog: Option[Int], chat: Chat, delivery: Delivery): IO[ApplicationError, Attendant] =
+    KeyedQueue.make[Conversation, Incoming](backlog).map(queue => new Attendant(queue, chat, delivery))
