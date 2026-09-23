@@ -121,7 +121,8 @@ Today's answer. The tool owns a table keyed by call id; the nudge carries the ca
 the row and appends the result as a message.
 
 **Buys.** No toolkit machinery, no port, no schema. The tool's table holds the real state and can check
-whether the child is actually alive, which none of A–C can.
+whether the child is actually alive, which none of A–C can. It is built out end to end in
+[`a-tool-that-answers-later.md`](./a-tool-that-answers-later.md), against the v4 chat agent.
 
 **Costs.** No generic sweep. A supervisor has to ask every tool's storage separately, and a tool nobody
 wrote a sweep for leaks stalled conversations silently.

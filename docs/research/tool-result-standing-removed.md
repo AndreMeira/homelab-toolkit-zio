@@ -92,7 +92,8 @@ still alive.
 
 None of these is on the roadmap. If one arrives, the shapes it could take — a side store, a column on the
 message store, or a second row in the conversation's own stream — are laid out with their costs in
-[`outstanding-work-in-storage.md`](./outstanding-work-in-storage.md).
+[`outstanding-work-in-storage.md`](./outstanding-work-in-storage.md), and the shape that needs nothing in
+the toolkit is built out end to end in [`a-tool-that-answers-later.md`](./a-tool-that-answers-later.md).
 
 ## Still open
 
