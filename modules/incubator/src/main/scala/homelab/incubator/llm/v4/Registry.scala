@@ -113,10 +113,7 @@ object Registry {
    * @return a registry holding it, or holding a rejection for it
    */
   def add[Ctx, In: Schema, Out: Schema](tool: Tool[Ctx, In, Out]): Registry[Ctx] =
-    Registry[Ctx](
-      ListMap.empty[String, Registered[Ctx, ?, ?]],
-      Chunk.empty[Registry.Rejected],
-    ).add(tool)
+    Registry.empty[Ctx].add(tool)
 
   /**
    * What the model is told when a tool aborts.
