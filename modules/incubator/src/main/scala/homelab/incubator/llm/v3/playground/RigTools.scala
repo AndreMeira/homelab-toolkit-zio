@@ -96,53 +96,54 @@ object RigTools {
   /** The one pose a path must have; a path of none is a call the model got wrong. */
   private val emptyPath: ApplicationError = EmptyPath("a path needs at least one pose")
 
-  /** Move the tool point to one pose. */
-  val moveTo: Tool[Rig, MoveTo, Arm.Reached] = new Tool[Rig, MoveTo, Arm.Reached]:
-    override def name        = "move_to"
-    override def description = "Move to one absolute calibrated pose. The host solves and times the path."
+  /**
+   * The poses of a call, once it is known to have named any.
+   *
+   * @param input the call's arguments
+   * @return the path; aborts when the model asked for a move through nowhere
+   */
+  private def path(input: Follow): IO[ApplicationError, NonEmptyChunk[Pose]] =
+    ZIO.fromOption(NonEmptyChunk.fromIterableOption(input.poses)).orElseFail(emptyPath)
 
-    override def handle(rig: Rig, input: MoveTo): IO[ApplicationError, Result[Arm.Reached]] =
-      rig.arm.moveTo(input.target).map(Result.success)
+  /** Move the tool point to one pose. */
+  val moveTo: Tool[Rig, MoveTo, Arm.Reached] = Tool.Definition(
+    "move_to",
+    "Move to one absolute calibrated pose. The host solves and times the path.",
+  ) { (ctx: Rig) => (input: MoveTo) =>
+    ctx.arm.moveTo(input.target).map(Result.success)
+  }
 
   /** Move the tool point through a path, in order. */
-  val follow: Tool[Rig, Follow, Arm.Reached] = new Tool[Rig, Follow, Arm.Reached]:
-    override def name        = "move_eef_chunk"
-    override def description = "Move through absolute calibrated poses in order. Every pose is preserved."
-
-    override def handle(rig: Rig, input: Follow): IO[ApplicationError, Result[Arm.Reached]] =
-      ZIO
-        .fromOption(NonEmptyChunk.fromIterableOption(input.poses))
-        .orElseFail(emptyPath)
-        .flatMap(rig.arm.follow)
-        .map(Result.success)
+  val follow: Tool[Rig, Follow, Arm.Reached] = Tool.Definition(
+    "move_eef_chunk",
+    "Move through absolute calibrated poses in order. Every pose is preserved.",
+  ) { (ctx: Rig) => (input: Follow) =>
+    path(input).flatMap(ctx.arm.follow).map(Result.success)
+  }
 
   /** Open or close the gripper. */
-  val grip: Tool[Rig, Grip, Arm.Grip] = new Tool[Rig, Grip, Arm.Grip]:
-    override def name        = "set_gripper"
-    override def description = "Set a normalised gripper opening: zero closed, one open."
-
-    override def handle(rig: Rig, input: Grip): IO[ApplicationError, Result[Arm.Grip]] =
-      rig.arm.grip(input.gripper).map(Result.success)
+  val grip: Tool[Rig, Grip, Arm.Grip] = Tool.Definition(
+    "set_gripper",
+    "Set a normalised gripper opening: zero closed, one open.",
+  ) { (ctx: Rig) => (input: Grip) =>
+    ctx.arm.grip(input.gripper).map(Result.success)
+  }
 
   /** Solve a path without moving, so reachability can be tested before acting. */
-  val check: Tool[Rig, Follow, Arm.Solved] = new Tool[Rig, Follow, Arm.Solved]:
-    override def name        = "check_path"
-    override def description = "Solve poses with the same planner and command nothing. Proves neither clearance nor tracking."
-
-    override def handle(rig: Rig, input: Follow): IO[ApplicationError, Result[Arm.Solved]] =
-      ZIO
-        .fromOption(NonEmptyChunk.fromIterableOption(input.poses))
-        .orElseFail(emptyPath)
-        .flatMap(rig.arm.check)
-        .map(Result.success)
+  val check: Tool[Rig, Follow, Arm.Solved] = Tool.Definition(
+    "check_path",
+    "Solve poses with the same planner and command nothing. Proves neither clearance nor tracking.",
+  ) { (ctx: Rig) => (input: Follow) =>
+    path(input).flatMap(ctx.arm.check).map(Result.success)
+  }
 
   /** Turn a pixel into a direction, and into metres where two views allow it. */
-  val locate: Tool[Rig, Locate, Localiser.Located] = new Tool[Rig, Locate, Localiser.Located]:
-    override def name        = "locate_point"
-    override def description = "Resolve a visible pixel to a ray, and to a position when a second view of the same feature exists."
-
-    override def handle(rig: Rig, input: Locate): IO[ApplicationError, Result[Localiser.Located]] =
-      rig.localiser.locate(input.camera, input.pixelXy, input.against).map(Result.success)
+  val locate: Tool[Rig, Locate, Localiser.Located] = Tool.Definition(
+    "locate_point",
+    "Resolve a visible pixel to a ray, and to a position when a second view of the same feature exists.",
+  ) { (ctx: Rig) => (input: Locate) =>
+    ctx.localiser.locate(input.camera, input.pixelXy, input.against).map(Result.success)
+  }
 
   /**
    * The request that ends a run.
@@ -158,12 +159,12 @@ object RigTools {
    * End the run. Nothing is done to the rig: the ending goes back as the produced value, and the loop reads
    * it there.
    */
-  val terminate: Tool[Rig, Terminate, Ending] = new Tool[Rig, Terminate, Ending]:
-    override def name        = "terminate"
-    override def description = "End the task: done when fresh observations establish the outcome, give_up when it cannot be completed."
-
-    override def handle(rig: Rig, input: Terminate): IO[ApplicationError, Result[Ending]] =
-      ZIO.succeed(Result.success(input.ending))
+  val terminate: Tool[Rig, Terminate, Ending] = Tool.Definition(
+    "terminate",
+    "End the task: done when fresh observations establish the outcome, give_up when it cannot be completed.",
+  ) { (_: Rig) => (input: Terminate) =>
+    ZIO.succeed(Result.success(input.ending))
+  }
 
   /**
    * Every tool a run offers, registered.

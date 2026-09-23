@@ -36,6 +36,8 @@ final class Policy(
   observe: Observation,
   budget: Int,
 ) extends Workflow[Any, ApplicationError, Policy.Task, Policy.Run, Policy.Ending] {
+  private type Current = Step.Current[Policy.Task, Policy.Run]
+  private type Next    = Step.Next[Policy.Run, Policy.Ending]
 
   override val name: String = "policy"
 
@@ -44,7 +46,7 @@ final class Policy(
    *
    * @return the next step; aborts when the model call or the rig does
    */
-  def next: Step.Pending[Policy.Task, Policy.Run] => IO[ApplicationError, Step[Policy.Task, Policy.Run, Policy.Ending]] =
+  def next: Current => IO[ApplicationError, Next] =
     case Step.Init(task)    => seed(task)
     case Step.Continue(run) => advance(run)
 
@@ -67,7 +69,7 @@ final class Policy(
    * @param run what has happened so far
    * @return the next step; aborts when the model call or a tool does
    */
-  private def advance(run: Policy.Run): IO[ApplicationError, Step[Policy.Task, Policy.Run, Policy.Ending]] =
+  private def advance(run: Policy.Run): IO[ApplicationError, Next] =
     if run.decisions >= budget then ZIO.succeed(Step.Done(Policy.Ending.Exhausted(run.decisions)))
     else
       for
@@ -100,7 +102,7 @@ final class Policy(
     asked: Chunk[Model.Message],
     session: Tool.Session[Rig],
     completion: Model.Completion,
-  ): IO[ApplicationError, Step[Policy.Task, Policy.Run, Policy.Ending]] =
+  ): IO[ApplicationError, Next] =
     for
       outcomes <- session.dispatchAll(completion.calls.toList)
       appended  = asked ++ Model.Message.turn(completion, Chunk.fromIterable(outcomes))

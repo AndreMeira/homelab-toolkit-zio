@@ -62,6 +62,22 @@ trait Tool[Ctx, Input, Output] {
 
 object Tool {
 
+  trait Definition[Ctx, Input, Output](
+    override val name: String,
+    override val description: String,
+  ) extends Tool[Ctx, Input, Output]
+
+  object Definition:
+    def apply[Ctx, Input, Output](
+      name: String,
+      description: String,
+    )(
+      fn: (ctx: Ctx) => (input: Input) => IO[ApplicationError, Tool.Result[Output]]
+    ): Definition[Ctx, Input, Output] = new Definition[Ctx, Input, Output](name, description) {
+      override def handle(context: Ctx, input: Input): IO[ApplicationError, Tool.Result[Output]] =
+        fn(context)(input)
+    }
+
   /**
    * Check the wire's one structural demand on a tool's `parameters`: it describes an object, because
    * arguments are named. A tool taking a bare string or array has nowhere to put it.
@@ -182,14 +198,6 @@ object Tool {
       Succeeded(JsonCodec.jsonEncoder(schema).encodeJson(value).toString, standing)
 
     /**
-     * 
-     * @param reason
-     * @tparam A
-     * @return
-     */
-    private[v3] def failure[A: Schema](reason: String): Result[A] = Failed(reason)
-
-    /**
      *
      * @param reason
      * @tparam A
@@ -264,36 +272,55 @@ object Tool {
     override def message: String = s"tool '$tool' cannot be registered: ${cause.message}"
 
   /**
-   * A tool with its wire concerns resolved: schema derived, codecs captured, types gone.
+   * A tool with its wire concerns resolved: its arguments described, its decoder to hand.
    *
-   * Binding `Input` and `Output` at registration is what removes the existential — the registry holds no
-   * `Tool[Ctx, ?, ?]` and needs no type-recovering helper at dispatch, only a function from the caller and the
-   * model's raw arguments to what goes back.
+   * It holds the tool rather than closures over it, so every method here reads as a call to the thing that
+   * owns the behaviour and nothing is a stored function. The types stay as parameters and a registry holds
+   * `Registered[Ctx, ?, ?]` — which costs nothing, because no method below mentions them: an outcome is an
+   * outcome whatever the tool's types were, so there is never anything to recover.
    *
-   * @param name the name the model calls it by
-   * @param description what it is for
-   * @param schema the description of its arguments, sent as `parameters`
-   * @param permits whether a given caller may use it
-   * @param logic arguments and run, with every model-actionable encodeFailure turned into a result the model reads
+   * @param tool what was registered
+   * @param jsonSchema its arguments as the model is told them
    * @tparam Ctx the caller context
+   * @tparam In the arguments the model chooses
+   * @tparam Output what the tool produces
    */
-  final case class Registered[Ctx](
-    name: String,
-    description: String,
-    schema: JsonSchema,
-    permits: Ctx => IO[ApplicationError, Boolean],
-  )(
-    logic: (Ctx, Call) => UIO[Outcome]
-  ) {
+  final class Registered[Ctx, In: Schema, Output](tool: Tool[Ctx, In, Output], jsonSchema: JsonSchema) {
+
+    private val schema = summon[Schema[In]]
+
+    /** The name the model calls it by. */
+    def name: String = tool.name
+
+    /**
+     * Whether this caller may use it.
+     *
+     * @param context the caller context
+     * @return true when it is available to this caller; aborts when the tool cannot say
+     */
+    def permits(context: Ctx): IO[ApplicationError, Boolean] = tool.permits(context)
 
     /**
      * Run this tool for one caller against a call a model made.
      *
      * @param context the caller context
-     * @param call the call, whose arguments are the JSON the model wrote
+     * @param call    the call, whose arguments are the JSON the model wrote
      * @return the outcome, with anything the model could react to rendered as its text; never fails
      */
-    def invoke(context: Ctx, call: Call): UIO[Outcome] = logic(context, call)
+    def invoke(context: Ctx, call: Call): UIO[Outcome] = {
+      for {
+        decoded = JsonCodec.jsonDecoder(schema).decodeJson(call.arguments) match
+                    case Right(value) => Right(value)
+                    case Left(reason) => Left(s"arguments did not parse: $reason")
+        input  <- decoded match
+                    case Right(input) => ZIO.succeed(input)
+                    case Left(reason) => ZIO.fail(Outcome(call.id, Result.error(reason)))
+        result <- tool
+                    .handle(context, input)
+                    .tapError(reportCallError)
+                    .mapError(_ => Outcome(call.id, Result.error(Registry.Withheld)))
+      } yield Outcome(call.id, result)
+    }.merge
 
     /**
      * This tool as the provider expects to receive it.
@@ -303,11 +330,20 @@ object Tool {
     def advertised: Json = Json.Obj(
       "type"     -> Json.Str("function"),
       "function" -> Json.Obj(
-        "name"        -> Json.Str(name),
-        "description" -> Json.Str(description),
-        "parameters"  -> schema.json,
+        "name"        -> Json.Str(tool.name),
+        "description" -> Json.Str(tool.description),
+        "parameters"  -> jsonSchema.json,
       ),
     )
+
+    /**
+     * Write an abort where an operator can read it, since the model is told nothing about it.
+     *
+     * @param error what the tool aborted with
+     * @return noop once logged
+     */
+    private def reportCallError(error: ApplicationError): UIO[Unit] =
+      ZIO.logError(s"tool '${tool.name}' aborted: ${error.message}")
   }
 
   /**
@@ -319,7 +355,7 @@ object Tool {
    * @param entries the registered tools, by name, in registration order
    * @tparam Ctx the caller context every tool here accepts
    */
-  final class Registry[Ctx] private (entries: Ref[ListMap[String, Registered[Ctx]]]) {
+  final class Registry[Ctx] private (entries: Ref[ListMap[String, Registered[Ctx, ?, ?]]]) {
 
     /**
      * Register a tool, deriving its schema and capturing its codecs.
@@ -331,14 +367,14 @@ object Tool {
      *
      * @param tool the tool to register
      * @tparam In the arguments the model chooses
-     * @tparam Out the result
+     * @tparam Out what it produces, which needs no schema here — a result carries its own
      * @return noop once registered; aborts with [[Rejected]] if the arguments cannot be described
      */
-    def add[In: Schema, Out <: Matchable: Schema](tool: Tool[Ctx, In, Out]): IO[Rejected, Unit] =
+    def add[In: Schema, Out](tool: Tool[Ctx, In, Out]): IO[Rejected, Unit] =
       for
         described <- ZIO.fromEither(JsonSchema.Encoder[In].get).mapError(Rejected(tool.name, _))
         arguments <- ZIO.fromEither(validateInputSchema(described)).mapError(Rejected(tool.name, _))
-        _         <- entries.update(_.updated(tool.name, register(tool, arguments)))
+        _         <- entries.update(_.updated(tool.name, Registered(tool, arguments)))
       yield ()
 
     /**
@@ -355,48 +391,6 @@ object Tool {
         all     <- entries.get
         allowed <- ZIO.filter(all.values)(_.permits(context))
       yield new Session(ListMap.from(allowed.map(tool => tool.name -> tool)), context)
-
-    /**
-     * Close over a tool's types, leaving a value that knows nothing about them.
-     *
-     * Rendering changes the value and keeps the standing: what a result leaves outstanding is the tool's to
-     * say, and no codec has an opinion about it.
-     *
-     * @param tool the tool being registered
-     * @param described its derived schema
-     * @tparam In the arguments the model chooses
-     * @tparam Out the result
-     * @return the monomorphic entry the registry stores
-     */
-    private def register[In: Schema, Out <: Matchable: Schema](
-      tool: Tool[Ctx, In, Out],
-      described: JsonSchema,
-    ): Registered[Ctx] =
-      Registered(tool.name, tool.description, described, tool.permits) { (context, call) =>
-        {
-          for {
-            decoded = JsonCodec.jsonDecoder(summon[Schema[In]]).decodeJson(call.arguments) match
-                        case Right(value) => Right(value)
-                        case Left(reason) => Left(s"arguments did not parse: $reason")
-            input  <- decoded match
-                        case Right(input) => ZIO.succeed(input)
-                        case Left(reason) => ZIO.fail(Outcome(call.id, Result.error(reason)))
-            result <- tool
-                        .handle(context, input)
-                        .tapError(reportCallError(tool.name))
-                        .mapError(_ => Outcome(call.id, Result.error(Registry.Withheld)))
-          } yield Outcome(call.id, result)
-        }.merge
-      }
-
-    /**
-     * Write an abort where an operator can read it, since the model is told nothing about it.
-     *
-     * @param name the tool that aborted
-     * @return what logs one such encodeFailure
-     */
-    private def reportCallError(name: String): ApplicationError => UIO[Unit] =
-      error => ZIO.logError(s"tool '$name' aborted: ${error.message}")
 
   }
 
@@ -418,7 +412,7 @@ object Tool {
      * @return the registry; never fails
      */
     def make[Ctx]: UIO[Registry[Ctx]] =
-      Ref.make(ListMap.empty[String, Registered[Ctx]]).map(new Registry(_))
+      Ref.make(ListMap.empty[String, Registered[Ctx, ?, ?]]).map(new Registry(_))
 
   /**
    * A registry bound to one caller.
@@ -427,7 +421,7 @@ object Tool {
    * @param context the caller context handed to every dispatch
    * @tparam Ctx the caller context
    */
-  final class Session[Ctx](permitted: ListMap[String, Registered[Ctx]], context: Ctx) {
+  final class Session[Ctx](permitted: ListMap[String, Registered[Ctx, ?, ?]], context: Ctx) {
 
     /**
      * The `tools` array for a request — only what this caller may use, so a forbidden tool is not refused, it
