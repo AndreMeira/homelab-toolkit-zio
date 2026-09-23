@@ -135,19 +135,19 @@ Everything else in JSON Schema. Worth knowing *why* for the ones people reach fo
 
 ## From a case class to a schema
 
-Nothing hand-writes these. `Generator.derive[A]` takes the `zio.schema.Schema[A]` the compiler derived and
-turns it into a `JsonSchema`, or into `Unsupported` if `A` is outside the subset.
+Nothing hand-writes these. `Generator.generate[A]` takes the `zio.schema.Schema[A]` the compiler derived
+and turns it into a `JsonSchema`, or into `Unsupported` if `A` is outside the subset.
 
 ```scala
 final case class Weather(city: String, days: Option[Int]) derives Schema
 
-Generator.derive[Weather]      // Either[Unsupported, JsonSchema]
+Generator.generate[Weather]    // Either[Unsupported, JsonSchema]
 ```
 
 ### Two passes, and why there are two
 
 ```scala
-def derive[A](using schema: Schema[A]): Either[Unsupported, JsonSchema] =
+def generate[A](using schema: Schema[A]): Either[Unsupported, JsonSchema] =
   val recursive = recursiveTypes(schema, Set.empty, Set.empty)
   generateNodes(schema, recursive, Defs.empty).map((node, defs) => JsonSchema(node, defs.definitions))
 ```
@@ -163,9 +163,10 @@ is what lets the second pass stop and emit a `$ref` instead of descending foreve
 
 ### What the second pass does with each shape
 
-`generateNodes` is one match over zio-schema's ADT. Threaded through it is `Defs` — the definitions
-gathered so far, plus which type ids are *currently being rendered*, so a type that refers to itself finds
-its own name already in flight and emits a reference rather than recursing.
+`generateNodes` is one match over zio-schema's ADT. Threaded through it is `Defs` — `definitions`, the
+completed `$defs` entries in discovery order, and `visiting`, the names whose definition is still being
+built. Meeting a name in `visiting` *is* the recursive knot: the walk emits a `$ref` to it rather than
+descending into a definition it is already in the middle of writing.
 
 | zio-schema | becomes |
 |---|---|
@@ -179,6 +180,10 @@ its own name already in flight and emits a reference rather than recursing.
 | `Schema.Map` | **refused** — a map has open keys; this subset closes every object |
 | `Schema.Tuple2` | **refused** — a tuple needs positional array items |
 | `Schema.Fail` | **refused** — an unsatisfiable schema describes nothing |
+
+Three more refusals live further in, where a sum type is rendered: a type with no cases at all, a
+data-carrying one without `@discriminatorName`, and a case that already has a property named after the
+discriminator. Each is shown below.
 
 ### A record
 
