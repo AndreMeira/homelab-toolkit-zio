@@ -31,7 +31,7 @@ object BasicSpec extends ZIOSpecDefault:
   private def asks(callId: String, arguments: String): Model.Completion =
     Model.Completion(
       Chunk.empty,
-      Chunk(Tool.Call(Tool.Call.Id(callId), "weather", arguments)),
+      Chunk(Tool.Call.Raw(Tool.Call.Id(callId), "weather", arguments)),
       Model.FinishReason.ToolCalls,
       usage,
     )

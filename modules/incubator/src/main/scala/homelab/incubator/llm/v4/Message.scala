@@ -36,7 +36,7 @@ enum Message:
    * @param content what it said, which is empty when it only asked for tools
    * @param calls what it asked for, which is empty when it only answered
    */
-  case Assistant(content: Chunk[Message.Content], calls: Chunk[Tool.Call])
+  case Assistant(content: Chunk[Message.Content], calls: Chunk[Tool.Call.Raw])
 
   /**
    * What a tool answered, paired to the call that asked.
@@ -93,4 +93,4 @@ object Message:
    * @return the tool message to append
    */
   def from(outcome: Outcome): ToolResult =
-    ToolResult(outcome.callId, Chunk(Content.Text(outcome.result.render)))
+    ToolResult(outcome.call.id, Chunk(Content.Text(outcome.result.render)))

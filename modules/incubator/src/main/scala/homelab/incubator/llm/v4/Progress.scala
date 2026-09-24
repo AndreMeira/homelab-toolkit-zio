@@ -23,7 +23,7 @@ enum Progress:
    *
    * @param pending the calls still owed an answer, in the order they were asked
    */
-  case AwaitingTools(pending: NonEmptyChunk[Tool.Call])
+  case AwaitingTools(pending: NonEmptyChunk[Tool.Call.Raw])
 
   /**
    * The conversation ended with an answer.
@@ -82,7 +82,7 @@ object Progress {
      * @param call one of the turn's calls
      * @return true when nothing has answered it
      */
-    def unanswered(call: Tool.Call): Boolean = !answered.contains(call.id)
+    def unanswered(call: Tool.Call.Raw): Boolean = !answered.contains(call.id)
 
   private object Reading:
 

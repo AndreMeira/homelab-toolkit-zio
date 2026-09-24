@@ -187,7 +187,7 @@ object Model {
    */
   final case class Completion(
     content: Chunk[Message.Content],
-    calls: Chunk[Tool.Call],
+    calls: Chunk[Tool.Call.Raw],
     finish: FinishReason,
     usage: Usage,
   )

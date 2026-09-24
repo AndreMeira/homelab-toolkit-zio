@@ -53,7 +53,7 @@ final class Registered[Ctx, In, Out: Schema] private[v4] (
    * @param call the call, whose arguments are the JSON the model wrote
    * @return the arguments as the tool would receive them, or what the model would be told about its own JSON
    */
-  def decoded(call: Tool.Call): Either[String, In] = tool.decoded(call.arguments)
+  def decoded(call: Tool.Call.Raw): Either[String, In] = tool.decoded(call.arguments)
 
   /**
    * Run this tool for one caller against a call a model made.
@@ -65,10 +65,12 @@ final class Registered[Ctx, In, Out: Schema] private[v4] (
    * @param call the call, whose arguments are the JSON the model wrote
    * @return the outcome; never fails
    */
-  def invoke(context: Ctx, call: Tool.Call): UIO[Outcome] =
+  def invoke(context: Ctx, call: Tool.Call.Raw): UIO[Outcome] =
     tool.decoded(call.arguments) match
-      case Left(reason) => ZIO.succeed(Outcome(call.id, Tool.Result.failure[Out](reason)))
-      case Right(input) => tool.handle(context, input).tapError(report).fold(withheld(call.id), answered(call.id))
+      case Left(reason) => ZIO.succeed(Outcome(call, Tool.Result.failure[Out](reason)))
+      case Right(input) =>
+        val read = Tool.Call.Decoded(call.id, call.name, input)
+        tool.handle(context, input).tapError(report).fold(withheld(read), answered(read))
 
   /**
    * This tool as the provider expects to receive it.
@@ -87,21 +89,21 @@ final class Registered[Ctx, In, Out: Schema] private[v4] (
   /**
    * The outcome for a call the tool answered.
    *
-   * @param callId the id the model gave this call
+   * @param call the call, with its arguments read
    * @param result what the tool returned
    * @return the outcome
    */
-  private def answered(callId: Tool.Call.Id)(result: Tool.Result[Out]): Outcome = Outcome(callId, result)
+  private def answered(call: Tool.Call[In])(result: Tool.Result[Out]): Outcome = Outcome(call, result)
 
   /**
    * The outcome for a call the tool aborted on, carrying what the model is told instead of the detail.
    *
-   * @param callId the id the model gave this call
+   * @param call the call, with its arguments read
    * @param error what the tool aborted with, already logged
    * @return the outcome
    */
-  private def withheld(callId: Tool.Call.Id)(error: ApplicationError): Outcome =
-    Outcome(callId, Tool.Result.failure[Out](Registry.Withheld))
+  private def withheld(call: Tool.Call[In])(error: ApplicationError): Outcome =
+    Outcome(call, Tool.Result.failure[Out](Registry.Withheld))
 
   /**
    * Write an abort where an operator can read it, since the model is told only that it happened.

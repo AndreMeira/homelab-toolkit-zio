@@ -13,7 +13,7 @@ object ProgressSpec extends ZIOSpecDefault:
 
   private def id(value: String): Tool.Call.Id = Tool.Call.Id(value)
 
-  private def call(value: String): Tool.Call = Tool.Call(id(value), "search", """{"text":"x"}""")
+  private def call(value: String): Tool.Call.Raw = Tool.Call.Raw(id(value), "search", """{"text":"x"}""")
 
   private val asked  = Message.User(text("what do I eat tonight"))
   private val said   = Message.Assistant(text("pasta"), Chunk.empty)

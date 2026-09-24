@@ -33,10 +33,10 @@ final class Session[Ctx] private[v4] (permitted: ListMap[String, Registered[Ctx,
    * @param call the tool call the model asked for
    * @return the outcome to append to the conversation; never fails on the model's behalf
    */
-  def dispatch(call: Tool.Call): UIO[Outcome] =
+  def dispatch(call: Tool.Call.Raw): UIO[Outcome] =
     permitted.get(call.name) match
       case Some(tool) => tool.invoke(context, call)
-      case None       => ZIO.succeed(Outcome(call.id, Tool.Result.failure[Unit](unavailable(call.name))))
+      case None       => ZIO.succeed(Outcome(call, Tool.Result.failure[Unit](unavailable(call.name))))
 
   /**
    * Run several calls from one turn concurrently, keeping every outcome.
@@ -48,7 +48,7 @@ final class Session[Ctx] private[v4] (permitted: ListMap[String, Registered[Ctx,
    * @param parallelism how many tools may run at once
    * @return one outcome per call, in the same order
    */
-  def dispatchAll(calls: List[Tool.Call], parallelism: Int = 4): UIO[List[Outcome]] =
+  def dispatchAll(calls: List[Tool.Call.Raw], parallelism: Int = 4): UIO[List[Outcome]] =
     ZIO.foreachPar(calls)(dispatch).withParallelism(parallelism)
 
   /**

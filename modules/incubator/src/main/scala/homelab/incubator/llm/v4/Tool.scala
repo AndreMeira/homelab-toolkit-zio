@@ -117,13 +117,41 @@ object Tool:
   private[v4] def unparsed(reason: String): String = s"arguments did not parse: $reason"
 
   /**
-   * A tool call as the model emitted it — `arguments` is a JSON *string*, and a model wrote it.
+   * One call a model made, before or after its arguments have been read.
    *
-   * @param id what the model called this call, echoed back so it can pair the result with the request
-   * @param name which tool it is asking for, which may be one that does not exist
-   * @param arguments the JSON it wrote, unparsed and unchecked
+   * The two cases are the same call at two points in its life, and the type says which: [[Call.Raw]] is
+   * what the model wrote, [[Call.Decoded]] is what that turned out to mean. A message carries the first,
+   * because that is all a provider ever sends; an outcome carries whichever it got to.
+   *
+   * @tparam A the arguments once read, which a raw call does not have
    */
-  final case class Call(id: Call.Id, name: String, arguments: String)
+  enum Call[+A]:
+    /** What the model called this call, whichever state it is in. */
+    def id: Call.Id
+
+    /** Which tool it asked for, whichever state it is in. */
+    def name: String
+
+    /**
+     * A call as the model emitted it — `arguments` is a JSON *string*, and a model wrote it.
+     *
+     * @param id what the model called this call, echoed back so it can pair the result with the request
+     * @param name which tool it is asking for, which may be one that does not exist
+     * @param arguments the JSON it wrote, unparsed and unchecked
+     */
+    case Raw(id: Call.Id, name: String, arguments: String) extends Call[Nothing]
+
+    /**
+     * A call whose arguments have been read as the tool that answers it takes them.
+     *
+     * Only registration can make one, because only there is the name known to belong to a tool and the
+     * type known to be that tool's. A loop meeting one has what the model asked for, not just what it wrote.
+     *
+     * @param id what the model called this call
+     * @param name which tool it asked for, which is known to exist
+     * @param input the arguments, read
+     */
+    case Decoded(id: Call.Id, name: String, input: A) extends Call[A]
 
   object Call:
 

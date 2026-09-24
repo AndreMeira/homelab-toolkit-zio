@@ -11,4 +11,4 @@ package homelab.incubator.llm.v4
  * @param callId the id the model gave this call, echoed back so it can pair request with result
  * @param result what the tool returned, and whether it succeeded
  */
-final case class Outcome(callId: Tool.Call.Id, result: Tool.Result[?])
+final case class Outcome(call: Tool.Call[?], result: Tool.Result[?])

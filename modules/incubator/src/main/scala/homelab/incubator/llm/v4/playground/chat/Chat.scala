@@ -101,7 +101,7 @@ final class Chat(
    * @return the same conversation, with every call answered; aborts when a tool cannot say whether it
    *         permits this caller
    */
-  private def answer(ongoing: Chat.Ongoing, pending: NonEmptyChunk[Tool.Call]): IO[ApplicationError, Next] =
+  private def answer(ongoing: Chat.Ongoing, pending: NonEmptyChunk[Tool.Call.Raw]): IO[ApplicationError, Next] =
     for
       session  <- tools.forSession(ongoing.conversation)
       outcomes <- session.dispatchAll(pending.toList)

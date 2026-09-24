@@ -104,7 +104,7 @@ trait Basic[Ctx] extends Workflow[Any, ApplicationError, String, Chunk[Message],
    * @return the conversation with one answer per call; aborts when a tool cannot say whether it permits
    *         this caller
    */
-  private def answer(messages: Chunk[Message], pending: NonEmptyChunk[Tool.Call]): IO[ApplicationError, Next] =
+  private def answer(messages: Chunk[Message], pending: NonEmptyChunk[Tool.Call.Raw]): IO[ApplicationError, Next] =
     for
       session  <- tools.forSession(context)
       outcomes <- session.dispatchAll(pending.toList)
