@@ -67,3 +67,20 @@ final class Session[Ctx] private[v4] (permitted: ListMap[String, Registered[Ctx,
    */
   private def unavailable(name: String): String = s"no tool '$name' is available"
 }
+
+object Session:
+
+  /**
+   * A session over the tools one caller may use.
+   *
+   * Keying by name happens here rather than wherever the tools came from, so what a session looks a call up
+   * by stays its own business and a caller hands it a plain list. The order is kept, so what
+   * [[Session.advertised]] offers a model is the order the tools were given in.
+   *
+   * @param registered the tools this caller may use, already filtered
+   * @param context the caller context every dispatch will carry
+   * @tparam Ctx the caller context
+   * @return the session
+   */
+  def apply[Ctx](registered: List[Registered[Ctx, ?, ?]], context: Ctx): Session[Ctx] =
+    new Session(ListMap.from(registered.map(tool => tool.name -> tool)), context)

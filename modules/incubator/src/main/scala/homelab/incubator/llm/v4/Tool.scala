@@ -83,6 +83,19 @@ trait Tool[Ctx, Input: Schema, Output: Schema] {
     Registry.add(self).add(other)
 
   /**
+   * Read arguments a model wrote as the type this tool takes.
+   *
+   * Offered here because this is where the schema is: a caller holding this tool knows what `Input` is, so
+   * it can see what was asked before anything happens — to branch on an argument, or to act on a call whose
+   * answer is beside the point. Nothing is permitted and nothing is run; this only reads.
+   *
+   * @param arguments the JSON the model wrote for one call
+   * @return the arguments as [[handle]] would receive them, or what the model is told about its own JSON
+   */
+  def decoded(arguments: String): Either[String, Input] =
+    JsonCodec.jsonDecoder(summon[Schema[Input]]).decodeJson(arguments).left.map(Tool.unparsed)
+
+  /**
    * Run the tool — where the untrusted and the trusted halves of the arguments meet.
    *
    * @param context the caller context, supplied by the session
@@ -94,6 +107,14 @@ trait Tool[Ctx, Input: Schema, Output: Schema] {
 
 
 object Tool:
+
+  /**
+   * Say that a decode failure was about the arguments.
+   *
+   * @param reason what the decoder reported
+   * @return the same reason, placed
+   */
+  private[v4] def unparsed(reason: String): String = s"arguments did not parse: $reason"
 
   /**
    * A tool call as the model emitted it — `arguments` is a JSON *string*, and a model wrote it.

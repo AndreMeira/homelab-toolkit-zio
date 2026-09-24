@@ -203,3 +203,4 @@ object Chat:
      * @return the reason, naming the conversation and its budget
      */
     override def message: String = s"conversation '$conversation' took its $budget turns without answering"
+

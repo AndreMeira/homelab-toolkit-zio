@@ -5,7 +5,6 @@ import homelab.common.error.ApplicationError
 import homelab.incubator.llm.v4.schema.JsonSchema
 import zio.json.ast.Json
 import zio.schema.Schema
-import zio.schema.codec.JsonCodec
 import zio.{ IO, UIO, ZIO }
 
 
@@ -22,12 +21,10 @@ import zio.{ IO, UIO, ZIO }
  * @tparam In the arguments the model chooses
  * @tparam Out what the tool produces
  */
-final class Registered[Ctx, In: Schema, Out: Schema] private[v4] (
+final class Registered[Ctx, In, Out: Schema] private[v4] (
   tool: Tool[Ctx, In, Out],
   jsonSchema: JsonSchema,
 ) {
-
-  private val arguments = summon[Schema[In]]
 
   /** The name the model calls it by. */
   def name: String = tool.name
@@ -41,6 +38,24 @@ final class Registered[Ctx, In: Schema, Out: Schema] private[v4] (
   def permits(context: Ctx): IO[ApplicationError, Boolean] = tool.permits(context)
 
   /**
+   * Read a call's arguments without running anything.
+   *
+   * The same reading [[invoke]] does, offered on its own so a caller can see what the model asked for
+   * before deciding what to do about it — branch on an argument, record it, or refuse a call on grounds the
+   * tool itself knows nothing about. Nothing is permitted, nothing is handled, nothing is written; a caller
+   * that reads and then invokes pays for the parse twice.
+   *
+   * The arguments come back as `In`, which a holder of this knows. One reaching it through a [[Registry]]
+   * holds `Registered[Ctx, ?, ?]` and learns only whether the JSON parsed — so branching on an argument
+   * means holding the [[Tool]], where [[Tool.decoded]] answers the same question without a registration in
+   * the way.
+   *
+   * @param call the call, whose arguments are the JSON the model wrote
+   * @return the arguments as the tool would receive them, or what the model would be told about its own JSON
+   */
+  def decoded(call: Tool.Call): Either[String, In] = tool.decoded(call.arguments)
+
+  /**
    * Run this tool for one caller against a call a model made.
    *
    * Everything the model could react to becomes its text: arguments that did not parse, and an abort, which
@@ -51,10 +66,9 @@ final class Registered[Ctx, In: Schema, Out: Schema] private[v4] (
    * @return the outcome; never fails
    */
   def invoke(context: Ctx, call: Tool.Call): UIO[Outcome] =
-    decode(call.arguments) match
+    tool.decoded(call.arguments) match
       case Left(reason) => ZIO.succeed(Outcome(call.id, Tool.Result.failure[Out](reason)))
-      case Right(input) =>
-        tool.handle(context, input).tapError(report).fold(withheld(call.id), answered(call.id))
+      case Right(input) => tool.handle(context, input).tapError(report).fold(withheld(call.id), answered(call.id))
 
   /**
    * This tool as the provider expects to receive it.
@@ -69,23 +83,6 @@ final class Registered[Ctx, In: Schema, Out: Schema] private[v4] (
       "parameters"  -> jsonSchema.json,
     ),
   )
-
-  /**
-   * Read the arguments a model wrote.
-   *
-   * @param written the JSON the model produced for this call
-   * @return the decoded arguments, or what to tell the model about its own JSON
-   */
-  private def decode(written: String): Either[String, In] =
-    JsonCodec.jsonDecoder(arguments).decodeJson(written).left.map(prefix)
-
-  /**
-   * Say that a decode failure was about the arguments.
-   *
-   * @param reason what the decoder reported
-   * @return the same reason, placed
-   */
-  private def prefix(reason: String): String = s"arguments did not parse: $reason"
 
   /**
    * The outcome for a call the tool answered.

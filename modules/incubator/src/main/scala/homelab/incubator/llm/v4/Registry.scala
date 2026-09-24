@@ -77,27 +77,8 @@ final class Registry[Ctx] private (
       case Some(problems) => ZIO.fail(Registry.Incomplete(problems))
       case None           =>
         ZIO
-          .filter(entries.values)(permitting(context))
-          .map(allowed => new Session(ListMap.from(allowed.map(byName)), context))
-
-  /**
-   * Whether one registered tool is available to a caller.
-   *
-   * @param context the caller context
-   * @param registered the tool to ask
-   * @return true when it is available; aborts when the tool cannot say
-   */
-  private def permitting(context: Ctx)(registered: Registered[Ctx, ?, ?]): IO[ApplicationError, Boolean] =
-    registered.permits(context)
-
-  /**
-   * One tool as the entry a session looks it up by.
-   *
-   * @param registered the tool
-   * @return its name paired with it
-   */
-  private def byName(registered: Registered[Ctx, ?, ?]): (String, Registered[Ctx, ?, ?]) =
-    registered.name -> registered
+          .filter(entries.values)(_.permits(context))
+          .map(allowed => Session(allowed.toList, context))
 }
 
 
