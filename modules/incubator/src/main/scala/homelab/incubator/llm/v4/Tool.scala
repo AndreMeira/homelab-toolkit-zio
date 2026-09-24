@@ -217,8 +217,9 @@ object Tool:
   /**
    * What a tool produced: the value, or the reason it could not.
    *
-   * Both reach the model as text, which [[render]] writes, and a loop looking for a particular value can
-   * match the success rather than read it back out of that text.
+   * Both reach the model as text, which [[render]] writes. A loop after something the tool produced matches
+   * the success rather than reading it back out of that text; one after what the model asked for reads the
+   * call instead, where [[Call.Decoded]] holds it.
    *
    * @tparam A what a successful value is
    */
