@@ -2,7 +2,7 @@
 title: "The conversation model — a store port, not a type that does everything"
 type: research
 status: draft
-updated: 2026-09-21
+updated: 2026-09-23
 tags: [llm, agent, conversation, transcript, ports, persistence, exploration, not-a-decision]
 ---
 
@@ -14,6 +14,11 @@ tags: [llm, agent, conversation, transcript, ports, persistence, exploration, no
 > the voice of working an idea out, not a commitment anything is expected to honour. Nothing in this note has
 > been implemented, reviewed against a running system, or promoted to [`../architecture/`](../architecture/).
 > Treat every shape in it as a candidate.
+
+> **Superseded in part (2026-09-23).** The `Standing` design below — `Promised`/`Delivered` handles on a
+> tool result, and `outstanding` folded over a conversation — was built in v4 and then removed. The reasons
+> and what replaces it are in [`tool-result-standing-removed.md`](./tool-result-standing-removed.md). The
+> rest of this note stands as written.
 
 Continues [`llm-design-exploration.md`](./llm-design-exploration.md), which left the transcript as a
 hand-wave — `state.asRequest`, `Conversation.from(request)` — while settling everything around it. That gap
@@ -834,6 +839,54 @@ finish because a child never answers. The deadline has to attach to the **promis
 call, since the case being covered is the one where no wait was ever made. That is the same clock §7's
 obligations already require, moved to where it is now needed.
 
+### Reading a tool's answer, and what survives the reading
+
+Some calls exist for the loop rather than for the model. A tool that ends the run is the clearest case:
+what it returns is not information the model needs, it is a decision the loop has to act on.
+
+The registry erases a tool's types at registration, which is what removes the existential from dispatch. So
+a loop has three ways to read such an answer, and only one of them is good:
+
+- **by name** — a set of tool names the loop treats specially. Works, and puts a fact about a tool in a
+  different file from the tool.
+- **by decoding again** — the loop parses the call's arguments with its own decoder. Works, and does twice
+  what registration already did once.
+- **by the value the tool produced** — dispatch keeps it beside the rendering, and the loop tests its type.
+
+The third is the one to take. An outcome carries `produced: Option[Matchable]` — the value before it was
+rendered, absent when the call failed — and a loop that knows what it is looking for finds it:
+
+```scala
+outcomes.collectFirst { case Outcome(_, _, Some(ending: Ending)) => ending }
+```
+
+The static type is long gone; the runtime case is not, and a case class is a case class. Nothing is decoded
+twice and no list of names exists to drift. It also means a tool that ends the run is *dispatched* like any
+other, which is worth having for its own sake: the transcript then holds the call and its answer, so the
+last turn is complete rather than ending on a call nobody answered — the shape a resumed run would
+otherwise read as suspended.
+
+**The drawback is that a produced value is not durable, and it is the important part.** What reaches the
+transcript is the rendering; the value lives for one turn, in memory. So a decision the loop makes from a
+produced value is made from something no checkpoint holds. For a run that dies and is over, that costs
+nothing. For a conversation that resumes it is a real constraint: whatever the loop concluded has to be
+re-derivable from the transcript, or recorded beside it — and re-deriving it means parsing the rendered
+text, which is the second decode the mechanism was avoiding, paid at resume instead of at runtime.
+
+Which draws the line between this and a standing. A standing is on the message, so it survives; a produced
+value is beside it, so it does not. Anything the loop must still know *after* a restart belongs in the
+first; anything it only needs while the turn is running can use the second.
+
+One rule comes with it. **A type the loop acts on must be produced by exactly one tool.** A type test does
+not say who produced the value, so the day a second tool returns the same type for a different reason — an
+assessment that says `GiveUp` where the first meant a decision — the loop ends a run on an opinion. Where
+two tools would share a type, the name is back as the disambiguator and nothing has been gained.
+
+Sketched in `llm/v3` and its playground: `Outcome.produced`, a single `terminate` tool whose result is an
+`Ending` enum, and a loop that reads it by type. The wire has one demand on that shape — a sum type cannot
+be a tool's *arguments*, since `parameters` must be one object — so the request wraps it, while the result
+stays the bare enum because results are never advertised.
+
 ### The obligations
 
 **Heartbeat, and stop when told.** A turn runs for minutes; the default lease is thirty seconds. The runner
@@ -872,6 +925,44 @@ torn write by construction rather than by a marker.
 What it does cost is that the transcript is no longer legal to send as it stands. Anything rendering a
 request has to know that a trailing unanswered call means "not ready" rather than "send it" — one more rule
 the renderer carries, and the reason §6's `advance` needs a third outcome rather than two.
+
+### Who wrote the message is the line to split on
+
+§2 chose messages that are one-to-one with the wire, and §4 then added a field the wire has no place for.
+Both are right, and the tension between them dissolves once the transcript is read by *author* rather than
+by shape.
+
+The API is stateless and returns **one** message per call — the assistant's new turn. Everything else in a
+transcript is written by us: the system instructions, the user's words, the result of every tool. So the
+transcript holds two kinds of thing:
+
+| | written by | may hold fields we did not model | must go back unchanged |
+|---|---|---|---|
+| assistant turn | the provider | yes | yes |
+| system, user, tool result | us | no | no |
+
+That settles two things that looked unrelated.
+
+**`standing` sits where it does for a reason.** It is an annotation with no wire field, and it lives on
+`ToolResult` — a message no provider authors. The one thing the wire cannot carry and the one thing the
+provider does not write are the same message, so they never collide. An annotation on an *assistant* turn
+would be a genuine problem; there is no reason to want one.
+
+**The verbatim risk is confined to a single message kind.** The wire format is explicit that an assistant
+turn goes back as it came, `tool_calls` and all, because it is part of the conversation rather than a
+summary of it. A modelled type can only promise that for fields it models: reasoning blocks, their
+signatures, cache markers and whatever a provider ships next are lost on the round trip, and some of them
+are required to be returned unchanged rather than merely useful. `Content.Raw` covers parts we noticed; it
+cannot cover parts we did not.
+
+Nothing has been changed for this. With one gateway and one model family, `Assistant(content, calls)` holds
+what is needed, and a design that survives a provider we do not use is speculation. What makes it safe to
+defer is that the fix is contained — **keep the provider's turn as it arrived and model only our own** —
+and it touches one branch of one enum rather than the transcript's shape.
+
+The trigger to revisit: a provider returns something in an assistant turn that has to be sent back and is
+neither content nor a tool call. That is the day the transcript stops being one algebra and becomes ours
+plus theirs, and it is worth recognising rather than patching with another `Raw`.
 
 ## 8. Least resolved of all
 

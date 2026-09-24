@@ -9,10 +9,10 @@ import zio.*
 
 
 /**
- * A named stepper whose lifecycle is `Init → Continue* → Done`. Given a non-terminal [[Step.Pending]], its
- * [[next]] produces the following [[Step]] — seeding on [[Step.Init]] (effectfully), advancing on
- * [[Step.Continue]], and it may finish ([[Step.Done]]) or restart ([[Step.Init]]). Because the domain is the
- * pending union, `next` is never handed a finished workflow — no phantom `Done` case to match.
+ * A named stepper whose lifecycle is `Init → Continue* → Done`. Given a [[Step.Current]], its [[next]]
+ * produces a [[Step.Next]] — seeding on [[Step.Init]] (effectfully), advancing on [[Step.Continue]], and in
+ * either case carrying on or finishing. The two unions keep the phantom cases out at both ends: `next` is
+ * never handed a finished workflow, and never produces a seed.
  *
  * The `Workflow` is only the *behaviour*. How it is run is layered on by combinators that each return
  * another `Workflow`: [[run]] alone steps in memory, [[persisted]] makes it durable and resumable,
@@ -33,12 +33,12 @@ trait Workflow[-R, +E, I, S, +O]:
   def name: String = getClass.getSimpleName
 
   /**
-   * The transition: given a non-terminal cursor, produce the next [[Step]] — seed on [[Step.Init]], advance
-   * on [[Step.Continue]], or terminate ([[Step.Done]]) / restart ([[Step.Init]]).
+   * The transition: given a non-terminal cursor, produce what follows it — seed on [[Step.Init]], advance on
+   * [[Step.Continue]], and in either case carry on ([[Step.Continue]]) or terminate ([[Step.Done]]).
    *
    * @return the transition function; fails with `E` if the step fails
    */
-  def next: Step.Pending[I, S] => ZIO[R, E, Step[I, S, O]]
+  def next: Step.Current[I, S] => ZIO[R, E, Step.Next[S, O]]
 
   /**
    * Run the stepper in memory from `input` until [[next]] finishes, without persistence. Stack-safe (ZIO's
@@ -50,28 +50,37 @@ trait Workflow[-R, +E, I, S, +O]:
   def run(input: I): ZIO[R, E, O] = loop(Step.Init(input))
 
   /**
-   * Wrap this workflow so every step it produces passes through `fn` before the runner acts on it. The
-   * original [[next]] still decides; `fn` sees its [[Step]] and may rewrite it — continue with different
-   * state, finish early, restart, or map a [[Step.Done]]'s output to a new type. Because `fn` receives the
-   * *whole* step, `Done` included, the original output `O` is consumed rather than propagated and `O2` is
-   * free of it; `E2` must admit `E` because the wrapped `next` still runs and can still fail.
+   * Wrap this workflow so `fn` sees each step twice — as the cursor a transition is about to be taken from,
+   * and as what the wrapped [[next]] produced from it — and may rewrite either: continue with different
+   * state, finish early, or map a [[Step.Done]]'s output to a new type. Because `fn` receives the *whole*
+   * [[Step]], [[Step.Init]] and [[Step.Done]] included, the original output `O` is consumed rather than
+   * propagated and `O2` is free of it; `E2` must admit `E` because the wrapped `next` still runs and can
+   * still fail.
+   *
+   * `fn` answers with a [[Step.Next]], so a [[Step.Init]] reaches it to be observed and replaced: what it
+   * returns in that seed's place is what the wrapped `next` advances from. Answering [[Step.Done]] to a
+   * cursor ends the run there, and the wrapped `next` does not run for that step.
    *
    * The [[name]] is carried over, so an intercepted workflow checkpoints to — and resumes from — the same
    * slots as the one it wraps.
    *
-   * @param fn the interceptor: given what [[next]] produced, produce the step the runner acts on
+   * @param fn the interceptor: given a cursor, or what [[next]] produced from one, produce the step the
+   *           runner acts on
    * @tparam R2 the environment `fn` needs, intersected with this workflow's own
    * @tparam E2 the error the wrapped pair may fail with — a supertype of `E`, since [[next]] still runs
    * @tparam O2 the output `fn` finishes with, replacing `O`
    * @return a workflow of the same name whose transition is this one followed by `fn`
    */
   def intercept[R2, E2 >: E, O2](
-    fn: Step[I, S, O] => ZIO[R2, E2, Step[I, S, O2]]
+    fn: Step[I, S, O] => ZIO[R2, E2, Step.Next[S, O2]]
   ): Workflow[R & R2, E2, I, S, O2] = new Workflow[R & R2, E2, I, S, O2] {
     override def name: String = self.name
 
-    def next: Step.Pending[I, S] => ZIO[R & R2, E2, Step[I, S, O2]] =
-      cursor => self.next(cursor).flatMap(fn)
+    def next: Step.Current[I, S] => ZIO[R & R2, E2, Step.Next[S, O2]] = cursor =>
+      fn(cursor).flatMap {
+        case Step.Continue(state) => self.next(Step.Continue(state)).flatMap(fn)
+        case Step.Done(output)    => ZIO.succeed(Step.Done(output))
+      }
   }
 
   /**
@@ -88,9 +97,13 @@ trait Workflow[-R, +E, I, S, +O]:
    * @tparam E2 the error the pair may fail with — a supertype of `E`, since a failing `fn` aborts the step
    * @return a workflow of the same name and shape, running `fn` on each step it produces
    */
-  def tap[R2, E2 >: E](
-    fn: Step[I, S, O] => ZIO[R2, E2, Unit]
-  ): Workflow[R & R2, E2, I, S, O] = intercept(step => fn(step).as(step))
+  def tap[R2, E2 >: E](fn: Step.Next[S, O] => ZIO[R2, E2, Unit]): Workflow[R & R2, E2, I, S, O] =
+    new Workflow[R & R2, E2, I, S, O] {
+      override def name: String = self.name
+
+      def next: Step.Current[I, S] => ZIO[R & R2, E2, Step.Next[S, O]] =
+        cursor => self.next(cursor).tap(fn)
+    }
 
   /**
    * Make this workflow durable and resumable against `store`: [[run]] loads any checkpoint left under its
@@ -100,8 +113,7 @@ trait Workflow[-R, +E, I, S, +O]:
    *
    * Persistence lives in [[run]], not in [[next]] — the transition is unchanged and still says nothing about
    * storage, so a persisted workflow keeps the same [[name]] and the same step semantics as the one it wraps.
-   * A restart mid-run ([[Step.Init]]) re-seeds the *state* but keeps checkpointing under the original input,
-   * so a run's slot is fixed for its whole life.
+   * Every write goes under the input the run was seeded from, so a run's slot is fixed for its whole life.
    *
    * This persists but does not serialise: nothing stops two concurrent runs of the same input from
    * interleaving their checkpoints. Where that matters, guard the run with a lock (see
@@ -115,7 +127,7 @@ trait Workflow[-R, +E, I, S, +O]:
     new Workflow[R, E | AdapterError, I, S, O] {
       override def name: String = self.name
 
-      def next: Step.Pending[I, S] => ZIO[R, E | AdapterError, Step[I, S, O]] =
+      def next: Step.Current[I, S] => ZIO[R, E | AdapterError, Step.Next[S, O]] =
         self.next
 
       override def run(input: I): ZIO[R, E | AdapterError, O] =
@@ -124,10 +136,9 @@ trait Workflow[-R, +E, I, S, +O]:
         }
 
       /**
-       * Step to completion from `cursor`, checkpointing to `store` as it goes: write each new state, delete the
-       * slot on [[Step.Done]], and carry a restart ([[Step.Init]]) without touching storage — its re-seeded state
-       * is checkpointed by the step that follows. Every write goes under `input`, so a run's slot is fixed for
-       * its whole life however the cursor moves. Threads the cursor in memory, so no step re-reads the store.
+       * Step to completion from `cursor`, checkpointing to `store` as it goes: write each new state and delete
+       * the slot on [[Step.Done]]. Every write goes under `input`, so a run's slot is fixed for its whole life.
+       * Threads the cursor in memory, so no step re-reads the store.
        *
        * The loop behind [[persisted]], kept here rather than inside it so the recursion is nameable and the
        * three things it depends on are stated rather than closed over.
@@ -136,9 +147,8 @@ trait Workflow[-R, +E, I, S, +O]:
        * @param cursor the non-terminal cursor to step from
        * @return the output; fails with `E` if a step fails, or `AdapterError` if the store does
        */
-      private def checkpointing(input: I, cursor: Step.Pending[I, S]): ZIO[R, E | AdapterError, O] =
+      private def checkpointing(input: I, cursor: Step.Current[I, S]): ZIO[R, E | AdapterError, O] =
         next(cursor).flatMap {
-          case Step.Init(seed)      => checkpointing(input, Step.Init(seed))
           case Step.Continue(state) => store.set(input, state) *> checkpointing(input, Step.Continue(state))
           case Step.Done(output)    => store.delete(input).as(output)
         }
@@ -161,7 +171,7 @@ trait Workflow[-R, +E, I, S, +O]:
     new Workflow[R, E, I, S, O] {
       override def name: String = self.name
 
-      def next: Step.Pending[I, S] => ZIO[R, E, Step[I, S, O]] = self.next
+      def next: Step.Current[I, S] => ZIO[R, E, Step.Next[S, O]] = self.next
 
       override def run(input: I): ZIO[R, E, O] = lock.withPermit(input)(self.run(input))
     }
@@ -172,9 +182,8 @@ trait Workflow[-R, +E, I, S, +O]:
    * @param cursor the non-terminal cursor to step from
    * @return the output; fails with `E` if any step fails
    */
-  private def loop(cursor: Step.Pending[I, S]): ZIO[R, E, O] =
+  private def loop(cursor: Step.Current[I, S]): ZIO[R, E, O] =
     next(cursor).flatMap {
-      case Step.Init(input)     => loop(Step.Init(input))
       case Step.Continue(state) => loop(Step.Continue(state))
       case Step.Done(output)    => ZIO.succeed(output)
     }
@@ -184,10 +193,11 @@ object Workflow:
 
   /**
    * A step of a [[Workflow]]'s lifecycle: seed from an input, continue with a new state, or finish with an
-   * output. [[Init]] makes seeding a first-class, *effectful* step (via [[Workflow.next]]) and doubles as the
-   * restart signal; [[Done]] is terminal.
+   * output. [[Init]] makes seeding a first-class, *effectful* step (via [[Workflow.next]]); [[Done]] is
+   * terminal. [[Current]] is what a step is taken from and [[Next]] is what one produces, so a seed is where
+   * a run begins rather than somewhere a step arrives.
    *
-   * @tparam I the input a run (or restart) seeds from
+   * @tparam I the input a run seeds from
    * @tparam S the state advanced from step to step
    * @tparam O the output produced when the workflow finishes
    */
@@ -195,16 +205,27 @@ object Workflow:
 
   object Step:
 
-    /** 
-     * The non-terminal cursors — the only things [[Workflow.next]] can step *from*. 
+    /**
+     * The non-terminal cursors — the only things [[Workflow.next]] can step *from*.
+     *
+     * @tparam I the input a seed carries
+     * @tparam S the state a continuing step carries
      */
-    type Pending[+I, +S] = Init[I] | Continue[S]
+    type Current[+I, +S] = Init[I] | Continue[S]
 
     /**
-     * Seed (or re-seed) the workflow from `input`.
+     * What a transition yields — the only things [[Workflow.next]] can step *to*.
      *
-     * @param input the value used to seed the next effectful transition
-     * @tparam I the input a run (or restart) seeds from
+     * @tparam S the state a continuing step carries
+     * @tparam O the output a finishing step carries
+     */
+    type Next[+S, +O] = Continue[S] | Done[O]
+
+    /**
+     * Seed the workflow from `input`.
+     *
+     * @param input the value used to seed the first effectful transition
+     * @tparam I the input a run seeds from
      */
     case class Init[+I](input: I) extends Step[I, Nothing, Nothing]
 
@@ -225,34 +246,34 @@ object Workflow:
     case class Done[+O](output: O) extends Step[Nothing, Nothing, O]
 
     /**
-     * Smart constructor for [[Continue]] widened to [[Pending]], so a call site produces a cursor without
+     * Smart constructor for [[Continue]], so a call site produces a cursor without
      * naming `I`.
      *
      * @param state the state to continue with
      * @tparam S the state type
      * @return the continue cursor
      */
-    def continue[S](state: S): Pending[Nothing, S] = Continue(state)
+    def continue[S](state: S): Continue[S] = Continue(state)
 
     /**
-     * Smart constructor for [[Init]] widened to [[Pending]], so a call site produces a cursor without naming
+     * Smart constructor for [[Init]] widened to [[Current]], so a call site produces a cursor without naming
      * `S`.
      *
      * @param input the input to seed from
      * @tparam I the input type
      * @return the init cursor
      */
-    def init[I](input: I): Pending[I, Nothing] = Init(input)
+    def init[I](input: I): Current[I, Nothing] = Init(input)
 
     /** [[Init]]'s companion — the case class constructor, plus its already-lifted form. */
     object Init:
 
       /**
-       * [[Init]] lifted into an effect, so seeding and restarting read like the other two steps at a call
-       * site — `Step.Init.succeed(id)` rather than `ZIO.succeed(Step.Init(id))`. Seeding is the step most
-       * likely to do real work, so this is the exception rather than the rule here.
+       * [[Init]] lifted into an effect, so seeding reads like the other two steps at a call site —
+       * `Step.Init.succeed(id)` rather than `ZIO.succeed(Step.Init(id))`. Seeding is the step most likely to
+       * do real work, so this is the exception rather than the rule here.
        *
-       * @param value the input to seed (or re-seed) from
+       * @param value the input to seed from
        * @tparam A the input type
        * @return the init step, already succeeded
        */
@@ -288,7 +309,7 @@ object Workflow:
    * Build a [[Workflow]] from a name and a transition, without declaring a subtype.
    *
    * @param name the workflow's identity — namespaces its persisted state
-   * @param next the transition: given a non-terminal cursor, produce the next [[Step]]
+   * @param next the transition: given a non-terminal cursor, produce a [[Step.Next]]
    * @tparam R the environment each step needs
    * @tparam E the error a step may fail with
    * @tparam I the input a run seeds from
@@ -299,11 +320,11 @@ object Workflow:
   def make[R, E, I, S, O](
     name: String
   )(
-    next: Step.Pending[I, S] => ZIO[R, E, Step[I, S, O]]
+    next: Step.Current[I, S] => ZIO[R, E, Step.Next[S, O]]
   ): Workflow[R, E, I, S, O] =
     // Capture so the same-named overrides below don't resolve to themselves.
     val workflowName = name
     val transition   = next
     new Workflow[R, E, I, S, O]:
-      override def name: String                                = workflowName
-      def next: Step.Pending[I, S] => ZIO[R, E, Step[I, S, O]] = transition
+      override def name: String                                  = workflowName
+      def next: Step.Current[I, S] => ZIO[R, E, Step.Next[S, O]] = transition
