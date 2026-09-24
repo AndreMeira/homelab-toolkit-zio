@@ -3,7 +3,7 @@ title: "Reading what the model asked for — why a call carries its decoded argu
 type: research
 status: current
 updated: 2026-09-24
-tags: [llm, agent, tool, loop, types, v4]
+tags: [llm, agent, tool, loop, types, extraction, structured-output, v4]
 ---
 
 # Reading what the model asked for
@@ -89,6 +89,91 @@ final case class Tools(name: Tool[UserId, Int, String], city: Tool[UserId, Int, 
 
 A loop with that has `In` concretely per branch, and `Tool.decoded` reads a raw call with no registry in
 the way — which also works *before* dispatch, for a loop deciding whether to run a call at all.
+
+## A tool as a shape
+
+Taken to its end, a signal tool stops signalling anything and becomes a way of asking the model for a
+shape. The tool does nothing; its arguments are the product.
+
+> "Restate the weather you just described as structured data."
+>
+> The model has said `the weather is sunny, 18°C`. The call it makes carries `Weather(Sunny, 18, Celsius)`.
+
+```scala
+enum Sky derives Schema:
+  case Sunny, Cloudy, Overcast
+
+enum Unit derives Schema:
+  case Celsius, Fahrenheit
+
+final case class Weather(sky: Sky, temperature: Int, unit: Unit) derives Schema
+
+val formatted: Tool[Any, Weather, String] =
+  Tool.Definition("formatted", "Restate the weather you just described as structured data.") {
+    (_: Any) => (_: Weather) => ZIO.succeed(Result.success("recorded"))
+  }
+```
+
+and the loop takes the shape off the call:
+
+```scala
+outcomes.map(_.call).collect { case Tool.Call.Decoded(_, _, w: Weather) => w }
+```
+
+This is what tool calling was used for before providers had structured-output modes, and it is still the
+mechanism underneath most of them.
+
+**Make every field an enum that can be one.** A `unit: String` gets `"C"`, `"°C"`, `"celsius"` and
+`"Celsius"` across four runs; `Unit` renders as `{"type":"string","enum":["Celsius","Fahrenheit"]}` and a
+strict-mode provider enforces it. The difference between extraction that works and extraction that has to
+be normalised afterwards is usually just this.
+
+Three things that are not obvious the first time:
+
+- **Nothing forces the model to call it.** It may answer in prose and stop. Providers take `tool_choice` to
+  force a named function; `Model.Request.extra` is where that goes, since the port does not model it.
+- **Keep it out of the agent's registry.** An extraction tool sitting beside `search` and `terminate`
+  invites the model to call it at odd moments. A registry holding only that tool, used for a call of its
+  own, keeps the agent's list about what the agent does.
+- **Decide where the loop stops.** After the call is dispatched, `Progress` reads `AwaitingModel` and a
+  general agent asks again — a round trip to say nothing. Extraction wants to stop as soon as it has the
+  `Decoded`. That is a loop policy, which is why `agent/Basic` is the general form and this is a workflow of
+  its own.
+
+## What providers guarantee
+
+Two different things travel under "structured output", and only one is useful here. **JSON mode** promises
+valid JSON and nothing about its shape. **Schema-constrained** output conforms to a schema you supply,
+usually by constraining decoding.
+
+| Provider | Shape |
+|---|---|
+| OpenAI | `response_format: {type: "json_schema", json_schema: {…, strict: true}}`, and `strict: true` on function definitions |
+| Azure OpenAI | the same |
+| Google Gemini | `responseMimeType: "application/json"` plus `responseSchema`, an OpenAPI-3 subset |
+| Mistral | custom structured outputs with a schema |
+| Cohere | `response_format: {type: "json_object", schema: …}` |
+| Ollama, vLLM, llama.cpp | grammar-constrained decoding — arbitrary grammars, so stricter than a schema |
+| OpenRouter | passes `response_format` through where the provider under it supports one |
+
+Anthropic is the one to check rather than assume: its mechanism has been tool use with `input_schema` and a
+forced `tool_choice`, with schema-constrained output moving through beta.
+
+**The part that matters here: strict tool use is the same machinery pointed at the arguments.** OpenAI's
+`strict: true` on a function guarantees the model's arguments conform to `parameters` by the same
+constrained decoding. So asking for a shape through a tool call is not the fallback for providers without
+structured output — where strict functions exist it carries the same guarantee, and it stays portable to
+where they do not.
+
+And the subset in `llm/v4/schema` already fits. Strict mode demands `additionalProperties: false`
+everywhere, every property in `required`, and refuses validation keywords like `minLength` and `pattern` —
+which is what [`the schema ADT`](../learning-material/json-schema-as-scala.md) renders and nothing else.
+Optionality is the one difference: strict mode wants `anyOf[T, null]` rather than an omission, and
+`Generator` already emits both. A `strict` flag on an advertised function would mostly just work, through
+`Request.extra` or an adapter that knows.
+
+This table was written against knowledge current to May 2026 and the area moves; check the provider you are
+about to write an adapter for.
 
 ## What output is still for
 
