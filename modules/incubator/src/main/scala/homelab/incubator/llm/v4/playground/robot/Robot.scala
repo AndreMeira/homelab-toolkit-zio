@@ -124,15 +124,15 @@ final class Robot(
   /**
    * The ending an outcome carries, when it carries one.
    *
-   * Read off the value the tool made rather than off the text it renders to, and by type rather than by
-   * the tool's name — so the loop needs no list of names and no second decode.
+   * Read off what the model asked for rather than off anything a tool produced, and by type rather than by
+   * name — so the loop needs no list of names, and the tool that ends a run needs no result worth having.
    *
    * @param outcome what dispatch produced
    * @return the ending, or nothing when this outcome was some other tool's
    */
-  private def ending(outcome: Outcome): Option[RigTools.Ending] = outcome.result match
-    case Tool.Result.Succeeded(found: RigTools.Ending) => Some(found)
-    case _                                             => None
+  private def ending(outcome: Outcome): Option[RigTools.Ending] = outcome.call match
+    case Tool.Call.Decoded(_, _, asked: RigTools.Terminate) => Some(asked.ending)
+    case _                                                  => None
 
   /**
    * What the rig imposes on every run, in the words the model reads first.

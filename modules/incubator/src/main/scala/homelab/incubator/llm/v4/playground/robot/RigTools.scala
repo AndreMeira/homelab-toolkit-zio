@@ -155,14 +155,14 @@ object RigTools {
   final case class Terminate(ending: Ending) derives Schema
 
   /**
-   * End the run. Nothing is done to the rig: the ending goes back as the produced value, and the loop reads
-   * it there.
+   * End the run. Nothing is done to the rig, and nothing is produced worth reading: what the run ends as is
+   * what the model wrote, and the loop reads it off the call.
    */
-  val terminate: Tool[Rig, Terminate, Ending] = Tool.Definition(
+  val terminate: Tool[Rig, Terminate, String] = Tool.Definition(
     "terminate",
     "End the task: done when fresh observations establish the outcome, give_up when it cannot be completed.",
-  ) { (_: Rig) => (input: Terminate) =>
-    ZIO.succeed(Result.success(input.ending))
+  ) { (_: Rig) => (_: Terminate) =>
+    ZIO.succeed(Result.success("ending recorded"))
   }
 
   /**
