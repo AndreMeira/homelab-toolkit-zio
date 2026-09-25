@@ -18,7 +18,7 @@ import scala.collection.immutable.ListMap
  *
  * @param entries the registered tools, by name, in registration order
  * @param rejected the tools that could not be described, in the order they were added
- * @tparam Ctx the caller context every tool here accepts
+ * @tparam Ctx what the caller supplies, which every tool here accepts — see [[Tool]]
  */
 final class Registry[Ctx] private (
   entries: ListMap[String, Registered[Ctx, ?, ?]],
@@ -68,7 +68,7 @@ final class Registry[Ctx] private (
    * Every tool is asked once, here, rather than at each dispatch: what a caller may use is decided when the
    * session is built, so the list advertised to the model and the list it may call are the same list.
    *
-   * @param context the caller context every dispatch will carry
+   * @param context the caller's context every dispatch will carry
    * @return the tools this caller may use; aborts with [[Registry.Incomplete]] when any tool was set aside,
    *         and with the tool's own error when one cannot say whether it permits this caller
    */
@@ -88,7 +88,7 @@ object Registry {
    * A registry holding one tool.
    *
    * @param tool the tool to register
-   * @tparam Ctx the caller context every tool here accepts
+   * @tparam Ctx what the caller supplies, which every tool here accepts — see [[Tool]]
    * @tparam In the arguments the model chooses
    * @tparam Out what it produces
    * @return a registry holding it, or holding a rejection for it
@@ -108,7 +108,7 @@ object Registry {
   /**
    * An empty registry.
    *
-   * @tparam Ctx the caller context every tool will accept
+   * @tparam Ctx the caller's context every tool will accept
    * @return the registry
    */
   def empty[Ctx]: Registry[Ctx] = new Registry(ListMap.empty, Chunk.empty)

@@ -11,8 +11,8 @@ import scala.collection.immutable.ListMap
  * A registry bound to one caller, and the only thing that runs a tool.
  *
  * @param permitted the tools this caller may use, already filtered
- * @param context the caller context handed to every dispatch
- * @tparam Ctx the caller context
+ * @param context the caller's context handed to every dispatch
+ * @tparam Ctx what the caller supplies — see [[Tool]]
  */
 final class Session[Ctx] private[v4] (permitted: ListMap[String, Registered[Ctx, ?, ?]], context: Ctx) {
 
@@ -78,8 +78,8 @@ object Session:
    * [[Session.advertised]] offers a model is the order the tools were given in.
    *
    * @param registered the tools this caller may use, already filtered
-   * @param context the caller context every dispatch will carry
-   * @tparam Ctx the caller context
+   * @param context the caller's context every dispatch will carry
+   * @tparam Ctx what the caller supplies — see [[Tool]]
    * @return the session
    */
   def apply[Ctx](registered: List[Registered[Ctx, ?, ?]], context: Ctx): Session[Ctx] =

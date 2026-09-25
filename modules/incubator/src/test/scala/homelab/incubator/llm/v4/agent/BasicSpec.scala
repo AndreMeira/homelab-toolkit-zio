@@ -3,10 +3,11 @@ package homelab.incubator.llm.v4.agent
 
 import homelab.common.error.ApplicationError
 import homelab.common.store.KeyValueStore
-import homelab.incubator.llm.v4.{ Message, Model, Registry, Tool }
-import zio.schema.{ Schema, derived }
+import homelab.incubator.llm.v4.playground.agent.Basic
+import homelab.incubator.llm.v4.{Message, Model, Registry, Tool}
+import zio.schema.{Schema, derived}
 import zio.test.*
-import zio.{ Chunk, IO, Ref, Scope, UIO, ZIO }
+import zio.{Chunk, IO, Ref, Scope, UIO, ZIO}
 
 
 /** The loop the simplest agent runs, driven by nothing but the conversation it has so far. */

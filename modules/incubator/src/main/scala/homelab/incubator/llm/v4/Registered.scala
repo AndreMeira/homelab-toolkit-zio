@@ -17,7 +17,7 @@ import zio.{ IO, UIO, ZIO }
  *
  * @param tool what was registered
  * @param jsonSchema its arguments as the model is told them
- * @tparam Ctx the caller context
+ * @tparam Ctx what the caller supplies — see [[Tool]]
  * @tparam In the arguments the model chooses
  * @tparam Out what the tool produces
  */
@@ -32,7 +32,7 @@ final class Registered[Ctx, In, Out: Schema] private[v4] (
   /**
    * Whether this caller may use it.
    *
-   * @param context the caller context
+   * @param context the caller's context
    * @return true when it is available to this caller; aborts when the tool cannot say
    */
   def permits(context: Ctx): IO[ApplicationError, Boolean] = tool.permits(context)
@@ -61,7 +61,7 @@ final class Registered[Ctx, In, Out: Schema] private[v4] (
    * Everything the model could react to becomes its text: arguments that did not parse, and an abort, which
    * reaches the model as [[Registry.Withheld]] and an operator as a log line.
    *
-   * @param context the caller context
+   * @param context the caller's context
    * @param call the call, whose arguments are the JSON the model wrote
    * @return the outcome; never fails
    */

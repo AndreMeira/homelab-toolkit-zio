@@ -1,5 +1,4 @@
-package homelab.incubator.llm.v4.agent
-
+package homelab.incubator.llm.v4.playground.agent
 
 import homelab.common.error.ApplicationError
 import homelab.common.processing.Workflow
@@ -19,7 +18,7 @@ import zio.{ Chunk, IO, NonEmptyChunk, ZIO }
  * by `serialised`, none of which this knows about. The state is the conversation, so a run resumed from a
  * checkpoint resumes by reading it — there is nothing else to restore.
  *
- * @tparam Ctx the caller context every tool call carries
+ * @tparam Ctx the caller's context every tool call carries
  */
 trait Basic[Ctx] extends Workflow[Any, ApplicationError, String, Chunk[Message], Chunk[Message.Content]] {
 
@@ -85,7 +84,7 @@ trait Basic[Ctx] extends Workflow[Any, ApplicationError, String, Chunk[Message],
    *         model has already had its budget of turns, and with the model's own error when it refuses
    */
   private def ask(messages: Chunk[Message]): IO[ApplicationError, Next] =
-    if turns(messages) >= budget 
+    if turns(messages) >= budget
     then ZIO.fail(Basic.Exhausted(name, budget))
     else
       for

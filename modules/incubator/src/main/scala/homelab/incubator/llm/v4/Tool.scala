@@ -15,10 +15,15 @@ import zio.{ IO, ZIO }
  * result is rendered from — so nothing downstream names those types again to describe or decode them.
  *
  * The trust boundary runs through the arguments. `Input` is what the *model* chooses, and is the only half
- * described to it; `Ctx` is what the *caller* supplies — the user, the tenant, the namespace this call must be
- * confined to — and never appears in a schema. A prompt injection cannot set what the model was never offered.
+ * described to it; `Ctx` is what the *caller* supplies — the user, the tenant, the rig, the namespace this
+ * call must be confined to — and never appears in a schema. A prompt injection cannot set what the model was
+ * never offered.
  *
- * @tparam Ctx the caller context, joined to the model's arguments in [[handle]]
+ * `Ctx` is the caller's context and not the model's: it is neither the conversation nor anything the model
+ * can read, and a call carries it because the session was bound to it rather than because the model asked.
+ * Where the two might be confused, the one a model sees is [[Message]].
+ *
+ * @tparam Ctx what the caller supplies, joined to the model's arguments in [[handle]]
  * @tparam Input the arguments the model chooses, described to it from its schema
  * @tparam Output the result, which reaches the model as text written by its schema
  */
@@ -38,7 +43,7 @@ trait Tool[Ctx, Input: Schema, Output: Schema] {
    * pure signature would force every one of those to be resolved into `Ctx` before anyone knows which
    * tools will be asked about.
    *
-   * @param context the caller context
+   * @param context the caller's context
    * @return true when the tool is available to this caller; aborts when the answer cannot be established,
    *         which refuses the session rather than assuming either way
    */
@@ -98,7 +103,7 @@ trait Tool[Ctx, Input: Schema, Output: Schema] {
   /**
    * Run the tool — where the untrusted and the trusted halves of the arguments meet.
    *
-   * @param context the caller context, supplied by the session
+   * @param context the caller's context, supplied by the session
    * @param input the arguments the model chose
    * @return what it produced; aborts only on failures the *model* cannot do anything about
    */
@@ -182,7 +187,7 @@ object Tool:
    *
    * @param name the name the model calls it by
    * @param description what it is for, in the words the model reads
-   * @tparam Ctx the caller context
+   * @tparam Ctx the caller's context
    * @tparam Input the arguments the model chooses
    * @tparam Output what it produces
    */
@@ -199,7 +204,7 @@ object Tool:
      * @param name the name the model calls it by
      * @param description what it is for, in the words the model reads
      * @param fn what it does, given the caller's context and the model's arguments
-     * @tparam Ctx the caller context
+     * @tparam Ctx the caller's context
      * @tparam Input the arguments the model chooses
      * @tparam Output what it produces
      * @return the tool
