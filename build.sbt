@@ -154,6 +154,23 @@ lazy val llm = project
   )
 
 
+// LLM adapter — the chat-completions protocol OpenAI defined and many now serve: OpenRouter, OpenAI itself,
+// the fast-inference hosts, and servers run locally. The DTOs are the protocol's; a provider is a preset on
+// `ChatCompletionModel`'s companion, since what differs between them is an endpoint and a header or two.
+lazy val llmOpenai = project
+  .in(file("modules/llm-openai"))
+  .dependsOn(common, llm)
+  .settings(
+    name := "homelab-llm-openai",
+    libraryDependencies ++= Seq(
+      "com.softwaremill.sttp.client4" %% "zio"          % sttpVersion,
+      "dev.zio"                       %% "zio-test"     % zioVersion % Test,
+      "dev.zio"                       %% "zio-test-sbt" % zioVersion % Test,
+    ),
+    testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
+  )
+
+
 // Messaging adapter — NATS (Core NATS ephemeral pub/sub + JetStream durable delivery), promoted from the
 // llm's messaging/nats sketches. Implements the common `messaging` ports; ZStream is an internal
 // bridge detail (never surfaced). Integration tests via Testcontainers (a JetStream-enabled nats server).
@@ -213,7 +230,7 @@ lazy val incubator = project
 
 lazy val root = project
   .in(file("."))
-  .aggregate(common, postgres, telemetry, auth, llm, incubator, nats)
+  .aggregate(common, postgres, telemetry, auth, llm, llmOpenai, incubator, nats)
   .settings(
     name           := "homelab-toolkit-zio",
     publish / skip := true,
