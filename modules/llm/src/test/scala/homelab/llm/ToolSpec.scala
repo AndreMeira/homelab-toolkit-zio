@@ -62,7 +62,7 @@ object ToolSpec extends ZIOSpecDefault:
       },
       test("one that cannot say refuses rather than assuming either way") {
         val guarded = new Tool.Definition[String, Where, Reading]("weather", "…") {
-          override def permits(context: String): IO[ApplicationError, Boolean] = ZIO.fail(Refused("no idea"))
+          override def permits(context: String): IO[ApplicationError, Boolean]                           = ZIO.fail(Refused("no idea"))
           override def handle(context: String, input: Where): IO[ApplicationError, Tool.Result[Reading]] =
             ZIO.succeed(Tool.Result.success(Reading(0.0)))
         }

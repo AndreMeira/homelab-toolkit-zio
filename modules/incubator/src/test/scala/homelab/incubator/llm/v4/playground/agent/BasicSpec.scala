@@ -3,10 +3,10 @@ package homelab.incubator.llm.v4.playground.agent
 
 import homelab.common.error.ApplicationError
 import homelab.common.store.KeyValueStore
-import homelab.llm.{Message, Model, Registry, Tool}
-import zio.schema.{Schema, derived}
+import homelab.llm.{ Message, Model, Registry, Tool }
+import zio.schema.{ Schema, derived }
 import zio.test.*
-import zio.{Chunk, IO, Ref, Scope, UIO, ZIO}
+import zio.{ Chunk, IO, Ref, Scope, UIO, ZIO }
 
 
 /** The loop the simplest agent runs, driven by nothing but the conversation it has so far. */
@@ -37,8 +37,7 @@ object BasicSpec extends ZIOSpecDefault:
     )
 
   /** A model that reads its answers off a script, and keeps every request it was handed. */
-  private final class Scripted(script: Ref[List[Model.Completion]], seen: Ref[Chunk[Model.Request]])
-      extends Model[Nothing]:
+  final private class Scripted(script: Ref[List[Model.Completion]], seen: Ref[Chunk[Model.Request]]) extends Model[Nothing]:
 
     override def complete(model: Model.Name, request: Model.Request): IO[Nothing, Model.Completion] =
       seen.update(_ :+ request) *> script.modify(take)
@@ -48,7 +47,7 @@ object BasicSpec extends ZIOSpecDefault:
         case head :: tail => (head, tail)
         case Nil          => (said("nothing left to say"), Nil)
 
-  private final class Weatherman(
+  final private class Weatherman(
     override val model: Model.Fixed[ApplicationError.AdapterError],
     override val budget: Int = 16,
   ) extends Basic[Unit]:
@@ -83,8 +82,8 @@ object BasicSpec extends ZIOSpecDefault:
         _             <- weatherman(model).run("what is the weather in Hamburg?")
         requests      <- seen.get
       yield assertTrue(
-        toolAnswers(requests.head).isEmpty,                        // nothing has run yet
-        toolAnswers(requests(1)) == text("""{"degrees":12.0}"""),  // the tool's value, written by its schema
+        toolAnswers(requests.head).isEmpty,                       // nothing has run yet
+        toolAnswers(requests(1)) == text("""{"degrees":12.0}"""), // the tool's value, written by its schema
         requests(1).messages.head == Message.System(text("Answer with the temperature.")),
       )
     },

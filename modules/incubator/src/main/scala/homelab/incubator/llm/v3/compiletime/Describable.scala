@@ -1,6 +1,5 @@
 package homelab.incubator.llm.v3.compiletime
 
-
 import scala.quoted.*
 
 
@@ -51,10 +50,9 @@ object Describable {
       val symbol  = widened.typeSymbol
       val name    = symbol.name
 
-      if name == "Map" || name.startsWith("Tuple") && name != "Tuple$package" then
-        refuse(s"a $name", path)
+      if name == "Map" || name.startsWith("Tuple") && name != "Tuple$package" then refuse(s"a $name", path)
       else if widened =:= TypeRepr.of[Unit] then refuse("Unit", path)
-      else if seen.contains(symbol) then ()                       // a recursive knot: walked already
+      else if seen.contains(symbol) then () // a recursive knot: walked already
       else
         val next = seen + symbol
         widened match

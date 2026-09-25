@@ -68,5 +68,3 @@ final case class JsonSchema(root: Node, definitions: ListMap[String, Node] = Lis
     case Shape.AnyOf(a, b, rest) => (a :: b :: rest).flatMap(names).toSet
     case _                       => Set.empty
 }
-
-

@@ -16,10 +16,10 @@ trait Generated[A] {
 
 object Generated {
 
-  given Generated[String]  = new Generated[String]  { def node: Node = Node.text    }
-  given Generated[Int]     = new Generated[Int]     { def node: Node = Node.integer }
-  given Generated[Long]    = new Generated[Long]    { def node: Node = Node.integer }
-  given Generated[Double]  = new Generated[Double]  { def node: Node = Node.number  }
+  given Generated[String]  = new Generated[String] { def node: Node = Node.text }
+  given Generated[Int]     = new Generated[Int] { def node: Node = Node.integer }
+  given Generated[Long]    = new Generated[Long] { def node: Node = Node.integer }
+  given Generated[Double]  = new Generated[Double] { def node: Node = Node.number }
   given Generated[Boolean] = new Generated[Boolean] { def node: Node = Node.boolean }
 
   given list[A](using inner: Generated[A]): Generated[List[A]] = new Generated[List[A]] {
@@ -35,11 +35,11 @@ object Generated {
     val built = Node.obj(fields(labels[mirror.MirroredElemLabels], instances[mirror.MirroredElemTypes])*)
     new Generated[A] { def node: Node = built }
 
-  private inline def labels[T <: Tuple]: List[String] = inline erasedValue[T] match
+  inline private def labels[T <: Tuple]: List[String] = inline erasedValue[T] match
     case _: EmptyTuple => Nil
     case _: (h *: t)   => constValue[h].toString :: labels[t]
 
-  private inline def instances[T <: Tuple]: List[Generated[?]] = inline erasedValue[T] match
+  inline private def instances[T <: Tuple]: List[Generated[?]] = inline erasedValue[T] match
     case _: EmptyTuple => Nil
     case _: (h *: t)   => summonInline[Generated[h]] :: instances[t]
 
