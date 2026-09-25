@@ -93,19 +93,13 @@ object Message:
    * @param messages the conversation, oldest first
    * @return the same conversation with adjacent system or user messages joined
    */
-  def merged(messages: Chunk[Message]): Chunk[Message] = messages.foldLeft(Chunk.empty)(absorb)
-
-  /**
-   * Add one message to what has been kept, joining it to the last when both may be.
-   *
-   * @param kept the messages merged so far
-   * @param next the message to add
-   * @return the messages including it
-   */
-  private def absorb(kept: Chunk[Message], next: Message): Chunk[Message] = (kept.lastOption, next) match
-    case (Some(System(before)), System(after)) => kept.dropRight(1) :+ System(before ++ after)
-    case (Some(User(before)), User(after))     => kept.dropRight(1) :+ User(before ++ after)
-    case _                                     => kept :+ next
+  def merged(messages: Chunk[Message]): Chunk[Message] =
+    messages.foldLeft(Chunk.empty[Message]) { (kept, next) =>
+      (kept.lastOption, next) match
+        case (Some(System(before)), System(after)) => kept.dropRight(1) :+ System(before ++ after)
+        case (Some(User(before)), User(after))     => kept.dropRight(1) :+ User(before ++ after)
+        case _                                     => kept :+ next
+    }
 
   /**
    * What the model said, as the conversation carries it.
