@@ -1,7 +1,7 @@
 package homelab.llm.openai.request
 
 
-import homelab.llm.{ Model, Tool }
+import homelab.llm.{ Advertised, Model, Tool }
 import zio.json.*
 import zio.json.ast.Json
 
@@ -9,9 +9,9 @@ import zio.json.ast.Json
 /**
  * The chat-completions request, as OpenRouter receives it.
  *
- * The tools are carried as the objects they already are: a session advertises them provider-shaped, and
- * this passes them through rather than describing them a second time. They are absent when there are none,
- * because a provider offered an empty array may answer that it was given no tools.
+ * The tools are shaped here rather than by whoever advertised them: a session says what a tool is, and what
+ * that looks like on the wire is this protocol's business. They are absent when there are none, because a
+ * provider offered an empty array may answer that it was given no tools.
  *
  * @param model which model to ask for
  * @param messages the conversation, oldest first
@@ -20,7 +20,7 @@ import zio.json.ast.Json
 final case class CompletionRequest(
   model: String,
   messages: List[MessageRequest],
-  tools: Option[List[Json]],
+  tools: Option[List[ToolRequest]],
 ) derives JsonEncoder
 
 
@@ -41,7 +41,7 @@ object CompletionRequest:
     val core = CompletionRequest(
       model = model,
       messages = request.messages.map(MessageRequest.from).toList,
-      tools = Option.when(request.tools.nonEmpty)(request.tools),
+      tools = Option.when(request.tools.nonEmpty)(request.tools.map(ToolRequest.from)),
     )
     merged(core.toJsonAST.toOption, request.extra)
 

@@ -17,12 +17,12 @@ import scala.collection.immutable.ListMap
 final class Session[Ctx] private[llm] (permitted: ListMap[String, Registered[Ctx, ?, ?]], context: Ctx) {
 
   /**
-   * The `tools` array for a request — only what this caller may use, so a forbidden tool is not refused, it
-   * is never offered.
+   * The tools for a request — only what this caller may use, so a forbidden tool is not refused, it is
+   * never offered.
    *
-   * @return one function object per available tool
+   * @return one per available tool, in the order they were registered
    */
-  def advertised: List[Json] = permitted.values.map(advertise).toList
+  def advertised: List[Advertised] = permitted.values.map(advertise).toList
 
   /**
    * Run one call, turning everything the model could react to into text it can read.
@@ -52,12 +52,12 @@ final class Session[Ctx] private[llm] (permitted: ListMap[String, Registered[Ctx
     ZIO.foreachPar(calls)(dispatch).withParallelism(parallelism)
 
   /**
-   * One tool as the provider expects to receive it.
+   * One tool as a provider is told about it.
    *
    * @param registered the tool
-   * @return its function object
+   * @return what to advertise for it
    */
-  private def advertise(registered: Registered[Ctx, ?, ?]): Json = registered.advertised
+  private def advertise(registered: Registered[Ctx, ?, ?]): Advertised = registered.advertised
 
   /**
    * What the model is told when it names a tool this session does not offer.

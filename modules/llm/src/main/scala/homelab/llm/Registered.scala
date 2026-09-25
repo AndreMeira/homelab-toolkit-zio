@@ -3,7 +3,6 @@ package homelab.llm
 
 import homelab.common.error.ApplicationError
 import homelab.llm.schema.JsonSchema
-import zio.json.ast.Json
 import zio.schema.Schema
 import zio.{ IO, UIO, ZIO }
 
@@ -73,18 +72,14 @@ final class Registered[Ctx, In, Out: Schema] private[llm] (
         tool.handle(context, input).tapError(report).fold(withheld(read), answered(read))
 
   /**
-   * This tool as the provider expects to receive it.
+   * This tool as a provider is told about it.
    *
-   * @return the `{"type":"function","function":{…}}` object for a request's `tools` array
+   * The parts rather than a rendering of them, because providers do not agree on the rendering and the one
+   * that does the telling is the one that knows which.
+   *
+   * @return what to advertise
    */
-  def advertised: Json = Json.Obj(
-    "type"     -> Json.Str("function"),
-    "function" -> Json.Obj(
-      "name"        -> Json.Str(tool.name),
-      "description" -> Json.Str(tool.description),
-      "parameters"  -> jsonSchema.json,
-    ),
-  )
+  def advertised: Advertised = Advertised(tool.name, tool.description, jsonSchema)
 
   /**
    * The outcome for a call the tool answered.
