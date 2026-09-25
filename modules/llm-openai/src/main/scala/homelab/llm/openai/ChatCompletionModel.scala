@@ -121,20 +121,11 @@ object ChatCompletionModel:
    * @param referer what to be attributed as, where a caller wants that
    * @return the model, holding a transport for as long as the scope; aborts when one cannot be opened
    */
-  def openRouter(apiKey: String, referer: Option[String] = None): ZIO[Scope, ChatCompletionError, ChatCompletionModel] =
+  def openRouter(
+    apiKey: String,
+    referer: Option[String] = None,
+  ): ZIO[Scope, ChatCompletionError, ChatCompletionModel] =
     transport.map(backend => openRouter(backend, apiKey, referer))
-
-  /**
-   * OpenRouter, over a transport the caller holds.
-   *
-   * @param backend what sends the request
-   * @param apiKey the credential
-   * @param referer what to be attributed as, where a caller wants that
-   * @return the model
-   */
-  def openRouter(backend: Backend[Task], apiKey: String, referer: Option[String]): ChatCompletionModel =
-    val attribution = referer.fold(Map.empty[String, String])(site => Map("HTTP-Referer" -> site))
-    new ChatCompletionModel(backend, OpenRouter, bearer(apiKey) ++ attribution)
 
   /**
    * OpenAI itself.
@@ -150,6 +141,34 @@ object ChatCompletionModel:
     transport.map(backend => openAi(backend, apiKey, organisation))
 
   /**
+   * Anything else that serves this protocol — a fast-inference host, or a server running locally.
+   *
+   * Azure is not one of these: it takes its credential in an `api-key` header and names a deployment in the
+   * path, so it needs its own headers rather than a different endpoint.
+   *
+   * @param endpoint where that provider serves completions
+   * @param apiKey the credential, where it wants one
+   * @return the model, holding a transport for as long as the scope; aborts when one cannot be opened
+   */
+  def compatible(
+    endpoint: Uri,
+    apiKey: Option[String] = None,
+  ): ZIO[Scope, ChatCompletionError, ChatCompletionModel] =
+    transport.map(backend => compatible(backend, endpoint, apiKey))
+
+  /**
+   * OpenRouter, over a transport the caller holds.
+   *
+   * @param backend what sends the request
+   * @param apiKey the credential
+   * @param referer what to be attributed as, where a caller wants that
+   * @return the model
+   */
+  def openRouter(backend: Backend[Task], apiKey: String, referer: Option[String]): ChatCompletionModel =
+    val attribution = referer.fold(Map.empty[String, String])(site => Map("HTTP-Referer" -> site))
+    new ChatCompletionModel(backend, OpenRouter, bearer(apiKey) ++ attribution)
+
+  /**
    * OpenAI, over a transport the caller holds.
    *
    * @param backend what sends the request
@@ -160,19 +179,6 @@ object ChatCompletionModel:
   def openAi(backend: Backend[Task], apiKey: String, organisation: Option[String]): ChatCompletionModel =
     val billed = organisation.fold(Map.empty[String, String])(org => Map("OpenAI-Organization" -> org))
     new ChatCompletionModel(backend, OpenAi, bearer(apiKey) ++ billed)
-
-  /**
-   * Anything else that serves this protocol — a fast-inference host, or a server running locally.
-   *
-   * Azure is not one of these: it takes its credential in an `api-key` header and names a deployment in the
-   * path, so it needs its own headers rather than a different endpoint.
-   *
-   * @param endpoint where that provider serves completions
-   * @param apiKey the credential, where it wants one
-   * @return the model, holding a transport for as long as the scope; aborts when one cannot be opened
-   */
-  def compatible(endpoint: Uri, apiKey: Option[String] = None): ZIO[Scope, ChatCompletionError, ChatCompletionModel] =
-    transport.map(backend => compatible(backend, endpoint, apiKey))
 
   /**
    * Anything else that serves this protocol, over a transport the caller holds.

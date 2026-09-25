@@ -101,9 +101,9 @@ object Transcript {
       case None       => if messages.isEmpty then Progress.Empty else Progress.AwaitingModel
       case Some(turn) =>
         NonEmptyChunk.fromChunk(turn.calls.filterNot(call => reading.answered.contains(call.id))) match
-          case Some(pending)           => Progress.AwaitingTools(pending)
-          case None if reading.since   => Progress.AwaitingModel
-          case None                    => Progress.Finished(turn.content)
+          case Some(pending)         => Progress.AwaitingTools(pending)
+          case None if reading.since => Progress.AwaitingModel
+          case None                  => Progress.Finished(turn.content)
 
   /**
    * What reading the messages so far has established.
@@ -130,7 +130,7 @@ object Transcript {
    * @return what they establish together
    */
   private def advance(reading: Reading, message: Message): Reading = message match
-    case turn: Message.Assistant        => Reading(Some(turn), Set.empty, since = false)
+    case turn: Message.Assistant          => Reading(Some(turn), Set.empty, since = false)
     case Message.ToolResult(callId, _, _) => reading.copy(answered = reading.answered + callId, since = true)
-    case _                              => reading.copy(since = true)
+    case _                                => reading.copy(since = true)
 }

@@ -1,5 +1,6 @@
 package homelab.incubator.llm.v4.playground.robot
 
+
 import homelab.common.error.ApplicationError
 import homelab.llm.Tool.Result
 import homelab.llm.{ Registry, Tool }

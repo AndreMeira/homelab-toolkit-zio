@@ -1,6 +1,5 @@
 package homelab.llm.openai
 
-
 import homelab.common.error.ApplicationError
 
 

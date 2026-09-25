@@ -91,7 +91,7 @@ object WorkflowSpec extends ZIOSpecDefault:
           leftB <- store.get("b")
         yield assertTrue(a == 3, b == 3, again == 3, leftA.isEmpty, leftB.isEmpty)
       },
-        test("a shared store namespaces by workflow name, so two workflows never collide on one input") {
+      test("a shared store namespaces by workflow name, so two workflows never collide on one input") {
         // What Runner.Default's composite (name, input) key used to do, now composed at the call site.
         def crashing(name: String): Workflow[Any, RuntimeException, String, Int, Int] =
           Workflow

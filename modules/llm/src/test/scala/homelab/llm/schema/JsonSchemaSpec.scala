@@ -25,7 +25,7 @@ object JsonSchemaSpec extends ZIOSpecDefault:
         assertTrue(
           json(schema) ==
             """{"type":"object","properties":{"city":{"description":"city name","type":"string"},""" +
-              """"unit":{"type":"string","enum":["c","f"]}},"required":["city"],"additionalProperties":false}"""
+            """"unit":{"type":"string","enum":["c","f"]}},"required":["city"],"additionalProperties":false}"""
         )
       },
       test("an object with no properties requires nothing and still closes") {
@@ -81,8 +81,8 @@ object JsonSchemaSpec extends ZIOSpecDefault:
         assertTrue(
           json(schema) ==
             """{"type":"object","properties":{"children":{"type":"array","items":{"$ref":"#/$defs/Tree"}}},""" +
-              """"required":["children"],"additionalProperties":false,"$defs":{"Tree":{"type":"object",""" +
-              """"properties":{"value":{"type":"string"}},"required":["value"],"additionalProperties":false}}}"""
+            """"required":["children"],"additionalProperties":false,"$defs":{"Tree":{"type":"object",""" +
+            """"properties":{"value":{"type":"string"}},"required":["value"],"additionalProperties":false}}}"""
         )
       },
       test("a closed schema reports nothing unresolved") {

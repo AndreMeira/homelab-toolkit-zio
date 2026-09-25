@@ -1,8 +1,6 @@
 package homelab.llm.openai.response
 
-
 import zio.json.*
-
 
 /**
  * What the gateway answers when it will not serve a request.

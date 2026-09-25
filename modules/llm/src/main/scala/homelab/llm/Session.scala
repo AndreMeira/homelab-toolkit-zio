@@ -68,6 +68,7 @@ final class Session[Ctx] private[llm] (permitted: ListMap[String, Registered[Ctx
   private def unavailable(name: String): String = s"no tool '$name' is available"
 }
 
+
 object Session:
 
   /**

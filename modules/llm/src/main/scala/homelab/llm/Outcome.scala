@@ -1,6 +1,5 @@
 package homelab.llm
 
-
 /**
  * What a dispatch produced: the call it answers, and what came of it.
  *

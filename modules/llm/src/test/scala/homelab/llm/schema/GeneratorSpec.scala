@@ -139,7 +139,7 @@ object GeneratorSpec extends ZIOSpecDefault:
               """"properties":{"value":{"type":"string"}},"required":["value"],"additionalProperties":false}"""
           )
         )
-      },
+      }
     ),
     suite("optionality")(
       test("says optional wherever it appears, not only on a field") {
@@ -150,6 +150,6 @@ object GeneratorSpec extends ZIOSpecDefault:
               """"required":["values"],"additionalProperties":false}"""
           )
         )
-      },
+      }
     ),
   )

@@ -1,5 +1,6 @@
 package homelab.incubator.llm.v4.playground.robot
 
+
 import homelab.common.error.ApplicationError
 import zio.*
 import zio.schema.{ Schema, derived }

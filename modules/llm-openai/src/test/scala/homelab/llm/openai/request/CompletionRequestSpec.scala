@@ -68,7 +68,7 @@ object CompletionRequestSpec extends ZIOSpecDefault:
       test("a raw part reaches the wire as it was written") {
         val image = Json.Obj("type" -> Json.Str("image_url"), "image_url" -> Json.Obj("url" -> Json.Str("data:…")))
         assertTrue(sent(Message.user(Chunk(Message.Content.Raw(image)))).contains(""""type":"image_url""""))
-      },
+      }
     ),
     suite("extra")(
       test("a caller's own fields are merged into the body") {

@@ -87,8 +87,7 @@ object Delivery:
    * @param conversation the key it arrived under
    * @param id which investigation it named
    */
-  final case class Misrouted(conversation: Conversation, id: Investigation.Id)
-      extends ApplicationError.InconsistentState:
+  final case class Misrouted(conversation: Conversation, id: Investigation.Id) extends ApplicationError.InconsistentState:
 
     /**
      * What went wrong, for whoever is reading the queue.
