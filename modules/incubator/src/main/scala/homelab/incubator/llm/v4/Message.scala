@@ -46,6 +46,7 @@ enum Message:
    */
   case ToolResult(callId: Tool.Call.Id, content: Chunk[Message.Content])
 
+
 object Message:
 
   /**
@@ -80,6 +81,57 @@ object Message:
     case Raw(json: Json)
 
   /**
+   * Instructions that hold for the conversation.
+   *
+   * @param content what they are
+   * @return the message, as itself rather than as a [[Message]]
+   */
+  def system(content: Chunk[Content]): System = System(content)
+
+  /**
+   * Instructions that hold for the conversation.
+   *
+   * @param content what they are
+   * @return the message, as itself rather than as a [[Message]]
+   */
+  def system(content: Content): System = system(Chunk(content))
+
+  /**
+   * What the caller said.
+   *
+   * @param content what they said
+   * @return the message, as itself rather than as a [[Message]]
+   */
+  def user(content: Chunk[Content]): User = User(content)
+
+  /**
+   * What the caller said.
+   *
+   * @param content what they said
+   * @return the message, as itself rather than as a [[Message]]
+   */
+  def user(content: Content): User = user(Chunk(content))
+
+  /**
+   * What the model said, and what it asked to have run.
+   *
+   * @param content what it said, which is empty when it only asked for tools
+   * @param calls what it asked for, which is empty when it only answered
+   * @return the message, as itself rather than as a [[Message]]
+   */
+  def assistant(content: Chunk[Content], calls: Chunk[Tool.Call.Raw] = Chunk.empty): Assistant =
+    Assistant(content, calls)
+
+  /**
+   * What a tool answered, paired to the call that asked.
+   *
+   * @param callId the id of the call this answers
+   * @param content the answer, as the model will read it
+   * @return the message, as itself rather than as a [[Message]]
+   */
+  def toolResult(callId: Tool.Call.Id, content: Chunk[Content]): ToolResult = ToolResult(callId, content)
+
+  /**
    * Adjacent messages of one role joined into one, for a provider that will not take them separately.
    *
    * Only [[System]] and [[User]] are joined, because content is all they carry. An [[Assistant]] turn also
@@ -94,11 +146,10 @@ object Message:
    * @return the same conversation with adjacent system or user messages joined
    */
   def merged(messages: Chunk[Message]): Chunk[Message] =
-    messages.foldLeft(Chunk.empty[Message]) { (kept, next) =>
-      (kept, next) match
-        case (before :+ System(said), System(more)) => before :+ System(said ++ more)
-        case (before :+ User(said), User(more))     => before :+ User(said ++ more)
-        case _                                      => kept :+ next
+    messages.foldLeft(Chunk.empty[Message]) {
+      case (before :+ System(said)) -> System(more) => before :+ System(said ++ more)
+      case (before :+ User(said)) -> User(more)     => before :+ User(said ++ more)
+      case kept -> next                             => kept :+ next
     }
 
   /**

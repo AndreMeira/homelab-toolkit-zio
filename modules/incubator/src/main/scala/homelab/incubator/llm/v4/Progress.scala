@@ -1,6 +1,5 @@
 package homelab.incubator.llm.v4
 
-
 import zio.{ Chunk, NonEmptyChunk }
 
 
@@ -30,7 +29,7 @@ enum Progress:
    *
    * @param answer what the model said last
    */
-  case Finished(answer: Chunk[Message.Content])
+  case Finished(answer: Message.Assistant)
 
 
 object Progress {
@@ -55,7 +54,7 @@ object Progress {
       case (Some(last), Some(turn)) =>
         NonEmptyChunk.fromChunk(turn.calls.filter(reading.unanswered)) match
           case Some(pending)               => Progress.AwaitingTools(pending)
-          case None if spokenByModel(last) => Progress.Finished(turn.content)
+          case None if spokenByModel(last) => Progress.Finished(turn)
           case None                        => Progress.AwaitingModel
 
   /**

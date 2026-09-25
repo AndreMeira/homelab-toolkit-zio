@@ -20,10 +20,10 @@ import zio.{ Chunk, IO, NonEmptyChunk, ZIO }
  *
  * @tparam Ctx the caller's context every tool call carries
  */
-trait Basic[Ctx] extends Workflow[Any, ApplicationError, String, Chunk[Message], Chunk[Message.Content]] {
+trait Basic[Ctx] extends Workflow[Any, ApplicationError, String, Chunk[Message], Message.Assistant] {
 
   private type State = Step.Current[String, Chunk[Message]]
-  private type Next  = Step.Next[Chunk[Message], Chunk[Message.Content]]
+  private type Next  = Step.Next[Chunk[Message], Message.Assistant]
 
   /** What the model is told before the question, and reads on every call. */
   def systemPrompt: String

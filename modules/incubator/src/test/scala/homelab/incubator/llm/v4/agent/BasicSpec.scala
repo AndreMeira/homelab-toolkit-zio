@@ -76,7 +76,7 @@ object BasicSpec extends ZIOSpecDefault:
         (model, seen) <- scripted(asks("c1", """{"city":"Hamburg"}"""), said("12 degrees in Hamburg"))
         answer        <- weatherman(model).run("what is the weather in Hamburg?")
         requests      <- seen.get
-      yield assertTrue(answer == text("12 degrees in Hamburg"), requests.size == 2)
+      yield assertTrue(answer == Message.Assistant(text("12 degrees in Hamburg"), Chunk.empty), requests.size == 2)
     },
     test("the tool's answer reaches the model as the text of a tool message") {
       for
@@ -104,6 +104,6 @@ object BasicSpec extends ZIOSpecDefault:
         answer        <- weatherman(model).persisted(store).run("ask")
         requests      <- seen.get
         slot          <- store.get("ask")
-      yield assertTrue(answer == text("hi"), requests.isEmpty, slot.isEmpty)
+      yield assertTrue(answer == Message.Assistant(text("hi"), Chunk.empty), requests.isEmpty, slot.isEmpty)
     },
   )

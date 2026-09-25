@@ -118,6 +118,16 @@ object Model {
      */
     def complete(request: Request): IO[E, Model.Completion]
 
+    /**
+     * Send a conversation and read what the model does next.
+     *
+     * @param messages the conversation messages
+     * @param tools the tool objects to advertise, or empty to offer none
+     * @return what the model said, asked for, and cost; aborts with what the adapter refuses on
+     */
+    def complete(messages: Chunk[Message], tools: List[Json] = List.empty): IO[E, Model.Completion] =
+      complete(Request(messages = messages, tools = tools))
+
   /**
    * Why the model stopped.
    *
