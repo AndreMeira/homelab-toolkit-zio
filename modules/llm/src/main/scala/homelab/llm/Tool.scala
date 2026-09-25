@@ -1,9 +1,9 @@
-package homelab.incubator.llm.v4
+package homelab.llm
 
 
 import homelab.common.error.ApplicationError
-import homelab.incubator.llm.v4.Tool.Result.errorEncoder
-import homelab.incubator.llm.v4.schema.{ Encoder, JsonSchema, Shape }
+import homelab.llm.Tool.Result.errorEncoder
+import homelab.llm.schema.{ Encoder, JsonSchema, Shape }
 import zio.schema.codec.JsonCodec
 import zio.schema.{ DeriveSchema, Schema }
 import zio.{ IO, ZIO }
@@ -15,10 +15,15 @@ import zio.{ IO, ZIO }
  * result is rendered from — so nothing downstream names those types again to describe or decode them.
  *
  * The trust boundary runs through the arguments. `Input` is what the *model* chooses, and is the only half
- * described to it; `Ctx` is what the *caller* supplies — the user, the tenant, the namespace this call must be
- * confined to — and never appears in a schema. A prompt injection cannot set what the model was never offered.
+ * described to it; `Ctx` is what the *caller* supplies — the user, the tenant, the rig, the namespace this
+ * call must be confined to — and never appears in a schema. A prompt injection cannot set what the model was
+ * never offered.
  *
- * @tparam Ctx the caller context, joined to the model's arguments in [[handle]]
+ * `Ctx` is the caller's context and not the model's: it is neither the conversation nor anything the model
+ * can read, and a call carries it because the session was bound to it rather than because the model asked.
+ * Where the two might be confused, the one a model sees is [[Message]].
+ *
+ * @tparam Ctx what the caller supplies, joined to the model's arguments in [[handle]]
  * @tparam Input the arguments the model chooses, described to it from its schema
  * @tparam Output the result, which reaches the model as text written by its schema
  */
@@ -38,7 +43,7 @@ trait Tool[Ctx, Input: Schema, Output: Schema] {
    * pure signature would force every one of those to be resolved into `Ctx` before anyone knows which
    * tools will be asked about.
    *
-   * @param context the caller context
+   * @param context the caller's context
    * @return true when the tool is available to this caller; aborts when the answer cannot be established,
    *         which refuses the session rather than assuming either way
    */
@@ -83,9 +88,22 @@ trait Tool[Ctx, Input: Schema, Output: Schema] {
     Registry.add(self).add(other)
 
   /**
+   * Read arguments a model wrote as the type this tool takes.
+   *
+   * Offered here because this is where the schema is: a caller holding this tool knows what `Input` is, so
+   * it can see what was asked before anything happens — to branch on an argument, or to act on a call whose
+   * answer is beside the point. Nothing is permitted and nothing is run; this only reads.
+   *
+   * @param arguments the JSON the model wrote for one call
+   * @return the arguments as [[handle]] would receive them, or what the model is told about its own JSON
+   */
+  def decoded(arguments: String): Either[String, Input] =
+    JsonCodec.jsonDecoder(summon[Schema[Input]]).decodeJson(arguments).left.map(Tool.unparsed)
+
+  /**
    * Run the tool — where the untrusted and the trusted halves of the arguments meet.
    *
-   * @param context the caller context, supplied by the session
+   * @param context the caller's context, supplied by the session
    * @param input the arguments the model chose
    * @return what it produced; aborts only on failures the *model* cannot do anything about
    */
@@ -96,13 +114,49 @@ trait Tool[Ctx, Input: Schema, Output: Schema] {
 object Tool:
 
   /**
-   * A tool call as the model emitted it — `arguments` is a JSON *string*, and a model wrote it.
+   * Say that a decode failure was about the arguments.
    *
-   * @param id what the model called this call, echoed back so it can pair the result with the request
-   * @param name which tool it is asking for, which may be one that does not exist
-   * @param arguments the JSON it wrote, unparsed and unchecked
+   * @param reason what the decoder reported
+   * @return the same reason, placed
    */
-  final case class Call(id: Call.Id, name: String, arguments: String)
+  private[llm] def unparsed(reason: String): String = s"arguments did not parse: $reason"
+
+  /**
+   * One call a model made, before or after its arguments have been read.
+   *
+   * The two cases are the same call at two points in its life, and the type says which: [[Call.Raw]] is
+   * what the model wrote, [[Call.Decoded]] is what that turned out to mean. A message carries the first,
+   * because that is all a provider ever sends; an outcome carries whichever it got to.
+   *
+   * @tparam A the arguments once read, which a raw call does not have
+   */
+  enum Call[+A]:
+    /** What the model called this call, whichever state it is in. */
+    def id: Call.Id
+
+    /** Which tool it asked for, whichever state it is in. */
+    def name: String
+
+    /**
+     * A call as the model emitted it — `arguments` is a JSON *string*, and a model wrote it.
+     *
+     * @param id what the model called this call, echoed back so it can pair the result with the request
+     * @param name which tool it is asking for, which may be one that does not exist
+     * @param arguments the JSON it wrote, unparsed and unchecked
+     */
+    case Raw(id: Call.Id, name: String, arguments: String) extends Call[Nothing]
+
+    /**
+     * A call whose arguments have been read as the tool that answers it takes them.
+     *
+     * Only registration can make one, because only there is the name known to belong to a tool and the
+     * type known to be that tool's. A loop meeting one has what the model asked for, not just what it wrote.
+     *
+     * @param id what the model called this call
+     * @param name which tool it asked for, which is known to exist
+     * @param input the arguments, read
+     */
+    case Decoded(id: Call.Id, name: String, input: A) extends Call[A]
 
   object Call:
 
@@ -133,7 +187,7 @@ object Tool:
    *
    * @param name the name the model calls it by
    * @param description what it is for, in the words the model reads
-   * @tparam Ctx the caller context
+   * @tparam Ctx the caller's context
    * @tparam Input the arguments the model chooses
    * @tparam Output what it produces
    */
@@ -150,7 +204,7 @@ object Tool:
      * @param name the name the model calls it by
      * @param description what it is for, in the words the model reads
      * @param fn what it does, given the caller's context and the model's arguments
-     * @tparam Ctx the caller context
+     * @tparam Ctx the caller's context
      * @tparam Input the arguments the model chooses
      * @tparam Output what it produces
      * @return the tool
@@ -168,8 +222,9 @@ object Tool:
   /**
    * What a tool produced: the value, or the reason it could not.
    *
-   * Both reach the model as text, which [[render]] writes, and a loop looking for a particular value can
-   * match the success rather than read it back out of that text.
+   * Both reach the model as text, which [[render]] writes. A loop after something the tool produced matches
+   * the success rather than reading it back out of that text; one after what the model asked for reads the
+   * call instead, where [[Call.Decoded]] holds it.
    *
    * @tparam A what a successful value is
    */
@@ -239,7 +294,7 @@ object Tool:
      * @tparam A what the call would have produced
      * @return the failure, unrendered
      */
-    private[v4] def failure[A: Schema](reason: String): Result[A] = Failed(reason)
+    private[llm] def failure[A: Schema](reason: String): Result[A] = Failed(reason)
 
     /**
      * The result of a tool that ran.

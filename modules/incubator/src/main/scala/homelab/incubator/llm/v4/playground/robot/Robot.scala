@@ -3,7 +3,7 @@ package homelab.incubator.llm.v4.playground.robot
 import homelab.common.error.ApplicationError
 import homelab.common.processing.Workflow
 import homelab.common.processing.Workflow.Step
-import homelab.incubator.llm.v4.*
+import homelab.llm.*
 import zio.*
 
 
@@ -106,7 +106,7 @@ final class Robot(
     for
       outcomes <- session.dispatchAll(completion.calls.toList)
       answers   = Chunk.fromIterable(outcomes).map(answered)
-      appended  = asked ++ (Message.from(completion) +: answers)
+      appended  = asked ++ (Message.fromCompletion(completion) +: answers)
       taken     = state.decisions + 1
     yield outcomes.flatMap(ending).headOption match
       case Some(RigTools.Ending.Done(_, _))        => Step.Done(Robot.Ending.Concluded(taken))
@@ -119,20 +119,20 @@ final class Robot(
    * @param outcome what dispatch produced
    * @return the message to append
    */
-  private def answered(outcome: Outcome): Message = Message.from(outcome)
+  private def answered(outcome: Outcome): Message = Message.fromOutcome(outcome)
 
   /**
    * The ending an outcome carries, when it carries one.
    *
-   * Read off the value the tool made rather than off the text it renders to, and by type rather than by
-   * the tool's name — so the loop needs no list of names and no second decode.
+   * Read off what the model asked for rather than off anything a tool produced, and by type rather than by
+   * name — so the loop needs no list of names, and the tool that ends a run needs no result worth having.
    *
    * @param outcome what dispatch produced
    * @return the ending, or nothing when this outcome was some other tool's
    */
-  private def ending(outcome: Outcome): Option[RigTools.Ending] = outcome.result match
-    case Tool.Result.Succeeded(found: RigTools.Ending) => Some(found)
-    case _                                             => None
+  private def ending(outcome: Outcome): Option[RigTools.Ending] = outcome.call match
+    case Tool.Call.Decoded(_, _, asked: RigTools.Terminate) => Some(asked.ending)
+    case _                                                  => None
 
   /**
    * What the rig imposes on every run, in the words the model reads first.

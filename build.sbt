@@ -135,6 +135,25 @@ lazy val auth = project
   )
 
 
+// LLM toolkit — tool calling, the conversation a model reads, and the JSON Schema subset a tool's arguments
+// are described in. Ports plus the machinery behind them; a provider adapter is a separate artifact, and
+// until one exists the ports stay here rather than in `common` (docs/architecture/module-boundaries.md).
+lazy val llm = project
+  .in(file("modules/llm"))
+  .dependsOn(common)
+  .settings(
+    name := "homelab-llm",
+    libraryDependencies ++= Seq(
+      // The advertised JSON Schema and the codecs that read a model's arguments come from the *same*
+      // zio-schema, so what a model is told to send is what the decoder reads.
+      "dev.zio" %% "zio-schema-json" % zioSchemaVersion,
+      "dev.zio" %% "zio-test"        % zioVersion % Test,
+      "dev.zio" %% "zio-test-sbt"    % zioVersion % Test,
+    ),
+    testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
+  )
+
+
 // Messaging adapter — NATS (Core NATS ephemeral pub/sub + JetStream durable delivery), promoted from the
 // llm's messaging/nats sketches. Implements the common `messaging` ports; ZStream is an internal
 // bridge detail (never surfaced). Integration tests via Testcontainers (a JetStream-enabled nats server).
@@ -157,7 +176,7 @@ lazy val nats = project
 // Incubator — throwaway sketches / experiments (the ZIO answer to Kyo's playground). Not published.
 lazy val incubator = project
   .in(file("modules/incubator"))
-  .dependsOn(common)
+  .dependsOn(common, llm)
   .settings(
     name           := "homelab-incubator",
     publish / skip := true,
@@ -194,7 +213,7 @@ lazy val incubator = project
 
 lazy val root = project
   .in(file("."))
-  .aggregate(common, postgres, telemetry, auth, incubator, nats)
+  .aggregate(common, postgres, telemetry, auth, llm, incubator, nats)
   .settings(
     name           := "homelab-toolkit-zio",
     publish / skip := true,

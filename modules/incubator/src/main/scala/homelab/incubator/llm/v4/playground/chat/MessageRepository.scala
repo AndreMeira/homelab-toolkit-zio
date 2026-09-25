@@ -1,7 +1,7 @@
 package homelab.incubator.llm.v4.playground.chat
 
 import homelab.common.error.ApplicationError
-import homelab.incubator.llm.v4.Message
+import homelab.llm.Message
 import zio.{ Chunk, IO }
 
 

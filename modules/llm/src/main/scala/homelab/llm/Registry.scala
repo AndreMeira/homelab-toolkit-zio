@@ -1,4 +1,4 @@
-package homelab.incubator.llm.v4
+package homelab.llm
 
 
 import homelab.common.error.ApplicationError
@@ -18,7 +18,7 @@ import scala.collection.immutable.ListMap
  *
  * @param entries the registered tools, by name, in registration order
  * @param rejected the tools that could not be described, in the order they were added
- * @tparam Ctx the caller context every tool here accepts
+ * @tparam Ctx what the caller supplies, which every tool here accepts — see [[Tool]]
  */
 final class Registry[Ctx] private (
   entries: ListMap[String, Registered[Ctx, ?, ?]],
@@ -68,7 +68,7 @@ final class Registry[Ctx] private (
    * Every tool is asked once, here, rather than at each dispatch: what a caller may use is decided when the
    * session is built, so the list advertised to the model and the list it may call are the same list.
    *
-   * @param context the caller context every dispatch will carry
+   * @param context the caller's context every dispatch will carry
    * @return the tools this caller may use; aborts with [[Registry.Incomplete]] when any tool was set aside,
    *         and with the tool's own error when one cannot say whether it permits this caller
    */
@@ -77,27 +77,8 @@ final class Registry[Ctx] private (
       case Some(problems) => ZIO.fail(Registry.Incomplete(problems))
       case None           =>
         ZIO
-          .filter(entries.values)(permitting(context))
-          .map(allowed => new Session(ListMap.from(allowed.map(byName)), context))
-
-  /**
-   * Whether one registered tool is available to a caller.
-   *
-   * @param context the caller context
-   * @param registered the tool to ask
-   * @return true when it is available; aborts when the tool cannot say
-   */
-  private def permitting(context: Ctx)(registered: Registered[Ctx, ?, ?]): IO[ApplicationError, Boolean] =
-    registered.permits(context)
-
-  /**
-   * One tool as the entry a session looks it up by.
-   *
-   * @param registered the tool
-   * @return its name paired with it
-   */
-  private def byName(registered: Registered[Ctx, ?, ?]): (String, Registered[Ctx, ?, ?]) =
-    registered.name -> registered
+          .filter(entries.values)(_.permits(context))
+          .map(allowed => Session(allowed.toList, context))
 }
 
 
@@ -107,7 +88,7 @@ object Registry {
    * A registry holding one tool.
    *
    * @param tool the tool to register
-   * @tparam Ctx the caller context every tool here accepts
+   * @tparam Ctx what the caller supplies, which every tool here accepts — see [[Tool]]
    * @tparam In the arguments the model chooses
    * @tparam Out what it produces
    * @return a registry holding it, or holding a rejection for it
@@ -127,7 +108,7 @@ object Registry {
   /**
    * An empty registry.
    *
-   * @tparam Ctx the caller context every tool will accept
+   * @tparam Ctx the caller's context every tool will accept
    * @return the registry
    */
   def empty[Ctx]: Registry[Ctx] = new Registry(ListMap.empty, Chunk.empty)

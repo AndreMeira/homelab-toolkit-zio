@@ -1,5 +1,4 @@
-package homelab.incubator.llm.v4
-
+package homelab.llm
 
 import zio.{ Chunk, NonEmptyChunk }
 
@@ -23,14 +22,14 @@ enum Progress:
    *
    * @param pending the calls still owed an answer, in the order they were asked
    */
-  case AwaitingTools(pending: NonEmptyChunk[Tool.Call])
+  case AwaitingTools(pending: NonEmptyChunk[Tool.Call.Raw])
 
   /**
    * The conversation ended with an answer.
    *
    * @param answer what the model said last
    */
-  case Finished(answer: Chunk[Message.Content])
+  case Finished(answer: Message.Assistant)
 
 
 object Progress {
@@ -55,7 +54,7 @@ object Progress {
       case (Some(last), Some(turn)) =>
         NonEmptyChunk.fromChunk(turn.calls.filter(reading.unanswered)) match
           case Some(pending)               => Progress.AwaitingTools(pending)
-          case None if spokenByModel(last) => Progress.Finished(turn.content)
+          case None if spokenByModel(last) => Progress.Finished(turn)
           case None                        => Progress.AwaitingModel
 
   /**
@@ -82,7 +81,7 @@ object Progress {
      * @param call one of the turn's calls
      * @return true when nothing has answered it
      */
-    def unanswered(call: Tool.Call): Boolean = !answered.contains(call.id)
+    def unanswered(call: Tool.Call.Raw): Boolean = !answered.contains(call.id)
 
   private object Reading:
 

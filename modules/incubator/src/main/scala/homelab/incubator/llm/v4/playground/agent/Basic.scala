@@ -1,10 +1,9 @@
-package homelab.incubator.llm.v4.agent
-
+package homelab.incubator.llm.v4.playground.agent
 
 import homelab.common.error.ApplicationError
 import homelab.common.processing.Workflow
 import homelab.common.processing.Workflow.Step
-import homelab.incubator.llm.v4.{ Message, Model, Outcome, Progress, Registry, Tool }
+import homelab.llm.{ Message, Model, Outcome, Progress, Registry, Tool }
 import zio.{ Chunk, IO, NonEmptyChunk, ZIO }
 
 
@@ -19,12 +18,12 @@ import zio.{ Chunk, IO, NonEmptyChunk, ZIO }
  * by `serialised`, none of which this knows about. The state is the conversation, so a run resumed from a
  * checkpoint resumes by reading it — there is nothing else to restore.
  *
- * @tparam Ctx the caller context every tool call carries
+ * @tparam Ctx the caller's context every tool call carries
  */
-trait Basic[Ctx] extends Workflow[Any, ApplicationError, String, Chunk[Message], Chunk[Message.Content]] {
+trait Basic[Ctx] extends Workflow[Any, ApplicationError, String, Chunk[Message], Message.Assistant] {
 
   private type State = Step.Current[String, Chunk[Message]]
-  private type Next  = Step.Next[Chunk[Message], Chunk[Message.Content]]
+  private type Next  = Step.Next[Chunk[Message], Message.Assistant]
 
   /** What the model is told before the question, and reads on every call. */
   def systemPrompt: String
@@ -85,13 +84,13 @@ trait Basic[Ctx] extends Workflow[Any, ApplicationError, String, Chunk[Message],
    *         model has already had its budget of turns, and with the model's own error when it refuses
    */
   private def ask(messages: Chunk[Message]): IO[ApplicationError, Next] =
-    if turns(messages) >= budget 
+    if turns(messages) >= budget
     then ZIO.fail(Basic.Exhausted(name, budget))
     else
       for
         session    <- tools.forSession(context)
         completion <- model.complete(Model.Request(messages, session.advertised))
-      yield Step.Continue(messages :+ Message.from(completion))
+      yield Step.Continue(messages :+ Message.fromCompletion(completion))
 
   /**
    * Run the calls the model is waiting on.
@@ -104,7 +103,7 @@ trait Basic[Ctx] extends Workflow[Any, ApplicationError, String, Chunk[Message],
    * @return the conversation with one answer per call; aborts when a tool cannot say whether it permits
    *         this caller
    */
-  private def answer(messages: Chunk[Message], pending: NonEmptyChunk[Tool.Call]): IO[ApplicationError, Next] =
+  private def answer(messages: Chunk[Message], pending: NonEmptyChunk[Tool.Call.Raw]): IO[ApplicationError, Next] =
     for
       session  <- tools.forSession(context)
       outcomes <- session.dispatchAll(pending.toList)
@@ -116,7 +115,7 @@ trait Basic[Ctx] extends Workflow[Any, ApplicationError, String, Chunk[Message],
    * @param outcome what dispatch produced
    * @return the message to append
    */
-  private def answered(outcome: Outcome): Message = Message.from(outcome)
+  private def answered(outcome: Outcome): Message = Message.fromOutcome(outcome)
 
   /**
    * How many turns the model has taken, counted from the conversation rather than kept beside it.

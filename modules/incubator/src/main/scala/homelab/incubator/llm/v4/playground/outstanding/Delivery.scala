@@ -2,7 +2,7 @@ package homelab.incubator.llm.v4.playground.outstanding
 
 
 import homelab.common.error.ApplicationError
-import homelab.incubator.llm.v4.Message
+import homelab.llm.Message
 import homelab.incubator.llm.v4.playground.chat.{ Chat, Conversation }
 import zio.{ Chunk, IO, ZIO }
 
@@ -37,7 +37,7 @@ final class Delivery(store: InvestigationStore, chat: Chat) {
    *         such work was started, [[Delivery.Misrouted]] when the nudge arrived under the wrong key,
    *         [[Delivery.Unfinished]] when it has no answer yet, and with whatever the agent aborts with
    */
-  def deliver(conversation: Conversation, id: Investigation.Id): IO[ApplicationError, Chunk[Message.Content]] =
+  def deliver(conversation: Conversation, id: Investigation.Id): IO[ApplicationError, Message.Assistant] =
     for
       found         <- store.get(id)
       investigation <- ZIO.fromOption(found).orElseFail(Delivery.Unknown(id))

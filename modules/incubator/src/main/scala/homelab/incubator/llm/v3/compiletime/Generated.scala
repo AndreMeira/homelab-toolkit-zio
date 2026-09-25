@@ -1,7 +1,7 @@
 package homelab.incubator.llm.v3.compiletime
 
 
-import homelab.incubator.llm.v4.schema.{ Node, Shape }
+import homelab.llm.schema.{ Node, Shape }
 
 import scala.compiletime.{ constValue, erasedValue, summonInline }
 import scala.deriving.Mirror

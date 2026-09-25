@@ -1,12 +1,12 @@
-package homelab.incubator.llm.v4.agent
+package homelab.incubator.llm.v4.playground.agent
 
 
 import homelab.common.error.ApplicationError
 import homelab.common.store.KeyValueStore
-import homelab.incubator.llm.v4.{ Message, Model, Registry, Tool }
-import zio.schema.{ Schema, derived }
+import homelab.llm.{Message, Model, Registry, Tool}
+import zio.schema.{Schema, derived}
 import zio.test.*
-import zio.{ Chunk, IO, Ref, Scope, UIO, ZIO }
+import zio.{Chunk, IO, Ref, Scope, UIO, ZIO}
 
 
 /** The loop the simplest agent runs, driven by nothing but the conversation it has so far. */
@@ -31,7 +31,7 @@ object BasicSpec extends ZIOSpecDefault:
   private def asks(callId: String, arguments: String): Model.Completion =
     Model.Completion(
       Chunk.empty,
-      Chunk(Tool.Call(Tool.Call.Id(callId), "weather", arguments)),
+      Chunk(Tool.Call.Raw(Tool.Call.Id(callId), "weather", arguments)),
       Model.FinishReason.ToolCalls,
       usage,
     )
@@ -75,7 +75,7 @@ object BasicSpec extends ZIOSpecDefault:
         (model, seen) <- scripted(asks("c1", """{"city":"Hamburg"}"""), said("12 degrees in Hamburg"))
         answer        <- weatherman(model).run("what is the weather in Hamburg?")
         requests      <- seen.get
-      yield assertTrue(answer == text("12 degrees in Hamburg"), requests.size == 2)
+      yield assertTrue(answer == Message.Assistant(text("12 degrees in Hamburg"), Chunk.empty), requests.size == 2)
     },
     test("the tool's answer reaches the model as the text of a tool message") {
       for
@@ -103,6 +103,6 @@ object BasicSpec extends ZIOSpecDefault:
         answer        <- weatherman(model).persisted(store).run("ask")
         requests      <- seen.get
         slot          <- store.get("ask")
-      yield assertTrue(answer == text("hi"), requests.isEmpty, slot.isEmpty)
+      yield assertTrue(answer == Message.Assistant(text("hi"), Chunk.empty), requests.isEmpty, slot.isEmpty)
     },
   )

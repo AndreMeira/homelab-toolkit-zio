@@ -1,7 +1,7 @@
-package homelab.incubator.llm.v4
+package homelab.llm
 
 
-import homelab.incubator.llm.v4.Message.Content
+import homelab.llm.Message.Content
 import zio.*
 import zio.test.*
 
@@ -13,11 +13,11 @@ object ProgressSpec extends ZIOSpecDefault:
 
   private def id(value: String): Tool.Call.Id = Tool.Call.Id(value)
 
-  private def call(value: String): Tool.Call = Tool.Call(id(value), "search", """{"text":"x"}""")
+  private def call(value: String): Tool.Call.Raw = Tool.Call.Raw(id(value), "search", """{"text":"x"}""")
 
-  private val asked  = Message.User(text("what do I eat tonight"))
-  private val said   = Message.Assistant(text("pasta"), Chunk.empty)
-  private val called = Message.Assistant(Chunk.empty, Chunk(call("c1"), call("c2")))
+  private val asked  = Message.user(text("what do I eat tonight"))
+  private val said   = Message.assistant(text("pasta"))
+  private val called = Message.assistant(Chunk.empty, Chunk(call("c1"), call("c2")))
 
   private def answering(callId: String): Message.ToolResult =
     Message.ToolResult(id(callId), text("done"))
@@ -30,7 +30,7 @@ object ProgressSpec extends ZIOSpecDefault:
       assertTrue(Progress.from(Chunk(asked)) == Progress.AwaitingModel)
     },
     test("an answer with nothing after it is where the conversation stopped") {
-      assertTrue(Progress.from(Chunk(asked, said)) == Progress.Finished(text("pasta")))
+      assertTrue(Progress.from(Chunk(asked, said)) == Progress.Finished(said))
     },
     test("a question asked after an answer is the model's move again") {
       // The turn that answered is no longer the last word, so the conversation has not stopped.
@@ -68,6 +68,6 @@ object ProgressSpec extends ZIOSpecDefault:
         answering("c2"),
         said,
       )
-      assertTrue(Progress.from(messages) == Progress.Finished(text("pasta")))
+      assertTrue(Progress.from(messages) == Progress.Finished(said))
     },
   )

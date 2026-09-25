@@ -1,4 +1,4 @@
-package homelab.incubator.llm.v4
+package homelab.llm
 
 
 import zio.json.ast.Json
@@ -100,8 +100,8 @@ object RegistrySpec extends ZIOSpecDefault:
     test("a session dispatches a registered tool and refuses a name it does not hold") {
       for
         session <- registry.forSession(())
-        ran     <- session.dispatch(Tool.Call(Tool.Call.Id("c1"), "weather", """{"city":"Hamburg"}"""))
-        missing <- session.dispatch(Tool.Call(Tool.Call.Id("c2"), "nope", "{}"))
+        ran     <- session.dispatch(Tool.Call.Raw(Tool.Call.Id("c1"), "weather", """{"city":"Hamburg"}"""))
+        missing <- session.dispatch(Tool.Call.Raw(Tool.Call.Id("c2"), "nope", "{}"))
       yield assertTrue(
         ran.result.render == """{"degrees":12.0}""",
         !ran.result.failed,

@@ -71,6 +71,7 @@ Git-source and JitPack alternatives are in
 | `homelab-nats` | NATS Core and JetStream messaging | jnats |
 | `homelab-auth` | JWT/JWKS authentication, incl. the Kubernetes issuer | JDK `HttpClient` only |
 | `homelab-telemetry` | OpenTelemetry spans and metrics | zio-telemetry, otel-api |
+| `homelab-llm` | tool calling, the conversation a model reads, JSON Schema from a `zio.schema.Schema` | zio-schema-json |
 
 `incubator` is sketches and experiments; it is never published.
 
