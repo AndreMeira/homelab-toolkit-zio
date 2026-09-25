@@ -106,7 +106,7 @@ final class Robot(
     for
       outcomes <- session.dispatchAll(completion.calls.toList)
       answers   = Chunk.fromIterable(outcomes).map(answered)
-      appended  = asked ++ (Message.from(completion) +: answers)
+      appended  = asked ++ (Message.fromCompletion(completion) +: answers)
       taken     = state.decisions + 1
     yield outcomes.flatMap(ending).headOption match
       case Some(RigTools.Ending.Done(_, _))        => Step.Done(Robot.Ending.Concluded(taken))
@@ -119,7 +119,7 @@ final class Robot(
    * @param outcome what dispatch produced
    * @return the message to append
    */
-  private def answered(outcome: Outcome): Message = Message.from(outcome)
+  private def answered(outcome: Outcome): Message = Message.fromOutcome(outcome)
 
   /**
    * The ending an outcome carries, when it carries one.

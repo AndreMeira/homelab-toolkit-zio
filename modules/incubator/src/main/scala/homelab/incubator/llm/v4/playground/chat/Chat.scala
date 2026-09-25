@@ -47,8 +47,8 @@ final class Chat(
    * @return the transition; aborts when the repository, the model or a tool does
    */
   def next: State => IO[ApplicationError, Next] =
-    case Step.Init(ask)          => open(ask)
-    case Step.Continue(ongoing)  => advance(ongoing)
+    case Step.Init(ask)         => open(ask)
+    case Step.Continue(ongoing) => advance(ongoing)
 
   /**
    * Add a question to a conversation, new or already running.
@@ -58,9 +58,7 @@ final class Chat(
    */
   private def open(ask: Chat.Ask): IO[ApplicationError, Next] =
     val question = Chunk(Message.User(text(ask.question)))
-    for
-      existing <- repository.get(ask.conversation)
-      _        <- repository.add(ask.conversation, question)
+    for existing <- repository.get(ask.conversation)
     yield Step.Continue(Chat.Ongoing(ask.conversation, existing ++ question))
 
   /**
@@ -89,8 +87,7 @@ final class Chat(
       for
         session    <- tools.forSession(ongoing.conversation)
         completion <- model.complete(Model.Request(instructed(ongoing.messages), session.advertised))
-        spoken      = Chunk(Message.from(completion))
-        _          <- repository.add(ongoing.conversation, spoken)
+        spoken      = Chunk(Message.fromCompletion(completion))
       yield Step.Continue(ongoing.and(spoken))
 
   /**
@@ -106,7 +103,6 @@ final class Chat(
       session  <- tools.forSession(ongoing.conversation)
       outcomes <- session.dispatchAll(pending.toList)
       answers   = Chunk.fromIterable(outcomes).map(answered)
-      _        <- repository.add(ongoing.conversation, answers)
     yield Step.Continue(ongoing.and(answers))
 
   /**
@@ -127,7 +123,8 @@ final class Chat(
    * @param outcome what dispatch produced
    * @return the message to store
    */
-  private def answered(outcome: Outcome): Message = Message.from(outcome)
+  private def answered(outcome: Outcome): Message =
+    Message.fromOutcome(outcome)
 
   /**
    * How many turns the model has taken, counted from the conversation rather than kept beside it.
@@ -135,17 +132,10 @@ final class Chat(
    * @param messages the conversation so far
    * @return the number of turns the model has spoken
    */
-  private def turns(messages: Chunk[Message]): Int = messages.count(spoken)
-
-  /**
-   * Whether a message is one the model wrote.
-   *
-   * @param message the message
-   * @return true when the model wrote it
-   */
-  private def spoken(message: Message): Boolean = message match
-    case Message.Assistant(_, _) => true
-    case _                       => false
+  private def turns(messages: Chunk[Message]): Int =
+    messages.count:
+      case Message.Assistant(_, _) => true
+      case _                       => false
 
   /**
    * Words, as a message carries them.
@@ -153,7 +143,8 @@ final class Chat(
    * @param value what to say
    * @return the one content part that says it
    */
-  private def text(value: String): Chunk[Message.Content] = Chunk(Message.Content.Text(value))
+  private def text(value: String): Chunk[Message.Content] =
+    Chunk(Message.Content.Text(value))
 }
 
 
@@ -203,4 +194,3 @@ object Chat:
      * @return the reason, naming the conversation and its budget
      */
     override def message: String = s"conversation '$conversation' took its $budget turns without answering"
-

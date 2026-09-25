@@ -90,7 +90,7 @@ trait Basic[Ctx] extends Workflow[Any, ApplicationError, String, Chunk[Message],
       for
         session    <- tools.forSession(context)
         completion <- model.complete(Model.Request(messages, session.advertised))
-      yield Step.Continue(messages :+ Message.from(completion))
+      yield Step.Continue(messages :+ Message.fromCompletion(completion))
 
   /**
    * Run the calls the model is waiting on.
@@ -115,7 +115,7 @@ trait Basic[Ctx] extends Workflow[Any, ApplicationError, String, Chunk[Message],
    * @param outcome what dispatch produced
    * @return the message to append
    */
-  private def answered(outcome: Outcome): Message = Message.from(outcome)
+  private def answered(outcome: Outcome): Message = Message.fromOutcome(outcome)
 
   /**
    * How many turns the model has taken, counted from the conversation rather than kept beside it.

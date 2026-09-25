@@ -51,9 +51,17 @@ object Message:
   /**
    * A piece of a message.
    *
-   * Text is the part a loop reads. Anything else a provider accepts in a message — an image, a document, a
-   * cache marker — travels as [[Raw]] and reaches the wire as it was written, so a caller can use what a
-   * provider offers without waiting for it to be modelled here.
+   * Text is the part a loop reads. Anything else a provider accepts travels as [[Raw]] and reaches the wire
+   * as it was written, so a caller can use what a provider offers without waiting for it to be modelled
+   * here — and nothing here reads a [[Raw]], so there is nothing for it to be misread as.
+   *
+   * Every role uses it, and for different things: a [[Message.User]] carries images, audio and documents; a
+   * [[Message.Assistant]] carries reasoning blocks, which some providers require be handed back unaltered
+   * on the following turn; a [[Message.System]] carries text annotated to be cached, which is why it is not
+   * a plain string; a [[Message.ToolResult]] carries images where a provider takes blocks rather than text.
+   *
+   * Which parts a role may legally carry is the provider's to say and differs between them, so a message
+   * built with one it does not accept is refused there rather than here.
    */
   enum Content:
 
@@ -80,7 +88,7 @@ object Message:
    * @param completion what the model returned
    * @return the assistant message to append
    */
-  def from(completion: Model.Completion): Assistant =
+  def fromCompletion(completion: Model.Completion): Assistant =
     Assistant(completion.content, completion.calls)
 
   /**
@@ -92,5 +100,5 @@ object Message:
    * @param outcome what dispatch produced
    * @return the tool message to append
    */
-  def from(outcome: Outcome): ToolResult =
+  def fromOutcome(outcome: Outcome): ToolResult =
     ToolResult(outcome.call.id, Chunk(Content.Text(outcome.result.render)))
