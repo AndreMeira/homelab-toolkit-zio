@@ -3,7 +3,7 @@ package homelab.incubator.llm.v4.playground.agent
 import homelab.common.error.ApplicationError
 import homelab.common.processing.Workflow
 import homelab.common.processing.Workflow.Step
-import homelab.incubator.llm.v4.{ Message, Model, Outcome, Progress, Registry, Tool }
+import homelab.llm.{ Message, Model, Outcome, Progress, Registry, Tool }
 import zio.{ Chunk, IO, NonEmptyChunk, ZIO }
 
 

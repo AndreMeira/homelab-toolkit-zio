@@ -1,7 +1,7 @@
-package homelab.incubator.llm.v4.schema
+package homelab.llm.schema
 
 
-import homelab.incubator.llm.v4.schema.Generator.Unsupported
+import homelab.llm.schema.Generator.Unsupported
 import zio.schema.Schema
 
 

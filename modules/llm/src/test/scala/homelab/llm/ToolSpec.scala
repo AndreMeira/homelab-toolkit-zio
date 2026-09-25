@@ -1,4 +1,4 @@
-package homelab.incubator.llm.v4
+package homelab.llm
 
 
 import homelab.common.error.ApplicationError

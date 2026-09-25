@@ -4,7 +4,7 @@ package homelab.incubator.llm.v4.playground.chat
 import homelab.common.error.ApplicationError
 import homelab.common.processing.Workflow
 import homelab.common.processing.Workflow.Step
-import homelab.incubator.llm.v4.*
+import homelab.llm.*
 import homelab.incubator.llm.v4.playground.chat.Chat.{ Ask, BudgetExhausted, Ongoing }
 import zio.{ Chunk, IO, NonEmptyChunk, ZIO }
 

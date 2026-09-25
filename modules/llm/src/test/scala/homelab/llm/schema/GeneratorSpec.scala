@@ -1,4 +1,4 @@
-package homelab.incubator.llm.v4.schema
+package homelab.llm.schema
 
 
 import zio.Scope

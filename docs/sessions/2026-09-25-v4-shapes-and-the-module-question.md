@@ -37,7 +37,7 @@ costs live visibility of a turn in flight.
 
 ## What was decided
 
-**Everything goes to one `llm` module. Nothing enters `common`.** The reasoning is in
+**Everything went to one `homelab-llm` module. Nothing entered `common`.** The reasoning is in
 [module boundaries](../architecture/module-boundaries.md), which also records the rule it came from: `auth`
 split on *what an application names*, not on port-versus-implementation — `TokenVerifier` and `JwksSource`
 are ports and they stayed in the module.
@@ -53,10 +53,25 @@ keeps only `render`, so the flag is buried in the text we synthesised ourselves 
 it. A missing field rather than a wrong shape — and the clearest argument for writing an adapter before
 promoting rather than after.
 
+## The move
+
+`modules/llm`, `homelab-llm`, depending on `common` like every other module and bringing only
+`zio-schema-json`. Thirteen files and six specs; `private[v4]` became `private[llm]`. The three playground
+examples stayed in the incubator and now import the module exactly as an application would, which is what
+makes them worth keeping.
+
+Before it moved, the specs that were missing were written: `schema/` had none at all where v2 had eighteen,
+and `Tool` had none directly where v3 had seventeen. 67 tests now, up from 25.
+
+Two findings came out of writing them, recorded in the tests rather than fixed. A scaladoc ships to the
+model as prompt text, `/**` markers and all — it caught a doc comment of mine and failed the recursion test.
+And `Node.obj()` is ambiguous with no arguments, both overloads matching `()`, so a zero-property object
+cannot be built through the convenience constructor. That second one is worth fixing: a tool that takes no
+arguments is a legitimate thing.
+
 ## State
 
-`llm-v4-sketch`, ten commits, unpushed. PR #4 merged, so `main` has everything up to `Attendant`.
+`llm-v4-sketch`, unpushed. PR #4 merged, so `main` has everything up to `Attendant`.
 
-Next: the missing specs. `schema/` has none at all, where v2 had eighteen across `SchemasSpec`,
-`JsonSchemaDerivationSpec` and `JsonSchemaSpec`; `Tool` has none directly, where v3 had seventeen. That is
-the most intricate code in v4 and the only part where a bug produces a schema a model silently misfills.
+Next is an adapter — the thing that has never been written, and the only way to find out whether `Model`
+and `Message` are the right shape.

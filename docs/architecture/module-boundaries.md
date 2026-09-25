@@ -52,9 +52,11 @@ expensive afterwards.
 
 ## Applied: the LLM toolkit (2026-09-25)
 
-`llm/v4` in the incubator is a tool-calling agent — `Tool`, `Registry`, `Session`, `Registered`, `Model`,
+`llm/v4` in the incubator was a tool-calling agent — `Tool`, `Registry`, `Session`, `Registered`, `Model`,
 `Message`, `Progress`, `Outcome`, and a `schema/` package rendering the JSON Schema subset a tool's
-arguments are described in. **All of it goes to one `llm` module. Nothing enters `common`.**
+arguments are described in. **All of it went to one `homelab-llm` module. Nothing entered `common`.** The
+three playground examples stayed in the incubator, since what they are for is showing how the module reads
+at a call site, and they depend on it exactly as an application would.
 
 The types are generic enough for common — the question was asked directly and the answer is yes. `Message`
 translates to a provider that shapes a conversation differently: Anthropic and Gemini have no system role

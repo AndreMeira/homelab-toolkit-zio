@@ -1,4 +1,4 @@
-package homelab.incubator.llm.v4
+package homelab.llm
 
 
 import zio.json.ast.Json
@@ -14,7 +14,7 @@ import scala.collection.immutable.ListMap
  * @param context the caller's context handed to every dispatch
  * @tparam Ctx what the caller supplies — see [[Tool]]
  */
-final class Session[Ctx] private[v4] (permitted: ListMap[String, Registered[Ctx, ?, ?]], context: Ctx) {
+final class Session[Ctx] private[llm] (permitted: ListMap[String, Registered[Ctx, ?, ?]], context: Ctx) {
 
   /**
    * The `tools` array for a request — only what this caller may use, so a forbidden tool is not refused, it

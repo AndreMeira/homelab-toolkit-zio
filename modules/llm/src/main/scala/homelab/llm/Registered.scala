@@ -1,8 +1,8 @@
-package homelab.incubator.llm.v4
+package homelab.llm
 
 
 import homelab.common.error.ApplicationError
-import homelab.incubator.llm.v4.schema.JsonSchema
+import homelab.llm.schema.JsonSchema
 import zio.json.ast.Json
 import zio.schema.Schema
 import zio.{ IO, UIO, ZIO }
@@ -21,7 +21,7 @@ import zio.{ IO, UIO, ZIO }
  * @tparam In the arguments the model chooses
  * @tparam Out what the tool produces
  */
-final class Registered[Ctx, In, Out: Schema] private[v4] (
+final class Registered[Ctx, In, Out: Schema] private[llm] (
   tool: Tool[Ctx, In, Out],
   jsonSchema: JsonSchema,
 ) {

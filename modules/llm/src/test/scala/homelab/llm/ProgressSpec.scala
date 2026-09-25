@@ -1,7 +1,7 @@
-package homelab.incubator.llm.v4
+package homelab.llm
 
 
-import homelab.incubator.llm.v4.Message.Content
+import homelab.llm.Message.Content
 import zio.*
 import zio.test.*
 

@@ -2,7 +2,7 @@ package homelab.incubator.llm.v4.playground.outstanding
 
 
 import homelab.common.error.ApplicationError
-import homelab.incubator.llm.v4.Message
+import homelab.llm.Message
 import homelab.incubator.llm.v4.playground.chat.{ Chat, Conversation }
 import zio.{ Chunk, IO, ZIO }
 

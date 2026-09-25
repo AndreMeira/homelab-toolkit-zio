@@ -1,9 +1,9 @@
-package homelab.incubator.llm.v4
+package homelab.llm
 
 
 import homelab.common.error.ApplicationError
-import homelab.incubator.llm.v4.Tool.Result.errorEncoder
-import homelab.incubator.llm.v4.schema.{ Encoder, JsonSchema, Shape }
+import homelab.llm.Tool.Result.errorEncoder
+import homelab.llm.schema.{ Encoder, JsonSchema, Shape }
 import zio.schema.codec.JsonCodec
 import zio.schema.{ DeriveSchema, Schema }
 import zio.{ IO, ZIO }
@@ -119,7 +119,7 @@ object Tool:
    * @param reason what the decoder reported
    * @return the same reason, placed
    */
-  private[v4] def unparsed(reason: String): String = s"arguments did not parse: $reason"
+  private[llm] def unparsed(reason: String): String = s"arguments did not parse: $reason"
 
   /**
    * One call a model made, before or after its arguments have been read.
@@ -294,7 +294,7 @@ object Tool:
      * @tparam A what the call would have produced
      * @return the failure, unrendered
      */
-    private[v4] def failure[A: Schema](reason: String): Result[A] = Failed(reason)
+    private[llm] def failure[A: Schema](reason: String): Result[A] = Failed(reason)
 
     /**
      * The result of a tool that ran.

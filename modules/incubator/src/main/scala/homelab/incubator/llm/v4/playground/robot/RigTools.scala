@@ -1,8 +1,8 @@
 package homelab.incubator.llm.v4.playground.robot
 
 import homelab.common.error.ApplicationError
-import homelab.incubator.llm.v4.Tool.Result
-import homelab.incubator.llm.v4.{ Registry, Tool }
+import homelab.llm.Tool.Result
+import homelab.llm.{ Registry, Tool }
 import zio.*
 import zio.schema.annotation.discriminatorName
 import zio.schema.{ Schema, derived }

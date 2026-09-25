@@ -2,7 +2,7 @@ package homelab.incubator.llm.v4.playground.outstanding
 
 
 import homelab.common.error.ApplicationError
-import homelab.incubator.llm.v4.Tool
+import homelab.llm.Tool
 import homelab.incubator.llm.v4.playground.chat.Conversation
 import zio.schema.{ Schema, derived }
 import zio.{ IO, Random, ZIO }
