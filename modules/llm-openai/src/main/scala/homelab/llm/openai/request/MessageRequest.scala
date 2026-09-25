@@ -23,14 +23,14 @@ enum MessageRequest derives JsonEncoder {
    *
    * @param content what they are
    */
-  @jsonHint("system") case System(content: List[ContentPart])
+  @jsonHint("system") case System(content: List[Json])
 
   /**
    * What the caller said.
    *
    * @param content what they said
    */
-  @jsonHint("user") case User(content: List[ContentPart])
+  @jsonHint("user") case User(content: List[Json])
 
   /**
    * What the model said, and what it asked to have run.
@@ -42,7 +42,7 @@ enum MessageRequest derives JsonEncoder {
    * @param toolCalls what it asked for, absent when it asked for nothing
    */
   @jsonHint("assistant") @jsonMemberNames(SnakeCase) case Assistant(
-    content: List[ContentPart],
+    content: List[Json],
     toolCalls: Option[List[CallRequest]],
   )
 
@@ -65,8 +65,8 @@ object MessageRequest:
    * @return what to send for it
    */
   def from(message: Message): MessageRequest = message match
-    case Message.System(content)             => System(ContentPart.from(content))
-    case Message.User(content)               => User(ContentPart.from(content))
+    case Message.System(content)             => System(ContentPart.parts(content))
+    case Message.User(content)               => User(ContentPart.parts(content))
     case Message.ToolResult(callId, content) => Tool(callId, ContentPart.text(content))
     case Message.Assistant(content, calls)   =>
-      Assistant(ContentPart.from(content), Option.when(calls.nonEmpty)(calls.map(CallRequest.from).toList))
+      Assistant(ContentPart.parts(content), Option.when(calls.nonEmpty)(calls.map(CallRequest.from).toList))

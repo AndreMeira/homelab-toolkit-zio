@@ -7,11 +7,11 @@ import zio.json.ast.Json
 
 
 /**
- * The Messages request, as Anthropic receives it.
+ * The request, as Anthropic's Messages API receives it.
  *
  * `max_tokens` is required by the API and is not something [[Model.Request]] carries, so it is settled
  * here: a caller that has an opinion says so through `extra`, which is merged last, and one that does not
- * gets [[MessagesRequest.DefaultMaxTokens]] rather than a rejected call.
+ * gets [[CompletionRequest.DefaultMaxTokens]] rather than a rejected call.
  *
  * @param model which model to ask for
  * @param maxTokens the most it may produce, which this API will not do without
@@ -20,7 +20,7 @@ import zio.json.ast.Json
  * @param tools the tools on offer, absent when there are none
  */
 @jsonMemberNames(SnakeCase)
-final case class MessagesRequest(
+final case class CompletionRequest(
   model: String,
   maxTokens: Int,
   messages: List[MessageRequest],
@@ -29,7 +29,7 @@ final case class MessagesRequest(
 ) derives JsonEncoder
 
 
-object MessagesRequest:
+object CompletionRequest:
 
   /**
    * What a run may produce when a caller did not say.
@@ -51,7 +51,7 @@ object MessagesRequest:
    */
   def body(model: Model.Name, request: Model.Request): Json.Obj =
     val (system, messages) = MessageRequest.conversation(request.messages)
-    val core               = MessagesRequest(
+    val core               = CompletionRequest(
       model = model,
       maxTokens = DefaultMaxTokens,
       messages = messages,

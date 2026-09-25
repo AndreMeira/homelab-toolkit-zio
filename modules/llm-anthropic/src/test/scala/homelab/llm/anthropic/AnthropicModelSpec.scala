@@ -26,7 +26,7 @@ object AnthropicModelSpec extends ZIOSpecDefault:
 
   private def answering(body: String, status: StatusCode = StatusCode.Ok): AnthropicModel =
     val backend = BackendStub[Task](RIOMonadAsyncError[Any]).whenAnyRequest.thenRespondAdjust(body, status)
-    new AnthropicModel(backend, "test-key")
+    AnthropicModel.make(backend, "test-key")
 
   private def ask(model: AnthropicModel) =
     model.complete(Model.Name("claude-3-5-sonnet-latest"), Model.Request(Chunk(Message.user(Chunk.empty))))
@@ -69,6 +69,12 @@ object AnthropicModelSpec extends ZIOSpecDefault:
       test("a reason it does not name is kept as the API spelled it") {
         for completion <- ask(answering("""{"content":[],"stop_reason":"pause_turn"}"""))
         yield assertTrue(completion.finish == Model.FinishReason.Other("pause_turn"))
+      },
+    ),
+    suite("a transport of its own")(
+      test("a caller with no opinion gets one, and it is closed with the scope") {
+        // The overloads differ only in making the backend; what they build is the same model.
+        zio.ZIO.scoped(AnthropicModel.make("k")).map(model => assertTrue(model.isInstanceOf[AnthropicModel]))
       },
     ),
     suite("what it refuses")(

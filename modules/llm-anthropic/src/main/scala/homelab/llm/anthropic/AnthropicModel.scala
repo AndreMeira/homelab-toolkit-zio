@@ -2,8 +2,8 @@ package homelab.llm.anthropic
 
 
 import homelab.llm.Model
-import homelab.llm.anthropic.request.MessagesRequest
-import homelab.llm.anthropic.response.{ FailureResponse, MessagesResponse }
+import homelab.llm.anthropic.request.CompletionRequest
+import homelab.llm.anthropic.response.{ CompletionResponse, FailureResponse }
 import sttp.client4.*
 import sttp.client4.httpclient.zio.HttpClientZioBackend
 import sttp.model.{ StatusCode, Uri }
@@ -42,9 +42,9 @@ final class AnthropicModel(
    */
   override def complete(model: Model.Name, request: Model.Request): IO[AnthropicError, Model.Completion] =
     for
-      response   <- send(MessagesRequest.body(model, request).toJson)
+      response   <- send(CompletionRequest.body(model, request).toJson)
       body       <- read(response)
-      completion <- ZIO.fromEither(MessagesResponse.completion(body))
+      completion <- ZIO.fromEither(CompletionResponse.completion(body))
     yield completion
 
   /**
@@ -72,9 +72,9 @@ final class AnthropicModel(
    * @param response what the API answered
    * @return the decoded body; aborts with what its status and body say together
    */
-  private def read(response: Response[Either[String, String]]): IO[AnthropicError, MessagesResponse] =
+  private def read(response: Response[Either[String, String]]): IO[AnthropicError, CompletionResponse] =
     response.body match
-      case Right(body) => ZIO.fromEither(body.fromJson[MessagesResponse].left.map(unreadable(body)))
+      case Right(body) => ZIO.fromEither(body.fromJson[CompletionResponse].left.map(unreadable(body)))
       case Left(body)  => ZIO.fail(refused(response.code, body))
 
   /**
@@ -114,13 +114,30 @@ object AnthropicModel:
   val Version: String = "2023-06-01"
 
   /**
-   * A model with a transport of its own: the JDK's client, closed with the scope.
+   * Anthropic, with a transport of its own.
+   *
+   * The transport is made here and closed when the scope ends, which is what a caller wants who has no
+   * opinion about how to reach it. The overload taking a backend is for everyone else.
    *
    * @param apiKey the credential
    * @return the model, holding a transport for as long as the scope; aborts when one cannot be opened
    */
   def make(apiKey: String): ZIO[Scope, AnthropicError, AnthropicModel] =
-    HttpClientZioBackend
-      .scoped()
-      .mapError(failure => AnthropicError.Unavailable(failure.getMessage))
-      .map(backend => new AnthropicModel(backend, apiKey))
+    transport.map(backend => make(backend, apiKey))
+
+  /**
+   * Anthropic, over a transport the caller holds.
+   *
+   * @param backend what sends the request
+   * @param apiKey the credential
+   * @return the model
+   */
+  def make(backend: Backend[Task], apiKey: String): AnthropicModel = new AnthropicModel(backend, apiKey)
+
+  /**
+   * A transport for a caller who has no opinion about one: the JDK's own client, closed with the scope.
+   *
+   * @return the backend; aborts when one cannot be opened
+   */
+  private def transport: ZIO[Scope, AnthropicError, Backend[Task]] =
+    HttpClientZioBackend.scoped().mapError(failure => AnthropicError.Unavailable(failure.getMessage))

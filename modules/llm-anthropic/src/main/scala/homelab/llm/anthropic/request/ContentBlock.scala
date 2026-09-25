@@ -8,33 +8,35 @@ import zio.json.ast.Json
 
 
 /**
- * One block of a message's content.
+ * One block this adapter writes.
  *
  * Where the chat-completions protocol has a role per kind of thing, this API has a block per kind: what the
  * model asked to run and what a tool answered are both blocks, inside an assistant turn and a user turn
- * respectively.
+ * respectively. Each carries its own `type`, which is what [[ContentBlock.from]] reads them back by.
+ *
+ * A block the caller built is not one of these — it is already JSON, and goes out as written. That is why
+ * it is not a case here and why [[ContentBlock.blocks]] answers in `Json`.
  */
-enum ContentBlock {
+@jsonDiscriminator("type")
+enum ContentBlock derives JsonEncoder {
 
   /**
    * Words.
    *
    * @param text what they are
    */
-  case Text(text: String)
+  @jsonHint("text") case Text(text: String)
 
   /**
    * What the model asked to have run.
    *
-   * The input is an object here, where the chat-completions protocol sends the same thing as a string. What
-   * the toolkit holds is the string the model wrote, so this parses it back — and keeps it as text when it
-   * will not parse, since a model that wrote something unparseable should see its own words again.
+   * The input is an object here, where the chat-completions protocol sends the same thing as a string.
    *
    * @param id what the model named the call
    * @param name which tool it asked for
    * @param input the arguments it wrote
    */
-  case ToolUse(id: String, name: String, input: Json)
+  @jsonHint("tool_use") case ToolUse(id: String, name: String, input: Json)
 
   /**
    * What a tool answered.
@@ -42,59 +44,44 @@ enum ContentBlock {
    * @param toolUseId the id of the call this answers
    * @param content the answer, as the model will read it
    */
-  case ToolResult(toolUseId: String, content: String)
-
-  /**
-   * A block this adapter does not model, which the caller built and which goes out as it was written.
-   *
-   * @param json the block
-   */
-  case Raw(json: Json)
+  @jsonHint("tool_result") @jsonMemberNames(SnakeCase) case ToolResult(toolUseId: String, content: String)
 }
 
 
 object ContentBlock:
 
   /**
-   * How a block is written.
-   *
-   * Each kind carries its own `type`, and a [[Raw]] is spliced rather than wrapped — what the caller built
-   * is the block, not a field of one.
-   */
-  given JsonEncoder[ContentBlock] = JsonEncoder[Json].contramap {
-    case Text(text)                    => Json.Obj("type" -> Json.Str("text"), "text" -> Json.Str(text))
-    case ToolUse(id, name, input)      =>
-      Json.Obj(
-        "type"  -> Json.Str("tool_use"),
-        "id"    -> Json.Str(id),
-        "name"  -> Json.Str(name),
-        "input" -> input,
-      )
-    case ToolResult(toolUseId, content) =>
-      Json.Obj(
-        "type"        -> Json.Str("tool_result"),
-        "tool_use_id" -> Json.Str(toolUseId),
-        "content"     -> Json.Str(content),
-      )
-    case Raw(json)                     => json
-  }
-
-  /**
    * The blocks of a message's content.
+   *
+   * A part the caller built passes through as it was written; a part this adapter models is written by the
+   * derived encoder.
    *
    * @param content what the toolkit holds
    * @return the blocks to send
    */
-  def from(content: Chunk[Message.Content]): List[ContentBlock] = content.map(block).toList
+  def blocks(content: Chunk[Message.Content]): List[Json] = content.map(part).toList
 
   /**
    * One call the model made, as this API restates it.
    *
+   * What the toolkit holds is the string the model wrote, so it is parsed back — and kept as text when it
+   * will not parse, since a model that wrote something unreadable should see its own words again.
+   *
    * @param call what the model asked for
    * @return the block
    */
-  def asked(call: Tool.Call.Raw): ContentBlock =
-    ToolUse(call.id, call.name, call.arguments.fromJson[Json].getOrElse(Json.Str(call.arguments)))
+  def asked(call: Tool.Call.Raw): Json =
+    written(ToolUse(call.id, call.name, call.arguments.fromJson[Json].getOrElse(Json.Str(call.arguments))))
+
+  /**
+   * What a tool answered, as a block.
+   *
+   * @param callId the id of the call this answers
+   * @param content the answer
+   * @return the block
+   */
+  def answered(callId: Tool.Call.Id, content: Chunk[Message.Content]): Json =
+    written(ToolResult(callId, text(content)))
 
   /**
    * The words of a message, for a tool result, which takes text rather than blocks.
@@ -111,6 +98,17 @@ object ContentBlock:
    * @param content what the toolkit holds
    * @return the block to send
    */
-  private def block(content: Message.Content): ContentBlock = content match
-    case Message.Content.Text(text) => Text(text)
-    case Message.Content.Raw(json)  => Raw(json)
+  private def part(content: Message.Content): Json = content match
+    case Message.Content.Text(said) => written(Text(said))
+    case Message.Content.Raw(json)  => json
+
+  /**
+   * One block this adapter wrote, as JSON.
+   *
+   * The derived encoder answers an `Either`, and the left is unreachable: these are three case classes of
+   * strings and a `Json`, and nothing about them can fail to be written.
+   *
+   * @param block the block
+   * @return it, written
+   */
+  private def written(block: ContentBlock): Json = block.toJsonAST.getOrElse(Json.Null)

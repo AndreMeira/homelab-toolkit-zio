@@ -4,6 +4,7 @@ package homelab.llm.anthropic.request
 import homelab.llm.{ Message, Tool }
 import zio.Chunk
 import zio.json.*
+import zio.json.ast.Json
 
 
 /**
@@ -16,7 +17,7 @@ import zio.json.*
  * @param role who is speaking, which is `user` or `assistant` and nothing else
  * @param content what they said, as blocks
  */
-final case class MessageRequest(role: String, content: List[ContentBlock]) derives JsonEncoder
+final case class MessageRequest(role: String, content: List[Json]) derives JsonEncoder
 
 
 object MessageRequest:
@@ -55,9 +56,9 @@ object MessageRequest:
    */
   private def absorb(built: List[MessageRequest], next: Message): List[MessageRequest] = (built, next) match
     case (_, Message.System(_))                             => built
-    case (_, Message.User(content))                         => user(ContentBlock.from(content)) :: built
+    case (_, Message.User(content))                         => user(ContentBlock.blocks(content)) :: built
     case (_, Message.Assistant(content, calls))             =>
-      assistant(ContentBlock.from(content) ++ calls.map(ContentBlock.asked)) :: built
+      assistant(ContentBlock.blocks(content) ++ calls.map(ContentBlock.asked)) :: built
     case (last :: rest, Message.ToolResult(callId, content)) if last.role == User =>
       last.copy(content = last.content :+ answer(callId, content)) :: rest
     case (_, Message.ToolResult(callId, content))           => user(List(answer(callId, content))) :: built
@@ -69,8 +70,8 @@ object MessageRequest:
    * @param content the answer
    * @return the block
    */
-  private def answer(callId: Tool.Call.Id, content: Chunk[Message.Content]): ContentBlock =
-    ContentBlock.ToolResult(callId, ContentBlock.text(content))
+  private def answer(callId: Tool.Call.Id, content: Chunk[Message.Content]): Json =
+    ContentBlock.answered(callId, content)
 
   /** What the API calls the caller's side. */
   private val User: String = "user"
@@ -84,7 +85,7 @@ object MessageRequest:
    * @param content its blocks
    * @return the turn
    */
-  private def user(content: List[ContentBlock]): MessageRequest = MessageRequest(User, content)
+  private def user(content: List[Json]): MessageRequest = MessageRequest(User, content)
 
   /**
    * A turn the model takes.
@@ -92,4 +93,4 @@ object MessageRequest:
    * @param content its blocks
    * @return the turn
    */
-  private def assistant(content: List[ContentBlock]): MessageRequest = MessageRequest(Assistant, content)
+  private def assistant(content: List[Json]): MessageRequest = MessageRequest(Assistant, content)

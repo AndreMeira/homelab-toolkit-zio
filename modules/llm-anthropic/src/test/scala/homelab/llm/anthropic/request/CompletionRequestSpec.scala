@@ -10,7 +10,7 @@ import zio.{ Chunk, Scope }
 
 
 /** A conversation reshaped for an API that has two roles where the toolkit has four. */
-object MessagesRequestSpec extends ZIOSpecDefault:
+object CompletionRequestSpec extends ZIOSpecDefault:
 
   private val model = Model.Name("claude-3-5-sonnet-latest")
 
@@ -21,9 +21,9 @@ object MessagesRequestSpec extends ZIOSpecDefault:
   private val weather = Advertised("weather", "Report it.", JsonSchema(Node.obj(Shape.Obj.Field("city", Node.text))))
 
   private def sent(messages: Message*): String =
-    MessagesRequest.body(model, Model.Request(Chunk.fromIterable(messages))).toJson
+    CompletionRequest.body(model, Model.Request(Chunk.fromIterable(messages))).toJson
 
-  def spec: Spec[TestEnvironment & Scope, Any] = suite("MessagesRequest")(
+  def spec: Spec[TestEnvironment & Scope, Any] = suite("CompletionRequest")(
     suite("the instructions")(
       test("are lifted out of the conversation into a field of their own") {
         val body = sent(Message.system(text("be brief")), Message.user(text("hello")))
@@ -72,7 +72,7 @@ object MessagesRequestSpec extends ZIOSpecDefault:
     ),
     suite("tools")(
       test("are advertised flat, with the schema under input_schema") {
-        val body = MessagesRequest.body(model, Model.Request(Chunk.empty, List(weather))).toJson
+        val body = CompletionRequest.body(model, Model.Request(Chunk.empty, List(weather))).toJson
         assertTrue(
           body.contains(
             """"tools":[{"name":"weather","description":"Report it.","input_schema":{"type":"object",""" +
@@ -87,10 +87,10 @@ object MessagesRequestSpec extends ZIOSpecDefault:
     ),
     suite("max_tokens")(
       test("is sent even though nothing asked for it, because the API will not do without") {
-        assertTrue(sent(Message.user(text("hi"))).contains(s""""max_tokens":${MessagesRequest.DefaultMaxTokens}"""))
+        assertTrue(sent(Message.user(text("hi"))).contains(s""""max_tokens":${CompletionRequest.DefaultMaxTokens}"""))
       },
       test("is a caller's to set through the escape hatch") {
-        val body = MessagesRequest.body(model, Model.Request(Chunk.empty, Nil, Json.Obj("max_tokens" -> Json.Num(64))))
+        val body = CompletionRequest.body(model, Model.Request(Chunk.empty, Nil, Json.Obj("max_tokens" -> Json.Num(64))))
         assertTrue(body.toJson.contains(""""max_tokens":64"""))
       },
     ),
