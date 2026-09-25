@@ -80,6 +80,34 @@ object Message:
     case Raw(json: Json)
 
   /**
+   * Adjacent messages of one role joined into one, for a provider that will not take them separately.
+   *
+   * Only [[System]] and [[User]] are joined, because content is all they carry. An [[Assistant]] turn also
+   * carries the calls it made, and a [[ToolResult]] is paired to one call by its id, so each of those stays
+   * as it was however many of them sit together.
+   *
+   * For an adapter to call on the way out rather than something to store. What a conversation holds is what
+   * happened, and two adjacent messages of one role usually mean a run that appended one and then failed
+   * before it was answered.
+   *
+   * @param messages the conversation, oldest first
+   * @return the same conversation with adjacent system or user messages joined
+   */
+  def merged(messages: Chunk[Message]): Chunk[Message] = messages.foldLeft(Chunk.empty)(absorb)
+
+  /**
+   * Add one message to what has been kept, joining it to the last when both may be.
+   *
+   * @param kept the messages merged so far
+   * @param next the message to add
+   * @return the messages including it
+   */
+  private def absorb(kept: Chunk[Message], next: Message): Chunk[Message] = (kept.lastOption, next) match
+    case (Some(System(before)), System(after)) => kept.dropRight(1) :+ System(before ++ after)
+    case (Some(User(before)), User(after))     => kept.dropRight(1) :+ User(before ++ after)
+    case _                                     => kept :+ next
+
+  /**
    * What the model said, as the conversation carries it.
    *
    * A turn goes back as it came — words and calls both — so what the model reads next is what it wrote.
