@@ -95,10 +95,10 @@ object Message:
    */
   def merged(messages: Chunk[Message]): Chunk[Message] =
     messages.foldLeft(Chunk.empty[Message]) { (kept, next) =>
-      (kept.lastOption, next) match
-        case (Some(System(before)), System(after)) => kept.dropRight(1) :+ System(before ++ after)
-        case (Some(User(before)), User(after))     => kept.dropRight(1) :+ User(before ++ after)
-        case _                                     => kept :+ next
+      (kept, next) match
+        case (before :+ System(said), System(more)) => before :+ System(said ++ more)
+        case (before :+ User(said), User(more))     => before :+ User(said ++ more)
+        case _                                      => kept :+ next
     }
 
   /**
