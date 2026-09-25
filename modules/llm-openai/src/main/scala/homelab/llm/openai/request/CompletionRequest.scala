@@ -17,8 +17,11 @@ import zio.json.ast.Json
  * @param messages the conversation, oldest first
  * @param tools the tools on offer, absent when there are none
  */
-final case class CompletionRequest(model: String, messages: List[MessageRequest], tools: Option[List[Json]])
-    derives JsonEncoder
+final case class CompletionRequest(
+  model: String,
+  messages: List[MessageRequest],
+  tools: Option[List[Json]],
+) derives JsonEncoder
 
 
 object CompletionRequest:

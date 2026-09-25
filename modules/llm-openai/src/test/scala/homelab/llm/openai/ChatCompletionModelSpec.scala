@@ -7,7 +7,7 @@ import sttp.client4.testing.BackendStub
 import sttp.client4.UriContext
 import sttp.model.StatusCode
 import zio.test.*
-import zio.{ Chunk, Scope, Task }
+import zio.{ Chunk, Scope, Task, ZIO }
 
 
 /** What the adapter makes of what a provider answers, without a network. */
@@ -24,7 +24,7 @@ object ChatCompletionModelSpec extends ZIOSpecDefault:
 
   private def answering(body: String, status: StatusCode = StatusCode.Ok): ChatCompletionModel =
     val backend = BackendStub[Task](RIOMonadAsyncError[Any]).whenAnyRequest.thenRespondAdjust(body, status)
-    ChatCompletionModel.openRouter(backend, "test-key")
+    ChatCompletionModel.openRouter(backend, "test-key", None)
 
   /** A stub that answers nothing, and records the one request it was handed. */
   private def recording(seen: zio.Ref[Option[sttp.client4.GenericRequest[?, ?]]]) =
@@ -79,7 +79,7 @@ object ChatCompletionModelSpec extends ZIOSpecDefault:
       test("openRouter sends no attribution when none was asked for") {
         for
           seen <- zio.Ref.make(Option.empty[sttp.client4.GenericRequest[?, ?]])
-          _    <- ask(ChatCompletionModel.openRouter(recording(seen), "k")).flip
+          _    <- ask(ChatCompletionModel.openRouter(recording(seen), "k", None)).flip
           sent <- seen.get
         yield assertTrue(sent.exists(request => !request.headers.exists(_.name == "HTTP-Referer")))
       },
@@ -97,12 +97,24 @@ object ChatCompletionModelSpec extends ZIOSpecDefault:
         val local = uri"http://localhost:11434/v1/chat/completions"
         for
           seen <- zio.Ref.make(Option.empty[sttp.client4.GenericRequest[?, ?]])
-          _    <- ask(ChatCompletionModel.compatible(recording(seen), local)).flip
+          _    <- ask(ChatCompletionModel.compatible(recording(seen), local, None)).flip
           sent <- seen.get
         yield assertTrue(
           sent.exists(_.uri == local),
           sent.exists(request => !request.headers.exists(_.name == "Authorization")),
         )
+      },
+    ),
+    suite("a transport of its own")(
+      test("a caller with no opinion gets one, and it is closed with the scope") {
+        // The convenience overloads differ only in making the backend; what they build is the same model.
+        ZIO.scoped(ChatCompletionModel.openAi("k")).map(model => assertTrue(model.isInstanceOf[ChatCompletionModel]))
+      },
+      test("each provider is reachable without naming a backend") {
+        val local = uri"http://localhost:11434/v1/chat/completions"
+        ZIO
+          .scoped(ChatCompletionModel.openRouter("k") <&> ChatCompletionModel.compatible(local))
+          .map((router, compatible) => assertTrue(router != compatible))
       },
     ),
     suite("what it refuses")(

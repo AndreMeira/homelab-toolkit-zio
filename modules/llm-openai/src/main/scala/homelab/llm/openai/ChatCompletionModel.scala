@@ -5,9 +5,10 @@ import homelab.llm.Model
 import homelab.llm.openai.request.CompletionRequest
 import homelab.llm.openai.response.{ CompletionResponse, FailureResponse }
 import sttp.client4.*
+import sttp.client4.httpclient.zio.HttpClientZioBackend
 import sttp.model.{ StatusCode, Uri }
 import zio.json.*
-import zio.{ IO, Task, ZIO }
+import zio.{ IO, Scope, Task, ZIO }
 
 
 /**
@@ -111,27 +112,52 @@ object ChatCompletionModel:
   /**
    * OpenRouter, which fronts many providers and reports what a call cost.
    *
-   * The referer is what it attributes a call to on its public rankings, and is the one field of
-   * [[CompletionResponse.Usage]] that no direct provider fills in.
+   * The transport is made here and closed when the scope ends, which is what a caller wants who has one
+   * provider and no opinion about how to reach it. The overload taking a backend is for everyone else.
+   *
+   * The referer is what OpenRouter attributes a call to on its public rankings.
+   *
+   * @param apiKey the credential
+   * @param referer what to be attributed as, where a caller wants that
+   * @return the model, holding a transport for as long as the scope; aborts when one cannot be opened
+   */
+  def openRouter(apiKey: String, referer: Option[String] = None): ZIO[Scope, ChatCompletionError, ChatCompletionModel] =
+    transport.map(backend => openRouter(backend, apiKey, referer))
+
+  /**
+   * OpenRouter, over a transport the caller holds.
    *
    * @param backend what sends the request
    * @param apiKey the credential
    * @param referer what to be attributed as, where a caller wants that
    * @return the model
    */
-  def openRouter(backend: Backend[Task], apiKey: String, referer: Option[String] = None): ChatCompletionModel =
+  def openRouter(backend: Backend[Task], apiKey: String, referer: Option[String]): ChatCompletionModel =
     val attribution = referer.fold(Map.empty[String, String])(site => Map("HTTP-Referer" -> site))
     new ChatCompletionModel(backend, OpenRouter, bearer(apiKey) ++ attribution)
 
   /**
    * OpenAI itself.
    *
+   * @param apiKey the credential
+   * @param organisation which organisation to bill, where an account has more than one
+   * @return the model, holding a transport for as long as the scope; aborts when one cannot be opened
+   */
+  def openAi(
+    apiKey: String,
+    organisation: Option[String] = None,
+  ): ZIO[Scope, ChatCompletionError, ChatCompletionModel] =
+    transport.map(backend => openAi(backend, apiKey, organisation))
+
+  /**
+   * OpenAI, over a transport the caller holds.
+   *
    * @param backend what sends the request
    * @param apiKey the credential
    * @param organisation which organisation to bill, where an account has more than one
    * @return the model
    */
-  def openAi(backend: Backend[Task], apiKey: String, organisation: Option[String] = None): ChatCompletionModel =
+  def openAi(backend: Backend[Task], apiKey: String, organisation: Option[String]): ChatCompletionModel =
     val billed = organisation.fold(Map.empty[String, String])(org => Map("OpenAI-Organization" -> org))
     new ChatCompletionModel(backend, OpenAi, bearer(apiKey) ++ billed)
 
@@ -141,13 +167,31 @@ object ChatCompletionModel:
    * Azure is not one of these: it takes its credential in an `api-key` header and names a deployment in the
    * path, so it needs its own headers rather than a different endpoint.
    *
+   * @param endpoint where that provider serves completions
+   * @param apiKey the credential, where it wants one
+   * @return the model, holding a transport for as long as the scope; aborts when one cannot be opened
+   */
+  def compatible(endpoint: Uri, apiKey: Option[String] = None): ZIO[Scope, ChatCompletionError, ChatCompletionModel] =
+    transport.map(backend => compatible(backend, endpoint, apiKey))
+
+  /**
+   * Anything else that serves this protocol, over a transport the caller holds.
+   *
    * @param backend what sends the request
    * @param endpoint where that provider serves completions
    * @param apiKey the credential, where it wants one
    * @return the model
    */
-  def compatible(backend: Backend[Task], endpoint: Uri, apiKey: Option[String] = None): ChatCompletionModel =
+  def compatible(backend: Backend[Task], endpoint: Uri, apiKey: Option[String]): ChatCompletionModel =
     new ChatCompletionModel(backend, endpoint, apiKey.fold(Map.empty[String, String])(bearer))
+
+  /**
+   * A transport for a caller who has no opinion about one: the JDK's own client, closed with the scope.
+   *
+   * @return the backend; aborts when one cannot be opened
+   */
+  private def transport: ZIO[Scope, ChatCompletionError, Backend[Task]] =
+    HttpClientZioBackend.scoped().mapError(failure => ChatCompletionError.Unavailable(failure.getMessage))
 
   /**
    * The credential, as most of them take it.
