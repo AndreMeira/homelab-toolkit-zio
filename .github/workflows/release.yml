@@ -39,13 +39,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Explicit ref: a manual run has no tag context of its own, and pinning it keeps both paths identical.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.TAG }}
 
       # Same JDK as test.yml — see its comment for why 25.
       - name: Set up JDK 25 + sbt cache
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '25'

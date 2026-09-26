@@ -17,13 +17,13 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Temurin 25 for consistency with the rest of the homelab (services build on 25); building
       # here surfaces any JDK-25 issue in CI. Scala emits JVM-agnostic bytecode, so the build JDK
       # barely affects the artifact.
       - name: Set up JDK 25 + sbt cache
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '25'
