@@ -6,6 +6,7 @@ import zio.json.*
 import zio.test.*
 
 import scala.collection.immutable.ListMap
+import zio.Chunk
 
 
 /** What the ADT renders to, and the one invariant its types cannot carry. */
@@ -31,7 +32,7 @@ object JsonSchemaSpec extends ZIOSpecDefault:
       test("an object with no properties requires nothing and still closes") {
         // `Node.obj()` is ambiguous with no arguments — both overloads match — so the shape is built directly.
         assertTrue(
-          json(JsonSchema(Node(Shape.Obj(Nil)))) ==
+          json(JsonSchema(Node(Shape.Obj(Chunk.empty)))) ==
             """{"type":"object","properties":{},"required":[],"additionalProperties":false}"""
         )
       },

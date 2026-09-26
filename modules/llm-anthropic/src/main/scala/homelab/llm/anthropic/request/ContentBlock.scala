@@ -61,7 +61,7 @@ object ContentBlock:
    * @param content what the toolkit holds
    * @return the blocks to send
    */
-  def blocks(content: Chunk[Message.Content]): List[Json] = content.map(part).toList
+  def blocks(content: Chunk[Message.Content]): Chunk[Json] = content.map(part)
 
   /**
    * One call the model made, as this API restates it.

@@ -9,6 +9,7 @@ import homelab.llm.anthropic.response.CompletionResponse
 import sttp.client4.Backend
 import zio.json.ast.Json
 import zio.{ IO, Scope, Task, ZIO }
+import zio.Chunk
 
 
 /**
@@ -88,7 +89,7 @@ object AnthropicModel:
     toolChoice: Option[ToolChoice] = None,
     temperature: Option[Double] = None,
     topP: Option[Double] = None,
-    stopSequences: Option[List[String]] = None,
+    stopSequences: Option[Chunk[String]] = None,
     topK: Option[Int] = None,
     thinking: Option[Thinking] = None,
     metadata: Option[Metadata] = None,

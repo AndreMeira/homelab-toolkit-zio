@@ -42,7 +42,7 @@ object AnthropicClientSpec extends ZIOSpecDefault:
       seen.update(_ :+ (name -> tags.toMap)) *> effect
 
   private val asked =
-    CompletionRequest(Model.Name("claude-3-5-sonnet-latest"), 64, List(MessageRequest("user", Nil)))
+    CompletionRequest(Model.Name("claude-3-5-sonnet-latest"), 64, Chunk(MessageRequest("user", Chunk.empty)))
 
   private def ask(client: AnthropicClient) = client.complete(asked)
 
@@ -81,7 +81,7 @@ object AnthropicClientSpec extends ZIOSpecDefault:
       test("every block, in the order they came") {
         for response <- ask(answering(answered))
         yield assertTrue(
-          response.content == List(CompletionResponse.Block.Decoded(CompletionResponse.Block.Kind.Text("12 degrees"))),
+          response.content == Chunk(CompletionResponse.Block.Decoded(CompletionResponse.Block.Kind.Text("12 degrees"))),
           response.stopReason == Some("end_turn"),
         )
       },

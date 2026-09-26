@@ -5,6 +5,7 @@ import zio.json.ast.Json
 import zio.schema.StandardType
 
 import scala.collection.immutable.ListMap
+import zio.Chunk
 
 
 /**
@@ -35,8 +36,8 @@ final case class Node(shape: Shape, description: Option[String] = None) {
     // Description first: it is what a reader — human or model — should meet before the mechanics of the
     // shape. Member order carries no meaning to a validator, so it is free to spend on legibility.
     (description match {
-      case None       => shape.json.fields.toList
-      case Some(text) => ("description" -> Json.Str(text)) :: shape.json.fields.toList
+      case None       => shape.json.fields
+      case Some(text) => ("description" -> Json.Str(text)) +: shape.json.fields
     })*
   )
 }
@@ -101,7 +102,7 @@ object Node:
    * @param rest  the remaining values
    * @return the schema
    */
-  def enumeration(first: String, rest: String*): Node = Node(Shape.Enumeration(first, rest.toList))
+  def enumeration(first: String, rest: String*): Node = Node(Shape.Enumeration(first, Chunk.fromIterable(rest)))
 
   /**
    * An object. Fields are required unless their [[Shape.Obj.Field]] says otherwise.
@@ -109,7 +110,7 @@ object Node:
    * @param fields the properties, in the order the model should read them
    * @return the schema
    */
-  def obj(fields: Shape.Obj.Field*): Node = Node(Shape.Obj(fields.toList))
+  def obj(fields: Shape.Obj.Field*): Node = Node(Shape.Obj(Chunk.fromIterable(fields)))
 
   /**
    * An object whose properties are all required — the common case, written as pairs.
@@ -122,7 +123,7 @@ object Node:
    * @return the schema
    */
   def obj(fields: (String, Node)*)(using DummyImplicit): Node =
-    Node(Shape.Obj(fields.toList.map(Shape.Obj.Field(_, _))))
+    Node(Shape.Obj(Chunk.fromIterable(fields).map(Shape.Obj.Field(_, _))))
 
   /**
    * An array of `items`.
@@ -141,7 +142,7 @@ object Node:
    * @return the schema
    */
   def anyOf(first: Node, second: Node, rest: Node*): Node =
-    Node(Shape.AnyOf(first, second, rest.toList))
+    Node(Shape.AnyOf(first, second, Chunk.fromIterable(rest)))
 
   /**
    * `schema` or null — how an optional value is said to a strict-mode provider, which requires every property

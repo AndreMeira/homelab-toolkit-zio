@@ -25,11 +25,11 @@ object CompletionRequestSpec extends ZIOSpecDefault:
   )
 
   private def sent(messages: Message*): String =
-    body(CompletionRequest(model, messages.map(MessageRequest.from).toList))
+    body(CompletionRequest(model, Chunk.fromIterable(messages).map(MessageRequest.from)))
 
-  private def body(tools: List[Advertised] = Nil, extra: Json.Obj = Json.Obj()): String =
+  private def body(tools: Chunk[Advertised] = Chunk.empty, extra: Json.Obj = Json.Obj()): String =
     CompletionRequest
-      .body(CompletionRequest(model, Nil, tools = Option.when(tools.nonEmpty)(tools.map(ToolRequest.from))), extra)
+      .body(CompletionRequest(model, Chunk.empty, tools = Option.when(tools.nonEmpty)(tools.map(ToolRequest.from))), extra)
       .toJson
 
   private def body(request: CompletionRequest): String = CompletionRequest.body(request).toJson
@@ -71,11 +71,11 @@ object CompletionRequestSpec extends ZIOSpecDefault:
         assertTrue(!sent(Message.assistant(text("hi"))).contains("tool_calls"))
       },
       test("tools are offered only when there are any") {
-        assertTrue(body(tools = List(weather)).contains(""""tools":["""), !body().contains("tools"))
+        assertTrue(body(tools = Chunk(weather)).contains(""""tools":["""), !body().contains("tools"))
       },
       test("a tool is wrapped in a function object, with its schema under parameters") {
         assertTrue(
-          body(tools = List(weather)).contains(
+          body(tools = Chunk(weather)).contains(
             """"tools":[{"type":"function","function":{"name":"weather","description":"Report it.",""" +
               """"parameters":{"type":"object","properties":{"city":{"type":"string"}},""" +
               """"required":["city"],"additionalProperties":false}}}]"""

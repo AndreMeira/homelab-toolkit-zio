@@ -251,7 +251,7 @@ object Generator {
         Left(Unsupported(s"case '$name' already has a property named '$tag', which the discriminator needs"))
 
       case Shape.Obj(fields) =>
-        Right(Node(Shape.Obj(Shape.Obj.Field(tag, Node.enumeration(name)) :: fields), node.description))
+        Right(Node(Shape.Obj(Shape.Obj.Field(tag, Node.enumeration(name)) +: fields), node.description))
 
       case _ =>
         Left(Unsupported(s"case '$name' does not render as an object, so it cannot carry the '$tag' discriminator"))

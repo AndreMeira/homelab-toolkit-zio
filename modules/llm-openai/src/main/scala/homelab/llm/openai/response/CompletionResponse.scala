@@ -19,7 +19,7 @@ import zio.json.ast.Json
  * @param usage what the call consumed, absent on some providers
  */
 final case class CompletionResponse(
-  choices: List[CompletionResponse.Choice],
+  choices: Chunk[CompletionResponse.Choice],
   usage: Option[CompletionResponse.Usage],
 ) derives JsonDecoder
 
@@ -50,7 +50,7 @@ object CompletionResponse:
   @jsonMemberNames(SnakeCase)
   final case class Turn(
     content: Option[String],
-    toolCalls: Option[List[CompletionResponse.Call]],
+    toolCalls: Option[Chunk[CompletionResponse.Call]],
   ) derives JsonDecoder
 
   /**
@@ -144,10 +144,10 @@ object CompletionResponse:
    * @param calls what it sent, absent when it only answered
    * @return the calls, raw, since the arguments are a string the model wrote
    */
-  private def requested(calls: Option[List[CompletionResponse.Call]]): Chunk[Tool.Call.Raw] =
-    Chunk.fromIterable(calls.getOrElse(Nil).map { call =>
+  private def requested(calls: Option[Chunk[CompletionResponse.Call]]): Chunk[Tool.Call.Raw] =
+    calls.getOrElse(Chunk.empty).map { call =>
       Tool.Call.Raw(Tool.Call.Id(call.id), call.function.name, call.function.arguments)
-    })
+    }
 
   /**
    * Why the model stopped.

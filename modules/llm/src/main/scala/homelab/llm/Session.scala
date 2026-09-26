@@ -2,7 +2,7 @@ package homelab.llm
 
 
 import zio.json.ast.Json
-import zio.{ UIO, ZIO }
+import zio.{ Chunk, UIO, ZIO }
 
 import scala.collection.immutable.ListMap
 
@@ -22,7 +22,7 @@ final class Session[Ctx] private[llm] (permitted: ListMap[String, Registered[Ctx
    *
    * @return one per available tool, in the order they were registered
    */
-  def advertised: List[Advertised] = permitted.values.map(advertise).toList
+  def advertised: Chunk[Advertised] = Chunk.fromIterable(permitted.values).map(advertise)
 
   /**
    * Run one call, turning everything the model could react to into text it can read.
@@ -48,7 +48,7 @@ final class Session[Ctx] private[llm] (permitted: ListMap[String, Registered[Ctx
    * @param parallelism how many tools may run at once
    * @return one outcome per call, in the same order
    */
-  def dispatchAll(calls: List[Tool.Call.Raw], parallelism: Int = 4): UIO[List[Outcome]] =
+  def dispatchAll(calls: Chunk[Tool.Call.Raw], parallelism: Int = 4): UIO[Chunk[Outcome]] =
     ZIO.foreachPar(calls)(dispatch).withParallelism(parallelism)
 
   /**
@@ -83,5 +83,5 @@ object Session:
    * @tparam Ctx what the caller supplies — see [[Tool]]
    * @return the session
    */
-  def apply[Ctx](registered: List[Registered[Ctx, ?, ?]], context: Ctx): Session[Ctx] =
+  def apply[Ctx](registered: Chunk[Registered[Ctx, ?, ?]], context: Ctx): Session[Ctx] =
     new Session(ListMap.from(registered.map(tool => tool.name -> tool)), context)

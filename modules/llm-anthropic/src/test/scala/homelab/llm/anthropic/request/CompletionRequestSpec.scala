@@ -86,7 +86,7 @@ object CompletionRequestSpec extends ZIOSpecDefault:
     ),
     suite("tools")(
       test("are advertised flat, with the schema under input_schema") {
-        val sent = body(CompletionRequest(model, ceiling, Nil, tools = Some(List(ToolRequest.from(weather)))))
+        val sent = body(CompletionRequest(model, ceiling, Chunk.empty, tools = Some(Chunk(ToolRequest.from(weather)))))
         assertTrue(
           sent.contains(
             """"tools":[{"name":"weather","description":"Report it.","input_schema":{"type":"object",""" +
@@ -105,7 +105,7 @@ object CompletionRequestSpec extends ZIOSpecDefault:
       },
       test("is a caller's to replace through what the call merges over the request") {
         val overridden =
-          CompletionRequest.body(CompletionRequest(model, ceiling, Nil), Json.Obj("max_tokens" -> Json.Num(64))).toJson
+          CompletionRequest.body(CompletionRequest(model, ceiling, Chunk.empty), Json.Obj("max_tokens" -> Json.Num(64))).toJson
         assertTrue(overridden.contains(""""max_tokens":64"""), !overridden.contains(s""""max_tokens":$ceiling"""))
       },
     ),

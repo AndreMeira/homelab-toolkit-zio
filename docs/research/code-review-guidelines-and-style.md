@@ -113,8 +113,9 @@ Three conventions are visible:
 
 - **`common` and `nats` use `List`** in ports, consistently.
 - **`llm` leans `Chunk`** for conversation types and `List` for tool collections.
-- **The adapters use `List`** for wire DTOs, which is right — zio-json derives cleanly for `List` and these
-  types mirror a protocol.
+- **The adapters use `List`** for wire DTOs. This looked justified and is not: zio-json derives `Chunk`
+  natively and emits identical JSON, and `Generator` produces a byte-identical JSON Schema for a `Chunk`
+  field and a `List` field. Both were tested. There is no codec reason to prefer `List` anywhere here.
 
 ZIO's own API is the fourth convention, and it speaks `Chunk`. So `common` converts away from it, and `llm`
 converts back. 37 conversion sites result (31 `.toList`, 6 `Chunk.fromIterable`).

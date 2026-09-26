@@ -5,6 +5,7 @@ import homelab.llm.Model
 import homelab.llm.openai.ChatCompletionModel
 import zio.json.*
 import zio.json.ast.Json
+import zio.Chunk
 
 
 /**
@@ -42,14 +43,14 @@ import zio.json.ast.Json
 @jsonMemberNames(SnakeCase)
 final case class CompletionRequest(
   model: String,
-  messages: List[MessageRequest],
-  tools: Option[List[ToolRequest]] = None,
+  messages: Chunk[MessageRequest],
+  tools: Option[Chunk[ToolRequest]] = None,
   toolChoice: Option[ToolChoice] = None,
   maxTokens: Option[Int] = None,
   temperature: Option[Double] = None,
   topP: Option[Double] = None,
   n: Option[Int] = None,
-  stop: Option[List[String]] = None,
+  stop: Option[Chunk[String]] = None,
   responseFormat: Option[ResponseFormat] = None,
   seed: Option[Int] = None,
   user: Option[String] = None,
@@ -76,7 +77,7 @@ object CompletionRequest:
   def from(model: Model.Name, request: Model.Request, config: ChatCompletionModel.Config): CompletionRequest =
     CompletionRequest(
       model = model,
-      messages = request.messages.map(MessageRequest.from).toList,
+      messages = request.messages.map(MessageRequest.from),
       tools = Option.when(request.tools.nonEmpty)(request.tools.map(ToolRequest.from)),
       toolChoice = config.toolChoice,
       maxTokens = config.maxTokens,

@@ -9,6 +9,7 @@ import homelab.llm.Model
 import sttp.model.Uri
 import zio.json.ast.Json
 import zio.{ IO, Scope, ZIO }
+import zio.Chunk
 
 
 /**
@@ -85,7 +86,7 @@ object ChatCompletionModel:
     maxTokens: Option[Int] = None,
     temperature: Option[Double] = None,
     topP: Option[Double] = None,
-    stop: Option[List[String]] = None,
+    stop: Option[Chunk[String]] = None,
     responseFormat: Option[ResponseFormat] = None,
     seed: Option[Int] = None,
     user: Option[String] = None,

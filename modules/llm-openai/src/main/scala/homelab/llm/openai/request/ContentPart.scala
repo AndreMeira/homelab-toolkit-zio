@@ -38,7 +38,7 @@ object ContentPart:
    * @param content what the toolkit holds
    * @return the parts to send
    */
-  def parts(content: Chunk[Message.Content]): List[Json] = content.map(part).toList
+  def parts(content: Chunk[Message.Content]): Chunk[Json] = content.map(part)
 
   /**
    * The words of a message, for the one field that takes a string rather than an array.
