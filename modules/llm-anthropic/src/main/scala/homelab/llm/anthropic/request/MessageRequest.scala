@@ -46,17 +46,20 @@ object MessageRequest:
    */
   private def turns(messages: Chunk[Message]): List[MessageRequest] =
     messages
-      .foldLeft(List.empty[MessageRequest]) {
-        case built -> Message.System(_)                                                 => built
-        case built -> Message.User(content)                                             => user(ContentBlock.blocks(content)) :: built
-        case built -> Message.Assistant(content, calls)                                 =>
-          assistant(ContentBlock.blocks(content) ++ calls.map(ContentBlock.asked)) :: built
-        case (last :: rest) -> Message.ToolResult(callId, content) if last.role == User =>
-          last.copy(content = last.content :+ ContentBlock.answered(callId, content)) :: rest
-        case built -> Message.ToolResult(callId, content)                               =>
-          user(List(ContentBlock.answered(callId, content))) :: built
+      .foldLeft(Chunk.empty[MessageRequest]) {
+        case built -> Message.System(_)     => built
+        case built -> Message.User(content) => built :+ user(ContentBlock.blocks(content))
+
+        case built -> Message.Assistant(content, calls) =>
+          built :+ assistant(ContentBlock.blocks(content) ++ calls.map(ContentBlock.asked))
+
+        case (before :+ last) -> Message.ToolResult(callId, content) if last.role == User =>
+          before :+ last.copy(content = last.content :+ ContentBlock.answered(callId, content))
+
+        case built -> Message.ToolResult(callId, content) =>
+          built :+ user(List(ContentBlock.answered(callId, content)))
       }
-      .reverse
+      .toList
 
   /** What the API calls the caller's side. */
   private val User: String = "user"
