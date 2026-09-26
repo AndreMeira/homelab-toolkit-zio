@@ -54,6 +54,7 @@ enum AnthropicError extends ApplicationError.AdapterError {
     case Rejected(status, detail) => s"anthropic rejected the request with $status: $detail"
 }
 
+
 object AnthropicError:
   /**
    * A response came back from the model with no content and no finished reason.
