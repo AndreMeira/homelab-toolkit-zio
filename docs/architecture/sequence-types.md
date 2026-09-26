@@ -128,14 +128,18 @@ changing any sequence type, compile clean and grep the output for `Unreachable` 
 exhaustive`.** A dead `case Nil` is the shape to look for: it means an empty collection now takes the branch
 written for a full one.
 
-The replacement is an explicit test, which is also what the exhaustivity note above recommends:
+The fix keeps the match; only the empty pattern changes. `Chunk()` against a total catch-all is exhaustive,
+so this compiles without the warning the `+:` form attracts:
 
 ```scala
-source.claim(upTo = tokens.size).flatMap { claims =>
-  if claims.isEmpty then …
-  else …
+source.claim(upTo = tokens.size).flatMap {
+  case Chunk() => …
+  case claims  => …
 }
 ```
+
+`Chunk()` is a pattern, so it carries the same shape of risk as the `Nil` it replaces: change the type again
+and it stops matching rather than failing. That is what the grep above is for.
 
 ## Migration
 

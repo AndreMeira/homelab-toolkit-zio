@@ -351,9 +351,9 @@ object PollConsumer:
      */
     private def step: IO[E, Unit] =
       channel.demand.takeBetween(1, pollSize).flatMap { tokens =>
-        source.claim(upTo = tokens.size).flatMap { claims =>
-          if claims.isEmpty then channel.demand.offerAll(tokens) *> channel.signal.take.unit
-          else channel.supply.offerAll(claims) *> channel.demand.offerAll(tokens.drop(claims.size)).unit
+        source.claim(upTo = tokens.size).flatMap {
+          case Chunk() => channel.demand.offerAll(tokens) *> channel.signal.take.unit
+          case claims  => channel.supply.offerAll(claims) *> channel.demand.offerAll(tokens.drop(claims.size)).unit
         }
       }
 

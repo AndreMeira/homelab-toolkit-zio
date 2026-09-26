@@ -30,8 +30,9 @@ final class BatchConsumer(batchSize: Int, poll: CorePoll) extends ConsumerContra
    * @return noop once the batch is processed; aborts with `E2` if `logic` fails
    */
   override def consume[E2 >: NatsError](logic: Chunk[Message] => IO[E2, Unit]): IO[E2, Unit] =
-    poll.many(batchSize).flatMap { messages =>
-      ZIO.unless(messages.isEmpty)(logic(messages)).unit
+    poll.many(batchSize).flatMap {
+      case Chunk()  => ZIO.unit
+      case messages => logic(messages)
     }
 
 
