@@ -29,7 +29,7 @@ enum Shape {
   /**
    * An object with known properties, in the order the model should read them.
    *
-   * A list rather than a map because a property is a described thing that *has* a name, not a name pointing
+   * A sequence rather than a map because a property is a described thing that *has* a name, not a name pointing
    * at a description — and nothing here ever looks one up. `additionalProperties` is always rendered as
    * `false`, and `required` is computed from the fields.
    */
@@ -80,7 +80,7 @@ object Shape:
     /**
      * One property of an [[Obj]] — its name, what it holds, and whether it must be present.
      *
-     * Holding `required` here, rather than in a list beside the properties, is what stops a schema requiring
+     * Holding `required` here, rather than in an array beside the properties, is what stops a schema requiring
      * a property it does not describe.
      *
      * @param name     what the model calls it
