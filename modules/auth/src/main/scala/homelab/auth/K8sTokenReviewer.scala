@@ -4,7 +4,7 @@ package homelab.auth
 import homelab.auth.K8sTokenReviewer.{ CanNotBuildRequest, CanNotDecodeToken, CanNotReviewToken, TokenRejected }
 import homelab.common.error.ApplicationError.*
 import homelab.common.types.SignedToken
-import io.fabric8.kubernetes.api.model.authentication.{ TokenReview, TokenReviewBuilder, TokenReviewStatus }
+import io.fabric8.kubernetes.api.model.authentication.{ TokenReview, TokenReviewBuilder, TokenReviewSpec, TokenReviewSpecBuilder, TokenReviewStatus }
 import io.fabric8.kubernetes.client.{ KubernetesClient, KubernetesClientBuilder }
 import pdi.jwt.{ JwtClaim, JwtOptions, JwtZIOJson }
 import zio.*
@@ -55,13 +55,26 @@ final class K8sTokenReviewer(client: KubernetesClient, audience: String) extends
   /**
    * Build the TokenReview request carrying `token` and the expected `audience`.
    *
+   * The spec is built by [[spec]] and handed over whole. `TokenReviewSpecBuilder` is a top-level builder,
+   * where the ones fabric8 nests inside `TokenReviewFluent` are inner classes whose supertype names the
+   * enclosing builder's type parameter — a shape Scala reaches no inherited setter through.
+   *
    * @param token the token to review
    * @return the review request; fails with [[CanNotBuildRequest]] if it can't be constructed
    */
   private def buildRequest(token: SignedToken): IO[CanNotBuildRequest, TokenReview] =
     ZIO
-      .attempt(TokenReviewBuilder().withNewSpec().withToken(token).withAudiences(audience).endSpec().build())
+      .attempt(TokenReviewBuilder().withSpec(spec(token)).build())
       .mapError(CanNotBuildRequest(_))
+
+  /**
+   * The spec a review carries: the token to check, and the audience it has to be valid for.
+   *
+   * @param token the token to review
+   * @return the spec
+   */
+  private def spec(token: SignedToken): TokenReviewSpec =
+    TokenReviewSpecBuilder().withToken(token).withAudiences(audience).build()
 
   /**
    * Submit the review to the API server — a blocking network call.
