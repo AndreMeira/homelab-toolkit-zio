@@ -543,10 +543,10 @@ object PollConsumer:
      *
      * @return true unless the batch contained [[Settlement.Closed]]; aborts with `E` if the store fails
      */
-    private def step: IO[E, List[Settlement[A]]] = ZIO.uninterruptibleMask: restore =>
+    private def step: IO[E, Chunk[Settlement[A]]] = ZIO.uninterruptibleMask: restore =>
       restore(channel.settlement.takeBetween(1, batchSize)).flatMap: batch =>
         val verdicts = batch.collect { case Settlement.Filed(pending) => pending }
-        write(verdicts).unless(verdicts.isEmpty).as(batch.toList)
+        write(verdicts).unless(verdicts.isEmpty).as(batch)
 
     /**
      * Write one batch — at most one `ack` and one `nack` — and release everyone waiting on it.

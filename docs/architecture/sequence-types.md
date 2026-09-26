@@ -77,9 +77,20 @@ Prefer this over a `Chunk` the caller has to check.
 both use it so that what is rendered is stable and reproducible. A plain `Map` would be a different
 promise.
 
-**`List` when the name says so.** `Batch.toList: List[Either[E, A]]` stays a `List`, because a method called
-`toList` that returns something else is a lie. This is the only place `List` survives in a public
-signature without further argument.
+**`List` when the name says so** — but derive it, do not build on it. `Batch.toList` stays a `List`, because
+a method called `toList` that returns something else is a lie. What matters is which one is primary:
+`toChunk` is the abstract member every implementation provides, and `toList` is one line of convenience
+on top of it.
+
+```scala
+def toChunk: Chunk[Either[E, A]]
+def toList: List[Either[E, A]] = toChunk.toList
+```
+
+Written the other way round — `toList` abstract, everything else converting from it — the default type is
+whatever the conversion happens to produce, and `values` and `errors` each pay a `Chunk.fromIterable` to
+get back. This is the only place `List` survives in a public signature, and it survives as an output, never
+as a source.
 
 **A type a third party demands.** An API that takes `java.util.List` or a `Seq` decides for you.
 

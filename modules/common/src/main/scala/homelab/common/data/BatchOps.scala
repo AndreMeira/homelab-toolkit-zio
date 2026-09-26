@@ -38,28 +38,29 @@ private[data] trait BatchOps[+E, +A] {
    *
    * @return every slot sorted by its `Int` index, the `Map` iteration order discarded
    */
-  private def ordered: List[Either[E, A]] = items.toList.sortBy((index, _) => index).map((_, either) => either)
+  private def ordered: Chunk[Either[E, A]] =
+    Chunk.fromIterable(items).sortBy((index, _) => index).map((_, either) => either)
 
   /**
    * The successful values, in index order.
    *
    * @return the value of every `Right` slot, ordered by index
    */
-  def values: Chunk[A] = Chunk.fromIterable(ordered.collect { case Right(value) => value })
+  def values: Chunk[A] = ordered.collect { case Right(value) => value }
 
   /**
    * The errors, in index order.
    *
    * @return the error of every `Left` slot, ordered by index
    */
-  def errors: Chunk[E] = Chunk.fromIterable(ordered.collect { case Left(error) => error })
+  def errors: Chunk[E] = ordered.collect { case Left(error) => error }
 
   /**
-   * Every slot, in index order.
+   * Every slot, in index order — what [[Batch.toList]] is derived from.
    *
    * @return each slot as `Right(value)` or `Left(error)`, ordered by index
    */
-  def toList: List[Either[E, A]] = ordered
+  def toChunk: Chunk[Either[E, A]] = ordered
 
   /**
    * Map the value channel, keeping errors and positions.

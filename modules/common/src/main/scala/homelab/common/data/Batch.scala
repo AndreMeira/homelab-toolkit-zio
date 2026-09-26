@@ -67,7 +67,14 @@ trait Batch[+E, +A] {
    *
    * @return each slot as `Right(value)` or `Left(error)`, ordered by input position
    */
-  def toList: List[Either[E, A]]
+  def toChunk: Chunk[Either[E, A]]
+
+  /**
+   * Every slot as an `Either`, for a caller that wants a `List`.
+   *
+   * @return [[toChunk]] as a `List`, same order
+   */
+  def toList: List[Either[E, A]] = toChunk.toList
 
   /**
    * View this batch as a same-lineage [[Batch.Partial]], forgetting completeness.
@@ -313,7 +320,14 @@ object Batch {
      *
      * @return each retained slot as `Right(value)` or `Left(error)`, ordered by input position
      */
-    def toList: List[Either[E, A]]
+    def toChunk: Chunk[Either[E, A]]
+
+    /**
+     * Every retained slot as an `Either`, for a caller that wants a `List`.
+     *
+     * @return [[toChunk]] as a `List`, same order
+     */
+    def toList: List[Either[E, A]] = toChunk.toList
 
     /**
      * Check whether `other` comes from the same input universe as this partial.

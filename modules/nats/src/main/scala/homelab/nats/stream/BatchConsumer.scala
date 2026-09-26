@@ -44,12 +44,10 @@ final class BatchConsumer(
    */
   override def consume[E2 >: NatsError](logic: Chunk[Message] => IO[E2, Unit]): IO[E2, Unit] =
     fetch.flatMap { messages =>
-      ZIO
-        .unless(messages.isEmpty) {
-          Heartbeat
-            .wrap(heartbeat, messages)(logic(messages).either)
-            .flatMap(handleResult(messages, _))
-        }
+      Heartbeat
+        .wrap(heartbeat, messages)(logic(messages).either)
+        .flatMap(handleResult(messages, _))
+        .unless(messages.isEmpty)
         .unit
     }
 

@@ -63,7 +63,7 @@ final private[flow] class DeduplicatedSerial[E, BE, Key, In, Out](
     logic
       .run(batch)
       .tap(result => ZIO.fromEither(batch.verifyLineage(result)))
-      .flatMap(result => ZIO.fromEither(result.toList.head))
+      .flatMap(result => ZIO.fromEither(result.toChunk.head))
   }
 
   /**
@@ -97,14 +97,13 @@ final private[flow] class DeduplicatedSerial[E, BE, Key, In, Out](
   private def runDrain: IO[Err, Unit] =
     ref
       .modify:
-        case State.Idle()                              => Nil -> State.Idle()
-        case State.InFlight(order, _) if order.isEmpty => Nil -> State.Idle()
+        case State.Idle()                              => Chunk.empty -> State.Idle()
+        case State.InFlight(order, _) if order.isEmpty => Chunk.empty -> State.Idle()
         case State.InFlight(order, byKey)              =>
           val (keys, rest) = order.splitAt(drainSize) // oldest distinct keys (FIFO)
-          keys.toList.map(byKey) -> State.InFlight(rest, byKey -- keys)
-      .flatMap:
-        case Nil   => ZIO.unit
-        case batch => runBatch(batch) *> runDrain
+          Chunk.fromIterable(keys).map(byKey) -> State.InFlight(rest, byKey -- keys)
+      .flatMap: batch =>
+        if batch.isEmpty then ZIO.unit else runBatch(batch) *> runDrain
 
   /**
    * Run one bulk call and fan the results back to each key's shared promise.
@@ -116,8 +115,8 @@ final private[flow] class DeduplicatedSerial[E, BE, Key, In, Out](
    * @param requests the `(representative input, shared promise)` pairs to process
    * @return noop; never fails except by propagating an interrupt
    */
-  private def runBatch(requests: List[(In, Promise[Err, Out])]): IO[Err, Unit] =
-    val batch              = Batch.make(Chunk.fromIterable(requests))
+  private def runBatch(requests: Chunk[(In, Promise[Err, Out])]): IO[Err, Unit] =
+    val batch              = Batch.make(requests)
     val (inputs, promises) = batch.unzip
     logic
       .run(inputs)
@@ -143,7 +142,7 @@ final private[flow] class DeduplicatedSerial[E, BE, Key, In, Out](
    * @return noop
    */
   private def fulfil(promises: Batch.Success[Promise[Err, Out]], result: Batch[BE, Out]): UIO[Unit] =
-    ZIO.foreachDiscard(result.toList.zip(promises.values)):
+    ZIO.foreachDiscard(result.toChunk.zip(promises.values)):
       case (Left(err), promise)  => promise.fail(err).unit
       case (Right(out), promise) => promise.succeed(out).unit
 

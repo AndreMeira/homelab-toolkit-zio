@@ -56,7 +56,7 @@ final private[flow] class Serial[E, BE, In, Out](
    * @return its result; aborts with the `E`/`BE` of a one-item `logic` call
    */
   override private[flow] def direct(in: In): IO[Err, Out] =
-    logic.run(Batch.single(in)).flatMap(result => ZIO.fromEither(result.toList.head))
+    logic.run(Batch.single(in)).flatMap(result => ZIO.fromEither(result.toChunk.head))
 
   /**
    * Append `(in, promise)` to the queue.
@@ -76,14 +76,13 @@ final private[flow] class Serial[E, BE, In, Out](
   private def runDrain: IO[Err, Unit] =
     ref
       .modify:
-        case State.Idle()                   => Nil -> State.Idle()
-        case State.InFlight(q) if q.isEmpty => Nil -> State.Idle()
+        case State.Idle()                   => Chunk.empty -> State.Idle()
+        case State.InFlight(q) if q.isEmpty => Chunk.empty -> State.Idle()
         case State.InFlight(q)              =>
           val (batch, rest) = q.splitAt(drainSize) // oldest batchSize (FIFO)
-          batch.toList -> State.InFlight(rest)
-      .flatMap:
-        case Nil   => ZIO.unit
-        case batch => runBatch(batch) *> runDrain
+          Chunk.fromIterable(batch) -> State.InFlight(rest)
+      .flatMap: batch =>
+        if batch.isEmpty then ZIO.unit else runBatch(batch) *> runDrain
 
   /**
    * Run one bulk call and fan the results back to the batch's promises.
@@ -96,8 +95,8 @@ final private[flow] class Serial[E, BE, In, Out](
    * @param batch the `(input, promise)` pairs to process
    * @return noop; never fails except by propagating an interrupt
    */
-  private def runBatch(batch: List[(In, Promise[Err, Out])]): IO[Err, Unit] =
-    val inputs   = Batch.make(Chunk.fromIterable(batch.map((in, _) => in)))
+  private def runBatch(batch: Chunk[(In, Promise[Err, Out])]): IO[Err, Unit] =
+    val inputs   = Batch.make(batch.map((in, _) => in))
     val promises = batch.map((_, promise) => promise)
     logic
       .run(inputs)
@@ -113,7 +112,7 @@ final private[flow] class Serial[E, BE, In, Out](
    *
    * @return noop
    */
-  private def failAll(promises: List[Promise[Err, Out]], cause: Cause[Err]): UIO[Unit] =
+  private def failAll(promises: Chunk[Promise[Err, Out]], cause: Cause[Err]): UIO[Unit] =
     ZIO.foreachDiscard(promises)(_.failCause(cause).unit)
 
   /**
@@ -121,8 +120,8 @@ final private[flow] class Serial[E, BE, In, Out](
    *
    * @return noop
    */
-  private def fulfil(promises: List[Promise[Err, Out]], result: Batch[BE, Out]): UIO[Unit] =
-    ZIO.foreachDiscard(result.toList.zip(promises)):
+  private def fulfil(promises: Chunk[Promise[Err, Out]], result: Batch[BE, Out]): UIO[Unit] =
+    ZIO.foreachDiscard(result.toChunk.zip(promises)):
       case (Left(err), promise)  => promise.fail(err).unit
       case (Right(out), promise) => promise.succeed(out).unit
 
