@@ -38,7 +38,11 @@ final class HttpChatCompletionClient(
     request: CompletionRequest,
     extra: Json.Obj = Json.Obj(),
   ): IO[ChatCompletionError, CompletionResponse] =
-    send(CompletionRequest.body(request, extra).toJson).flatMap(read)
+    send(CompletionRequest.body(request, extra).toJson).flatMap { response =>
+      response.body match
+        case Right(body) => ZIO.fromEither(body.fromJson[CompletionResponse]).mapError(unreadable(body))
+        case Left(body)  => ZIO.fail(refused(response.code, body))
+    }
 
   /**
    * Post one body and get whatever came back.
@@ -54,20 +58,6 @@ final class HttpChatCompletionClient(
       .body(body)
       .send(backend)
       .mapError(failure => ChatCompletionError.Unavailable(failure.getMessage))
-
-  /**
-   * What a response means.
-   *
-   * The status is read before the body, because a 4xx and a 2xx do not carry the same shape and a decoder
-   * pointed at the wrong one reports the wrong thing.
-   *
-   * @param response what the provider answered
-   * @return the decoded body; aborts with what its status and body say together
-   */
-  private def read(response: Response[Either[String, String]]): IO[ChatCompletionError, CompletionResponse] =
-    response.body match
-      case Right(body) => ZIO.fromEither(body.fromJson[CompletionResponse].left.map(unreadable(body)))
-      case Left(body)  => ZIO.fail(refused(response.code, body))
 
   /**
    * What the provider refused with.
