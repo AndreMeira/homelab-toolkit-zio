@@ -91,7 +91,7 @@ object Processor {
    * @tparam E the error processing aborts with
    * @tparam A the element type of each consumed batch
    */
-  trait Batched[E <: ApplicationError, A] extends Processor[E, List[A]] {
+  trait Batched[E <: ApplicationError, A] extends Processor[E, Chunk[A]] {
 
     /**
      * The batched intake this processor consumes from.
@@ -110,7 +110,7 @@ object Processor {
      * @tparam E the error processing aborts with
      * @tparam A the element type of each consumed batch
      */
-    trait Parallel[E <: ApplicationError, A] extends Processor.Parallel[E, List[A]] with Processor.Batched[E, A] {
+    trait Parallel[E <: ApplicationError, A] extends Processor.Parallel[E, Chunk[A]] with Processor.Batched[E, A] {
 
       /**
        * The batched intake this processor consumes from.

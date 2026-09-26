@@ -42,13 +42,15 @@ final class BatchConsumer(
    * @return noop once the batch is settled; aborts with `E2` if `logic` fails under Surface, or with
    *         [[NatsError.Ack]] if a settlement call fails
    */
-  override def consume[E2 >: NatsError](logic: List[Message] => IO[E2, Unit]): IO[E2, Unit] =
-    fetch.flatMap {
-      case Nil      => ZIO.unit
-      case messages =>
-        Heartbeat
-          .wrap(heartbeat, messages)(logic(messages).either)
-          .flatMap(handleResult(messages, _))
+  override def consume[E2 >: NatsError](logic: Chunk[Message] => IO[E2, Unit]): IO[E2, Unit] =
+    fetch.flatMap { messages =>
+      ZIO
+        .unless(messages.isEmpty) {
+          Heartbeat
+            .wrap(heartbeat, messages)(logic(messages).either)
+            .flatMap(handleResult(messages, _))
+        }
+        .unit
     }
 
   /**
@@ -61,16 +63,17 @@ final class BatchConsumer(
    *
    * @return the fetched messages (at least one); aborts with [[NatsError.Receive]] if the fetch fails
    */
-  private def fetch: IO[NatsError, List[Message]] =
+  private def fetch: IO[NatsError, Chunk[Message]] =
     ZIO
       .attemptBlockingInterrupt {
         val options  = FetchConsumeOptions.builder().maxMessages(batchSize).expiresIn(expiry.toMillis).build()
         val consumer = context.fetch(options)
         try
-          Iterator
-            .continually(consumer.nextMessage())
-            .takeWhile(_ != null)
-            .toList
+          Chunk.fromIterator(
+            Iterator
+              .continually(consumer.nextMessage())
+              .takeWhile(_ != null)
+          )
         finally consumer.close()
       }
       .mapError(NatsError.Receive(_))
@@ -85,7 +88,7 @@ final class BatchConsumer(
    * @return noop once settled; aborts with `E2` under Surface (re-raising the handler error), or with
    *         [[NatsError.Ack]] if an ack/nak/term call fails
    */
-  private def handleResult[E2](messages: List[Message], outcome: Either[E2, Unit]): IO[NatsError | E2, Unit] =
+  private def handleResult[E2](messages: Chunk[Message], outcome: Either[E2, Unit]): IO[NatsError | E2, Unit] =
     outcome match
       case Right(_)    => ackAll(messages)
       case Left(error) =>
@@ -100,7 +103,7 @@ final class BatchConsumer(
    * @param messages the messages to acknowledge
    * @return noop once all are acked; aborts with [[NatsError.Ack]] on the first failure
    */
-  private def ackAll(messages: List[Message]): IO[NatsError, Unit] =
+  private def ackAll(messages: Chunk[Message]): IO[NatsError, Unit] =
     ZIO.foreachDiscard(messages): message =>
       ZIO.attemptBlocking(message.ack()).mapError(NatsError.Ack(_))
 
@@ -110,7 +113,7 @@ final class BatchConsumer(
    * @param messages the messages to nak
    * @return noop once all are naked; aborts with [[NatsError.Ack]] on the first failure
    */
-  private def nackAll(messages: List[Message]): IO[NatsError, Unit] =
+  private def nackAll(messages: Chunk[Message]): IO[NatsError, Unit] =
     ZIO.foreachDiscard(messages): message =>
       ZIO.attemptBlocking(message.nak()).mapError(NatsError.Ack(_))
 
@@ -120,7 +123,7 @@ final class BatchConsumer(
    * @param messages the messages to terminate
    * @return noop once all are termed; aborts with [[NatsError.Ack]] on the first failure
    */
-  private def dismissAll(messages: List[Message]): IO[NatsError, Unit] =
+  private def dismissAll(messages: Chunk[Message]): IO[NatsError, Unit] =
     ZIO.foreachDiscard(messages): message =>
       ZIO.attemptBlocking(message.term()).mapError(NatsError.Ack(_))
 
@@ -246,7 +249,7 @@ object BatchConsumer:
   ): ConsumerContract.Batched[NatsError, A] =
     val values = consumer.mapZIO(decode[A])
     new ConsumerContract.Batched[NatsError, A]:
-      override def consume[E2 >: NatsError](logic: List[A] => IO[E2, Unit]): IO[E2, Unit] = values.consume(logic)
+      override def consume[E2 >: NatsError](logic: Chunk[A] => IO[E2, Unit]): IO[E2, Unit] = values.consume(logic)
 
   /**
    * Decode a batch, lifting the first malformed payload into the error channel so the batch is settled.
@@ -255,5 +258,5 @@ object BatchConsumer:
    * @tparam A the value decoded, with a [[Decoder]] in scope
    * @return the decoded values; aborts with [[NatsError.Decode]] on the first malformed payload
    */
-  private def decode[A: Decoder](messages: List[Message]): IO[NatsError, List[A]] =
+  private def decode[A: Decoder](messages: Chunk[Message]): IO[NatsError, Chunk[A]] =
     ZIO.foreach(messages)(message => ZIO.fromEither(Decoder[A].decode(message)).mapError(NatsError.Decode(_)))

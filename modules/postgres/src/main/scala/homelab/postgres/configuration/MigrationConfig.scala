@@ -5,6 +5,7 @@ import org.flywaydb.core.Flyway
 import org.flywaydb.core.api.configuration.FluentConfiguration
 
 import scala.jdk.CollectionConverters.*
+import zio.Chunk
 
 
 /**
@@ -12,14 +13,14 @@ import scala.jdk.CollectionConverters.*
  * it to a Flyway configuration via [[toFlywayConfig]].
  *
  * @param initSql SQL run on a fresh connection before migrating (e.g. a `SET`), or empty for none
- * @param locations where migrations live (e.g. `List("classpath:migrations/schema")`)
+ * @param locations where migrations live (e.g. `Chunk("classpath:migrations/schema")`)
  * @param parameters extra Flyway configuration parameters
  * @param placeholders migration placeholder substitutions
  * @param allowClean whether `clean` is permitted (guarded off by inmemory)
  */
 final case class MigrationConfig(
   initSql: String,
-  locations: List[String],
+  locations: Chunk[String],
   parameters: Map[String, String] = Map.empty,
   placeholders: Map[String, String] = Map.empty,
   allowClean: Boolean = false,

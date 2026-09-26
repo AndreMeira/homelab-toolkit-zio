@@ -56,7 +56,7 @@ object Graph {
    * @param processors the root processors; their descendants come along
    * @return noop; aborts with the first failure any processor produces
    */
-  def run(processors: List[Processor[ApplicationError, ?]]): ZIO[Scope, ApplicationError, Unit] =
+  def run(processors: Chunk[Processor[ApplicationError, ?]]): ZIO[Scope, ApplicationError, Unit] =
     for
       graph <- default
       _     <- ZIO.foreachDiscard(processors.flatMap(expand))(graph.add)
@@ -69,10 +69,10 @@ object Graph {
    * @param processor the processor to expand
    * @return its descendants in start order, itself last
    */
-  private def expand(processor: Processor[ApplicationError, ?]): List[Processor[ApplicationError, ?]] =
+  private def expand(processor: Processor[ApplicationError, ?]): Chunk[Processor[ApplicationError, ?]] =
     processor match
       case node: Node => node.children.flatMap(expand) :+ processor
-      case leaf       => List(leaf)
+      case leaf       => Chunk(leaf)
 
   /**
    * Build a processor and register it with the [[Graph]] in the environment — the form for a layer, where the
@@ -100,7 +100,7 @@ object Graph {
    */
   def default: UIO[Graph] =
     Ref
-      .make[List[Processor[ApplicationError, ?]]](List.empty)
+      .make[Chunk[Processor[ApplicationError, ?]]](Chunk.empty)
       .map(processors => new Default(processors))
 
   /**
@@ -109,7 +109,7 @@ object Graph {
    *
    * @param processors the registered processors, oldest first
    */
-  private class Default(processors: Ref[List[Processor[ApplicationError, ?]]]) extends Graph {
+  private class Default(processors: Ref[Chunk[Processor[ApplicationError, ?]]]) extends Graph {
     override def add[A](processor: Processor[ApplicationError, A]): UIO[Unit] =
       processors.update(_ :+ processor)
 
@@ -117,9 +117,10 @@ object Graph {
       processors.get.flatMap { ordered =>
         // Forked one at a time, so a processor is running before the next one starts. That is start *order*,
         // not readiness: nothing here waits for a processor to be consuming before starting its neighbour.
-        ZIO.foreach(ordered.distinctBy(_.key))(_.run.forkScoped).flatMap {
-          case Nil           => ZIO.unit
-          case first :: rest => ZIO.raceAll(first.join, rest.map(_.join))
+        ZIO.foreach(ordered.distinctBy(_.key))(_.run.forkScoped).flatMap { forked =>
+          NonEmptyChunk.fromChunk(forked) match
+            case None         => ZIO.unit
+            case Some(fibers) => ZIO.raceAll(fibers.head.join, fibers.tail.map(_.join))
         }
       }
   }

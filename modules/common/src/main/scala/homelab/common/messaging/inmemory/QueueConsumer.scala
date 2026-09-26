@@ -35,7 +35,7 @@ final class QueueConsumer[A](val source: QueueSource[A]) extends Consumer[Nothin
    * @return a consumer delivering from both, interleaved
    */
   def merge(that: QueueConsumer[A]): UIO[QueueConsumer[A]] =
-    QueueSource.Merged.make(List(this.source, that.source)).map(QueueConsumer.fromSource)
+    QueueSource.Merged.make(Chunk(this.source, that.source)).map(QueueConsumer.fromSource)
 }
 
 
@@ -82,7 +82,7 @@ object QueueConsumer {
    */
   final class Batched[A](val source: QueueSource[A], maxBatchSize: Int) extends Consumer.Batched[Nothing, A] {
 
-    override def consume[E2 >: Nothing](logic: List[A] => IO[E2, Unit]): IO[E2, Unit] =
+    override def consume[E2 >: Nothing](logic: Chunk[A] => IO[E2, Unit]): IO[E2, Unit] =
       source.takeUpTo(maxBatchSize).flatMap(logic)
 
     /**

@@ -97,7 +97,7 @@ final private[flow] class Serial[E, BE, In, Out](
    * @return noop; never fails except by propagating an interrupt
    */
   private def runBatch(batch: List[(In, Promise[Err, Out])]): IO[Err, Unit] =
-    val inputs   = Batch.make(batch.map((in, _) => in))
+    val inputs   = Batch.make(Chunk.fromIterable(batch.map((in, _) => in)))
     val promises = batch.map((_, promise) => promise)
     logic
       .run(inputs)

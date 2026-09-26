@@ -41,7 +41,7 @@ object StreamTailConsumerSpec extends ZIOSpecDefault:
         tail   <- RedisSpecLayers.connection(client).flatMap(StreamTailConsumer.make(_, NonEmptyChunk(stream), block))
         _      <- RedisSpecLayers.publish(writer, stream, "once")
         seen   <- Ref.make(Chunk.empty[String])
-        record  = (batch: List[io.lettuce.core.StreamMessage[String, Array[Byte]]]) =>
+        record  = (batch: Chunk[io.lettuce.core.StreamMessage[String, Array[Byte]]]) =>
                     seen.update(_ ++ Chunk.fromIterable(batch.map(RedisSpecLayers.valueOf)))
         _      <- tail.consume(record)
         _      <- tail.consume(record)

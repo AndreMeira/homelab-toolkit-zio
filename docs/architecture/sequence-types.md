@@ -96,6 +96,36 @@ It applies to **public signatures** — what a caller names. A private local can
 `foldLeft` accumulating with `::` and reversing once is fine inside a method body, though
 [building in the order you return](../sessions/2026-09-26-cutting-v0-0-5.md) is usually better anyway.
 
+## The hazard when migrating an existing signature
+
+Changing a `List` to a `Chunk` can silently kill a branch, and the compiler says so only as a warning.
+
+```scala
+source.claim(upTo = tokens.size).flatMap {
+  case Nil    => channel.demand.offerAll(tokens) *> channel.signal.take.unit
+  case claims => channel.supply.offerAll(claims) *> channel.demand.offerAll(tokens.drop(claims.size)).unit
+}
+```
+
+Once `claim` answers a `Chunk`, `case Nil` matches nothing. The empty case does not fail — it falls through
+to the second branch, which re-offers every token and polls again at once. A back-pressured wait became a
+spin loop, and the only signal was `[E030] Match case Unreachable Warning`, which this build does not
+escalate to an error.
+
+Three of these appeared in one migration — in `PollConsumer`, and in both `nats` batch consumers. **After
+changing any sequence type, compile clean and grep the output for `Unreachable` and `may not be
+exhaustive`.** A dead `case Nil` is the shape to look for: it means an empty collection now takes the branch
+written for a full one.
+
+The replacement is an explicit test, which is also what the exhaustivity note above recommends:
+
+```scala
+source.claim(upTo = tokens.size).flatMap { claims =>
+  if claims.isEmpty then …
+  else …
+}
+```
+
 ## Migration
 
 Adopted 2026-09-26, after the toolkit had already published `0.0.5`. 73 non-private signatures used `List`

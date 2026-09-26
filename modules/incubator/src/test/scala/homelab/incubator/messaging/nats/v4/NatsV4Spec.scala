@@ -77,7 +77,7 @@ object NatsV4Spec extends ZIOSpecDefault:
             _          <- producer.emit("2")
             received   <- Ref.make(Set.empty[Int])
             done       <- Promise.make[Nothing, Unit]
-            logic       = (batch: List[Int]) => received.updateAndGet(_ ++ batch).flatMap(all => ZIO.when(all == Set(1, 2))(done.succeed(())).unit)
+            logic       = (batch: Chunk[Int]) => received.updateAndGet(_ ++ batch).flatMap(all => ZIO.when(all == Set(1, 2))(done.succeed(())).unit)
             fiber      <- consumer.consume(logic).forever.fork
             _          <- done.await
             out        <- received.get
@@ -348,7 +348,7 @@ object NatsV4Spec extends ZIOSpecDefault:
             _          <- ZIO.foreachDiscard(1 to 10)(i => producer.emit(i.toString))
             received   <- Ref.make(List.empty[String])
             done       <- Promise.make[Nothing, Unit]
-            logic       = (batch: List[String]) => received.updateAndGet(_ ++ batch).flatMap(all => ZIO.when(all.size == 10)(done.succeed(())).unit)
+            logic       = (batch: Chunk[String]) => received.updateAndGet(_ ++ batch).flatMap(all => ZIO.when(all.size == 10)(done.succeed(())).unit)
             fiber      <- consumer.consume(logic).forever.fork
             _          <- done.await
             out        <- received.get
@@ -371,7 +371,7 @@ object NatsV4Spec extends ZIOSpecDefault:
             _          <- ZIO.foreachDiscard(1 to 10)(i => producer.emit(i.toString))
             received   <- Ref.make(List.empty[String])
             done       <- Promise.make[Nothing, Unit]
-            logic       = (batch: List[String]) => received.updateAndGet(_ ++ batch).flatMap(all => ZIO.when(all.size == 10)(done.succeed(())).unit)
+            logic       = (batch: Chunk[String]) => received.updateAndGet(_ ++ batch).flatMap(all => ZIO.when(all.size == 10)(done.succeed(())).unit)
             fiber      <- consumer.consume(logic).forever.fork
             _          <- done.await
             out        <- received.get
@@ -394,7 +394,7 @@ object NatsV4Spec extends ZIOSpecDefault:
             _          <- ZIO.foreachDiscard(1 to 10)(i => producer.emit(i.toString))
             received   <- Ref.make(List.empty[String])
             done       <- Promise.make[Nothing, Unit]
-            logic       = (batch: List[String]) => received.updateAndGet(_ ++ batch).flatMap(all => ZIO.when(all.size == 10)(done.succeed(())).unit)
+            logic       = (batch: Chunk[String]) => received.updateAndGet(_ ++ batch).flatMap(all => ZIO.when(all.size == 10)(done.succeed(())).unit)
             fiber      <- consumer.consume(logic).forever.fork
             _          <- done.await
             out        <- received.get
@@ -424,7 +424,7 @@ object NatsV4Spec extends ZIOSpecDefault:
             _          <- producer.emit("2")
             received   <- Ref.make(Set.empty[Int])
             done       <- Promise.make[Nothing, Unit]
-            logic       = (batch: List[Int]) => received.updateAndGet(_ ++ batch).flatMap(all => ZIO.when(all == Set(1, 2))(done.succeed(())).unit)
+            logic       = (batch: Chunk[Int]) => received.updateAndGet(_ ++ batch).flatMap(all => ZIO.when(all == Set(1, 2))(done.succeed(())).unit)
             fiber      <- consumer.consume(logic).forever.fork
             _          <- done.await
             out        <- received.get

@@ -37,10 +37,10 @@ object InMemoryMessagingSpec extends ZIOSpecDefault:
           queue   <- Queue.unbounded[Int]
           consumer = new QueueConsumer.Batched(QueueSource.Pure(queue), 10)
           _       <- queue.offerAll((1 to 25).toList)
-          ref     <- Ref.make(List.empty[List[Int]])
+          ref     <- Ref.make(Chunk.empty[Chunk[Int]])
           _       <- ZIO.foreachDiscard(1 to 3)(_ => consumer.consume(batch => ref.update(_ :+ batch)))
           out     <- ref.get
-        yield assertTrue(out.map(_.size) == List(10, 10, 5), out.flatten == (1 to 25).toList)
+        yield assertTrue(out.map(_.size) == Chunk(10, 10, 5), out.flatten == Chunk.fromIterable(1 to 25))
       },
       test("a merged source delivers the union of its sources") {
         for
@@ -48,7 +48,7 @@ object InMemoryMessagingSpec extends ZIOSpecDefault:
           q2  <- Queue.unbounded[Int]
           _   <- q1.offerAll((1 to 50).toList)
           _   <- q2.offerAll((51 to 100).toList)
-          m   <- QueueSource.Merged.make(List(QueueSource.Pure(q1), QueueSource.Pure(q2)))
+          m   <- QueueSource.Merged.make(Chunk(QueueSource.Pure(q1), QueueSource.Pure(q2)))
           out <- ZIO.foreach((1 to 100).toList)(_ => m.take)
         yield assertTrue(out.size == 100, out.toSet == (1 to 100).toSet)
       },

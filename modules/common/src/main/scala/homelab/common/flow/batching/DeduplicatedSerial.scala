@@ -117,7 +117,7 @@ final private[flow] class DeduplicatedSerial[E, BE, Key, In, Out](
    * @return noop; never fails except by propagating an interrupt
    */
   private def runBatch(requests: List[(In, Promise[Err, Out])]): IO[Err, Unit] =
-    val batch              = Batch.make(requests)
+    val batch              = Batch.make(Chunk.fromIterable(requests))
     val (inputs, promises) = batch.unzip
     logic
       .run(inputs)

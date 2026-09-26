@@ -1,5 +1,7 @@
 package homelab.common.data
 
+import zio.Chunk
+
 
 /**
  * Shared `Map[Int, Either[E, A]]` machinery behind [[BatchMap]] and [[PartialBatchMap]]. The two impls
@@ -43,14 +45,14 @@ private[data] trait BatchOps[+E, +A] {
    *
    * @return the value of every `Right` slot, ordered by index
    */
-  def values: List[A] = ordered.collect { case Right(value) => value }
+  def values: Chunk[A] = Chunk.fromIterable(ordered.collect { case Right(value) => value })
 
   /**
    * The errors, in index order.
    *
    * @return the error of every `Left` slot, ordered by index
    */
-  def errors: List[E] = ordered.collect { case Left(error) => error }
+  def errors: Chunk[E] = Chunk.fromIterable(ordered.collect { case Left(error) => error })
 
   /**
    * Every slot, in index order.

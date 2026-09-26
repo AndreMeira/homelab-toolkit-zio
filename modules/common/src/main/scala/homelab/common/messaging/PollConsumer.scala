@@ -191,7 +191,7 @@ object PollConsumer:
      * @param upTo the ceiling — always positive, since the caller holds that much demand
      * @return the claimed elements, at most `upTo` of them
      */
-    def claim(upTo: Int): IO[E, List[A]]
+    def claim(upTo: Int): IO[E, Chunk[A]]
 
     /**
      * Retire elements: they will not be handed out again.
@@ -199,7 +199,7 @@ object PollConsumer:
      * @param elements the claimed elements, never empty
      * @return noop once retired
      */
-    def ack(elements: List[A]): IO[E, Unit]
+    def ack(elements: Chunk[A]): IO[E, Unit]
 
     /**
      * Return elements to the store, available again after `wait`.
@@ -211,7 +211,7 @@ object PollConsumer:
      * @param wait how long before they may be handed out again
      * @return noop once returned
      */
-    def nack(elements: List[A], wait: Duration): IO[E, Unit]
+    def nack(elements: Chunk[A], wait: Duration): IO[E, Unit]
 
   /**
    * The wake-up: a queue of one, dropping — a token that persists until taken but never banks a second.
@@ -351,9 +351,9 @@ object PollConsumer:
      */
     private def step: IO[E, Unit] =
       channel.demand.takeBetween(1, pollSize).flatMap { tokens =>
-        source.claim(upTo = tokens.size).flatMap {
-          case Nil    => channel.demand.offerAll(tokens) *> channel.signal.take.unit
-          case claims => channel.supply.offerAll(claims) *> channel.demand.offerAll(tokens.drop(claims.size)).unit
+        source.claim(upTo = tokens.size).flatMap { claims =>
+          if claims.isEmpty then channel.demand.offerAll(tokens) *> channel.signal.take.unit
+          else channel.supply.offerAll(claims) *> channel.demand.offerAll(tokens.drop(claims.size)).unit
         }
       }
 
@@ -379,7 +379,7 @@ object PollConsumer:
       for {
         stranded <- channel.supply.takeAll
         _        <- if stranded.isEmpty then ZIO.unit
-                    else source.nack(stranded.toList, Duration.Zero).ignore
+                    else source.nack(stranded, Duration.Zero).ignore
       } yield ()
     }
 
@@ -473,7 +473,7 @@ object PollConsumer:
           channel.supply
             .takeUpTo(debts.size - 1)
             .flatMap: rest =>
-              val elements = first :: rest.toList
+              val elements = first +: rest
               source.nack(elements, Duration.Zero).ignore
                 *> channel.cancels.offerAll(debts.drop(elements.size)).unit
 
@@ -561,8 +561,8 @@ object PollConsumer:
      */
     private def write(batch: Chunk[Pending[A]]): IO[E, Unit] = {
       val (done, failed) = batch.partition(_.verdict == Verdict.Done)
-      source.ack(done.map(_.element).toList).unless(done.isEmpty)
-        *> source.nack(failed.map(_.element).toList, nackDelay).unless(failed.isEmpty)
+      source.ack(done.map(_.element)).unless(done.isEmpty)
+        *> source.nack(failed.map(_.element), nackDelay).unless(failed.isEmpty)
         *> ZIO.foreachDiscard(batch)(_.settled.succeed(()))
     }
 
