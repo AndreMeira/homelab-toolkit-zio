@@ -33,6 +33,12 @@ final class BatchConsumer(
   onFailure: HandlerFailurePolicy,
 ) extends ConsumerContract.Batched[NatsError, Message]:
 
+  private val options = FetchConsumeOptions
+    .builder()
+    .maxMessages(batchSize)
+    .expiresIn(expiry.toMillis)
+    .build()
+
   /**
    * Drain a batch, run `logic` on it (under the heartbeat), and settle it. One call processes one batch; a run
    * loop calls it repeatedly.
@@ -59,21 +65,19 @@ final class BatchConsumer(
    * than while they wait in a buffer. The blocking calls are interruptible, so a closing scope does not
    * wait out the fetch's expiry.
    *
+   * The fetch consumer is opened, drained and closed within the one blocking call, so it outlives nothing
+   * and belongs to no scope. `nextMessage` answers an `InterruptedException`, which is what carries an
+   * interrupt through to the close.
+   *
    * @return the fetched messages (at least one); aborts with [[NatsError.Receive]] if the fetch fails
    */
   private def fetch: IO[NatsError, Chunk[Message]] =
     ZIO
-      .attemptBlockingInterrupt {
-        val options  = FetchConsumeOptions.builder().maxMessages(batchSize).expiresIn(expiry.toMillis).build()
+      .attemptBlockingInterrupt:
         val consumer = context.fetch(options)
-        try
-          Chunk.fromIterator(
-            Iterator
-              .continually(consumer.nextMessage())
-              .takeWhile(_ != null)
-          )
+        val data     = Iterator.continually(consumer.nextMessage()).takeWhile(_ != null)
+        try Chunk.fromIterator(data)
         finally consumer.close()
-      }
       .mapError(NatsError.Receive(_))
       .flatMap(messages => if messages.isEmpty then fetch else ZIO.succeed(messages))
 
