@@ -8,6 +8,10 @@ tags: [llm, adapters, ports, layering, dkq, task]
 
 # The layer the LLM adapters are missing
 
+> Done. The shape this argued for is now built and described in
+> [how an LLM adapter is laid out](../architecture/llm-adapters.md); this page is the reasoning that
+> got there.
+
 ## The observation
 
 Both LLM adapters drop things, and the reason is not that the port is too thin. It is that there is nothing

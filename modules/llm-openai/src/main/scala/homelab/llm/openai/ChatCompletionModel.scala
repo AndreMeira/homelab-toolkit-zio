@@ -2,9 +2,9 @@ package homelab.llm.openai
 
 
 import homelab.llm.openai.error.ChatCompletionError
-import homelab.llm.openai.request.{ CompletionRequest, MessageRequest, ResponseFormat, ToolChoice, ToolRequest }
+import homelab.llm.openai.request.{ CompletionRequest, ResponseFormat, ToolChoice }
 import homelab.llm.openai.response.CompletionResponse
-import homelab.llm.{ Message, Model }
+import homelab.llm.Model
 import sttp.model.Uri
 import zio.json.ast.Json
 import zio.{ IO, Scope, ZIO }
@@ -35,35 +35,7 @@ final class ChatCompletionModel(
    *         refused
    */
   override def complete(model: Model.Name, request: Model.Request): IO[ChatCompletionError, Model.Completion] =
-    client.complete(asked(model, request), config.extra).flatMap(answer)
-
-  /**
-   * A conversation as the protocol asks for it.
-   *
-   * Two sources meet here and neither is the other's business: the call brings the model, the conversation
-   * and the tools a session permits, and the config brings everything this instance always asks for.
-   *
-   * @param model which model to ask for
-   * @param request the conversation and the tools on offer
-   * @return what to ask the client for
-   */
-  private def asked(model: Model.Name, request: Model.Request): CompletionRequest = CompletionRequest(
-    model = model,
-    messages = request.messages.map(MessageRequest.from).toList,
-    tools = Option.when(request.tools.nonEmpty)(request.tools.map(ToolRequest.from)),
-    toolChoice = config.toolChoice,
-    maxTokens = config.maxTokens,
-    temperature = config.temperature,
-    topP = config.topP,
-    stop = config.stop,
-    responseFormat = config.responseFormat,
-    seed = config.seed,
-    user = config.user,
-    parallelToolCalls = config.parallelToolCalls,
-    frequencyPenalty = config.frequencyPenalty,
-    presencePenalty = config.presencePenalty,
-    logitBias = config.logitBias,
-  )
+    client.complete(CompletionRequest.from(model, request, config), config.extra).flatMap(answer)
 
   /**
    * One completion, out of everything the provider answered.

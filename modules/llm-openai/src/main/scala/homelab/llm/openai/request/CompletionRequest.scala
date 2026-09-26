@@ -1,6 +1,8 @@
 package homelab.llm.openai.request
 
 
+import homelab.llm.Model
+import homelab.llm.openai.ChatCompletionModel
 import zio.json.*
 import zio.json.ast.Json
 
@@ -59,6 +61,36 @@ final case class CompletionRequest(
 
 
 object CompletionRequest:
+
+  /**
+   * A conversation as the protocol asks for it.
+   *
+   * Two sources meet here and neither is the other's business: the call brings the model, the conversation
+   * and the tools a session permits, and the config brings everything an instance always asks for.
+   *
+   * @param model which model to ask for
+   * @param request the conversation and the tools on offer
+   * @param config what the instance asking always asks for
+   * @return what to send
+   */
+  def from(model: Model.Name, request: Model.Request, config: ChatCompletionModel.Config): CompletionRequest =
+    CompletionRequest(
+      model = model,
+      messages = request.messages.map(MessageRequest.from).toList,
+      tools = Option.when(request.tools.nonEmpty)(request.tools.map(ToolRequest.from)),
+      toolChoice = config.toolChoice,
+      maxTokens = config.maxTokens,
+      temperature = config.temperature,
+      topP = config.topP,
+      stop = config.stop,
+      responseFormat = config.responseFormat,
+      seed = config.seed,
+      user = config.user,
+      parallelToolCalls = config.parallelToolCalls,
+      frequencyPenalty = config.frequencyPenalty,
+      presencePenalty = config.presencePenalty,
+      logitBias = config.logitBias,
+    )
 
   /**
    * The body to post, with whatever a caller adds merged over it.

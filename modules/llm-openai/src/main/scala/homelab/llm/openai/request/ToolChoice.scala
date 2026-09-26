@@ -42,6 +42,5 @@ object ToolChoice:
     case Auto        => Json.Str("auto")
     case Never       => Json.Str("none")
     case Required    => Json.Str("required")
-    case Named(name) =>
-      Json.Obj("type" -> Json.Str("function"), "function" -> Json.Obj("name" -> Json.Str(name)))
+    case Named(name) => Json.Obj("type" -> Json.Str("function"), "function" -> Json.Obj("name" -> Json.Str(name)))
   }

@@ -2,7 +2,7 @@
 title: "Module boundaries — what belongs in common, and what belongs in a module of its own"
 type: architecture
 status: current
-updated: 2026-09-25
+updated: 2026-09-26
 tags: [modules, common, ports, adapters, publishing, promotion]
 ---
 
@@ -64,14 +64,23 @@ and no tool role, so an adapter lifts `Message.System` into the request's own fi
 `Message.ToolResult` into a user turn, which is what `Message.merged` is there for. That transformation is
 mechanical and total.
 
-What stops the promotion is that **no adapter exists at all**. Five minutes of reading Anthropic's shape
-found one gap already: a `tool_result` block carries `is_error`, `Outcome` knows `result.failed`, and
-`Message.fromOutcome` throws it away — so an adapter could not set the flag even though the information was
-there. That is a missing field rather than a wrong shape, and it is exactly the kind of thing a second
-adapter finds and a published artifact cannot afford.
+### What the two adapters found (2026-09-26)
 
-When a second adapter exists, the lift into `common/llm/` is likely to be `Tool`, `Model`, `Message` and
-whatever `Registry` has become — the types an application writes down. `schema/` and `Registered` would stay
-behind, in the `JwksSource` position. `Tool` currently reaches into `schema/` through `validateInput` and
-`Registered.advertised`, and `advertised` builds `{"type":"function",…}`, which is one provider's spelling
-sitting inside what wants to be a port. That knot is worth untying before the lift, not during it.
+`homelab-llm-openai` and `homelab-llm-anthropic` now both exist, which is what step 2 of the rule asks for.
+Three things changed because of them, and one has not:
+
+- **`Registered.advertised` emitted `{"type":"function",…}`** — OpenAI's spelling inside a port. Anthropic's
+  Messages API takes the same three things flat, so an adapter handed that JSON would have had to parse it
+  apart to re-emit it. It answers an `Advertised` now, and each adapter does its own wrapping.
+- **The port was the only way through.** Both adapters were a client and an adapter in one class, so
+  anything `Model` could not carry was lost at the wire. Each module has a client under the port now — see
+  [llm adapters](llm-adapters.md).
+- **`Model.Request.extra` was incoherent.** Filling it meant naming a field only one provider reads, which
+  is what the port hides. Removed; the hatches that remain all sit where the caller knows the provider.
+- **`is_error` still has nowhere to go.** Both APIs carry it on a tool result, `Outcome` knows
+  `result.failed`, and `Message.ToolResult` has no field for it. A missing field rather than a wrong shape
+  — and the kind of thing a published artifact cannot afford, so it closes before any lift.
+
+The lift into `common/llm/` is then likely to be `Tool`, `Model`, `Message` and whatever `Registry` has
+become — the types an application writes down. `schema/` and `Registered` stay behind, in the `JwksSource`
+position.

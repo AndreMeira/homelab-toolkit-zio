@@ -1,6 +1,8 @@
 package homelab.llm.anthropic.request
 
 
+import homelab.llm.Model
+import homelab.llm.anthropic.AnthropicModel
 import zio.json.*
 import zio.json.ast.Json
 
@@ -50,6 +52,36 @@ final case class CompletionRequest(
 
 
 object CompletionRequest:
+
+  /**
+   * A conversation as the API asks for it.
+   *
+   * Two sources meet here and neither is the other's business: the call brings the model, the conversation
+   * and the tools a session permits, and the config brings everything an instance always asks for. The
+   * instructions are lifted out of the sequence and the tool results folded into user turns, both by
+   * [[MessageRequest.conversation]].
+   *
+   * @param model which model to ask for
+   * @param request the conversation and the tools on offer
+   * @param config what the instance asking always asks for
+   * @return what to send
+   */
+  def from(model: Model.Name, request: Model.Request, config: AnthropicModel.Config): CompletionRequest =
+    val (system, messages) = MessageRequest.conversation(request.messages)
+    CompletionRequest(
+      model = model,
+      maxTokens = config.maxTokens,
+      messages = messages,
+      system = system,
+      tools = Option.when(request.tools.nonEmpty)(request.tools.map(ToolRequest.from)),
+      toolChoice = config.toolChoice,
+      temperature = config.temperature,
+      topP = config.topP,
+      stopSequences = config.stopSequences,
+      topK = config.topK,
+      thinking = config.thinking,
+      metadata = config.metadata,
+    )
 
   /**
    * The body to post, with whatever a caller adds merged over it.
