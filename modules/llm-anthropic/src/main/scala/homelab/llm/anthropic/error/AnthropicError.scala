@@ -53,3 +53,12 @@ enum AnthropicError extends ApplicationError.AdapterError {
     case Malformed(detail)        => s"anthropic answered with something unreadable: $detail"
     case Rejected(status, detail) => s"anthropic rejected the request with $status: $detail"
 }
+
+object AnthropicError:
+  /**
+   * A response came back from the model with no content and no finished reason.
+   *
+   * @return AnthropicError.Malformed the error with the appropriate message
+   */
+  def noResponseContent: AnthropicError.Malformed =
+    AnthropicError.Malformed("the response carried no content and no reason for stopping")

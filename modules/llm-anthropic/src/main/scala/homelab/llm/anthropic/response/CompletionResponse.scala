@@ -109,7 +109,7 @@ object CompletionResponse:
    */
   def completion(response: CompletionResponse): Either[AnthropicError, Model.Completion] =
     response.content -> response.stopReason match {
-      case Nil -> None       => Left(AnthropicError.Malformed("the response carried no content and no reason for stopping"))
+      case Nil -> None       => Left(AnthropicError.noResponseContent)
       case content -> reason => Right(completed(content, reason, response.usage))
     }
 
