@@ -15,16 +15,16 @@ val zioPreludeVersion     = "1.0.0-RC48"
 val zioLoggingVersion     = "2.5.0"
 val zioSchemaVersion      = "1.8.6"
 val jwtVersion            = "11.0.4"
-val zioHttpVersion        = "3.0.1"
+val zioHttpVersion        = "3.11.6"
 val magnumVersion         = "1.3.1"
 val flywayVersion         = "12.9.0"
-val postgresqlVersion     = "42.7.11"
+val postgresqlVersion     = "42.7.13"
 val hikariVersion         = "7.1.0"
-val zioOtelVersion        = "3.1.13"
-val otelVersion           = "1.57.0"
+val zioOtelVersion        = "3.1.19"
+val otelVersion           = "1.66.0"
 val fabric8Version        = "7.9.0"
 val testcontainersVersion = "1.20.6"
-val sttpVersion           = "4.0.9"
+val sttpVersion           = "4.0.26"
 
 ThisBuild / scalaVersion := scala3Version
 ThisBuild / organization := "com.andremeira.homelab"
@@ -198,7 +198,7 @@ lazy val nats = project
     name := "homelab-nats",
     libraryDependencies ++= Seq(
       "dev.zio"           %% "zio-streams"    % zioVersion,
-      "io.nats"            % "jnats"          % "2.20.5",
+      "io.nats"            % "jnats"          % "2.26.3",
       "dev.zio"           %% "zio-test"       % zioVersion            % Test,
       "dev.zio"           %% "zio-test-sbt"   % zioVersion            % Test,
       "org.testcontainers" % "testcontainers" % testcontainersVersion % Test,
@@ -224,7 +224,7 @@ lazy val incubator = project
       "dev.zio"                       %% "zio-http"       % zioHttpVersion,
       "com.softwaremill.sttp.client4" %% "zio"            % sttpVersion, // llm sketch: sttp4 ZIO backend + SSE (core/model/shared-zio transitively)
       "dev.zio"                       %% "zio-streams"    % zioVersion, // adapter-internal only (NATS callback bridge); never surfaced
-      "io.nats"                        % "jnats"          % "2.20.5", // NATS exploration sketch (messaging/nats)
+      "io.nats"                        % "jnats"          % "2.26.3", // NATS exploration sketch (messaging/nats)
       // Redis stream sketch (messaging/redis): the same client distributed-keyed-queue uses.
       "io.lettuce"                     % "lettuce-core"   % "6.7.1.RELEASE",
       // Codecs derived from the *same* zio-schema the advertised JSON Schema comes from — one description,
