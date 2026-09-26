@@ -1,0 +1,49 @@
+# Dependency updates.
+#
+# Two ecosystems. The Scala dependencies in build.sbt, and the actions the workflows pin — the second is not
+# an afterthought, since the v0.0.5 release run warned that `actions/setup-java@v4` is deprecated and that
+# `ubuntu-latest` migrates to Ubuntu 26 in October 2026, and nothing was watching for either.
+#
+# This repo is the one whose versions the rest of the homelab inherits: a consumer pins `toolkitVersion` and
+# gets whatever ZIO and sttp were resolved here. So a bump landing here is a bump every consumer takes on
+# its next release, which is the argument for watching it rather than drifting until something forces it.
+#
+# Grouped, because an ungrouped weekly run on eight modules opens a PR per artifact and the review cost is
+# what makes people stop reading them.
+version: 2
+
+updates:
+  - package-ecosystem: sbt
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      # build.sbt: zioVersion is kept "in sync with the zio-core that zio-prelude/zio-http pull, else
+      # zio-test layer macros break". One PR per artifact would produce a set that does not compile until
+      # all of them have landed.
+      zio:
+        patterns:
+          - "dev.zio:*"
+      # Everything else, minor and patch together. A major changes something and is worth its own read.
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # zio-schema 1.9.0 is built on Scala 3.9, and its TASTy is ahead of the 3.8.3 this build uses — the
+      # reason is recorded next to the same pin in distributed-keyed-queue's build.sbt, which is on the same
+      # compiler. Lift this when scala3Version moves past it.
+      - dependency-name: "dev.zio:zio-schema*"
+        versions: [">=1.9.0"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns:
+          - "*"
