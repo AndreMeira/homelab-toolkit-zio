@@ -141,6 +141,20 @@ source.claim(upTo = tokens.size).flatMap {
 `Chunk()` is a pattern, so it carries the same shape of risk as the `Nil` it replaces: change the type again
 and it stops matching rather than failing. That is what the grep above is for.
 
+Where the non-empty branch needs its own head and tail, put the structural case first and let a bare `case
+_` carry the empty one — only that order is exhaustive:
+
+```scala
+ZIO.foreach(…)(_.run.forkScoped).flatMap {
+  case first +: rest => ZIO.raceAll(first.join, rest.map(_.join))
+  case _             => ZIO.unit
+}
+```
+
+`Chunk()` before `first +: rest` warns, and so does `first +: rest` before `Chunk()`: two structural
+patterns and no total one. This order needs no `.head` and no `NonEmptyChunk.fromChunk` ceremony to stay
+total.
+
 ## Migration
 
 Adopted 2026-09-26, after the toolkit had already published `0.0.5`. 73 non-private signatures used `List`

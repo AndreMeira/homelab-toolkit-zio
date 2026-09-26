@@ -117,10 +117,9 @@ object Graph {
       processors.get.flatMap { ordered =>
         // Forked one at a time, so a processor is running before the next one starts. That is start *order*,
         // not readiness: nothing here waits for a processor to be consuming before starting its neighbour.
-        ZIO.foreach(ordered.distinctBy(_.key))(_.run.forkScoped).flatMap { forked =>
-          NonEmptyChunk.fromChunk(forked) match
-            case None         => ZIO.unit
-            case Some(fibers) => ZIO.raceAll(fibers.head.join, fibers.tail.map(_.join))
+        ZIO.foreach(ordered.distinctBy(_.key))(_.run.forkScoped).flatMap {
+          case first +: rest => ZIO.raceAll(first.join, rest.map(_.join))
+          case _             => ZIO.unit
         }
       }
   }
