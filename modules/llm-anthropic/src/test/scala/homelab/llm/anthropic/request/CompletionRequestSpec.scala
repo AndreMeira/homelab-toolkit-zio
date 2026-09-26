@@ -20,8 +20,13 @@ object CompletionRequestSpec extends ZIOSpecDefault:
 
   private val weather = Advertised("weather", "Report it.", JsonSchema(Node.obj(Shape.Obj.Field("city", Node.text))))
 
+  private val ceiling = 4096
+
   private def sent(messages: Message*): String =
-    CompletionRequest.body(model, Model.Request(Chunk.fromIterable(messages))).toJson
+    val (system, turns) = MessageRequest.conversation(Chunk.fromIterable(messages))
+    body(CompletionRequest(model, ceiling, turns, system = system))
+
+  private def body(request: CompletionRequest): String = CompletionRequest.body(request).toJson
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("CompletionRequest")(
     suite("the instructions")(
@@ -72,13 +77,13 @@ object CompletionRequestSpec extends ZIOSpecDefault:
     ),
     suite("tools")(
       test("are advertised flat, with the schema under input_schema") {
-        val body = CompletionRequest.body(model, Model.Request(Chunk.empty, List(weather))).toJson
+        val sent = body(CompletionRequest(model, ceiling, Nil, tools = Some(List(ToolRequest.from(weather)))))
         assertTrue(
-          body.contains(
+          sent.contains(
             """"tools":[{"name":"weather","description":"Report it.","input_schema":{"type":"object",""" +
               """"properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false}}]"""
           ),
-          !body.contains(""""type":"function""""),
+          !sent.contains(""""type":"function""""),
         )
       },
       test("are absent when there are none") {
@@ -86,12 +91,12 @@ object CompletionRequestSpec extends ZIOSpecDefault:
       },
     ),
     suite("max_tokens")(
-      test("is sent even though nothing asked for it, because the API will not do without") {
-        assertTrue(sent(Message.user(text("hi"))).contains(s""""max_tokens":${CompletionRequest.DefaultMaxTokens}"""))
+      test("is always sent, because the API will not do without") {
+        assertTrue(sent(Message.user(text("hi"))).contains(s""""max_tokens":$ceiling"""))
       },
-      test("is a caller's to set through the escape hatch") {
-        val body = CompletionRequest.body(model, Model.Request(Chunk.empty, Nil, Json.Obj("max_tokens" -> Json.Num(64))))
-        assertTrue(body.toJson.contains(""""max_tokens":64"""))
+      test("is a caller's to replace through the escape hatch") {
+        val overridden = body(CompletionRequest(model, ceiling, Nil, extra = Json.Obj("max_tokens" -> Json.Num(64))))
+        assertTrue(overridden.contains(""""max_tokens":64"""), !overridden.contains(s""""max_tokens":$ceiling"""))
       },
     ),
   )

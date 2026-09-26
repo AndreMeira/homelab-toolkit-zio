@@ -1,7 +1,6 @@
 package homelab.llm.openai.response
 
-
-import homelab.llm.openai.ChatCompletionError
+import homelab.llm.openai.error.ChatCompletionError
 import homelab.llm.{ Message, Model, Tool }
 import zio.Chunk
 import zio.json.*

@@ -9,7 +9,7 @@ import zio.test.*
 import zio.{ Chunk, Scope }
 
 
-/** What a conversation looks like by the time OpenRouter receives it. */
+/** What a request looks like on the wire, and what a conversation becomes on the way there. */
 object CompletionRequestSpec extends ZIOSpecDefault:
 
   private val model = Model.Name("anthropic/claude-3.5-sonnet")
@@ -25,10 +25,19 @@ object CompletionRequestSpec extends ZIOSpecDefault:
   )
 
   private def sent(messages: Message*): String =
-    CompletionRequest.body(model, Model.Request(Chunk.fromIterable(messages))).toJson
+    body(CompletionRequest(model, messages.map(MessageRequest.from).toList))
 
   private def body(tools: List[Advertised] = Nil, extra: Json.Obj = Json.Obj()): String =
-    CompletionRequest.body(model, Model.Request(Chunk.empty, tools, extra)).toJson
+    body(
+      CompletionRequest(
+        model,
+        Nil,
+        tools = Option.when(tools.nonEmpty)(tools.map(ToolRequest.from)),
+        extra = extra,
+      )
+    )
+
+  private def body(request: CompletionRequest): String = CompletionRequest.body(request).toJson
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("CompletionRequest")(
     suite("roles")(

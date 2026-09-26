@@ -1,7 +1,7 @@
 package homelab.llm.anthropic.response
 
 
-import homelab.llm.anthropic.AnthropicError
+import homelab.llm.anthropic.error.AnthropicError
 import homelab.llm.{ Message, Model, Tool }
 import zio.Chunk
 import zio.json.*

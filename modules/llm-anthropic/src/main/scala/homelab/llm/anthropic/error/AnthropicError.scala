@@ -1,4 +1,4 @@
-package homelab.llm.anthropic
+package homelab.llm.anthropic.error
 
 
 import homelab.common.error.ApplicationError

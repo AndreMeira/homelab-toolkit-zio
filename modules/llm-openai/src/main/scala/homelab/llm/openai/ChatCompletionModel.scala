@@ -1,33 +1,29 @@
 package homelab.llm.openai
 
 
-import homelab.llm.Model
-import homelab.llm.openai.request.CompletionRequest
-import homelab.llm.openai.response.{ CompletionResponse, FailureResponse }
-import sttp.client4.*
-import sttp.client4.httpclient.zio.HttpClientZioBackend
-import sttp.model.{ StatusCode, Uri }
-import zio.json.*
-import zio.{ IO, Scope, Task, ZIO }
+import homelab.llm.openai.error.ChatCompletionError
+import homelab.llm.openai.request.{ CompletionRequest, MessageRequest, ToolRequest }
+import homelab.llm.openai.response.CompletionResponse
+import homelab.llm.{ Message, Model }
+import sttp.model.Uri
+import zio.json.ast.Json
+import zio.{ IO, Scope, ZIO }
 
 
 /**
- * A chat-completions endpoint as a [[Model]]: one POST, one completion out.
+ * A chat-completions endpoint as a [[Model]].
  *
- * The protocol OpenAI defined and many now serve — the gateways, the fast-inference hosts, and the servers
- * people run locally. What differs between them is where to post and what to send with it, which is why
- * those are constructor arguments and the companion holds a preset per provider rather than a subclass.
+ * The general case over [[ChatCompletionClient]], which is the whole call. A port holds one conversation
+ * and answers one completion, so what this does is narrow: several answers become the first, and what the
+ * protocol offers beyond a conversation is settled once, in the [[ChatCompletionModel.Config]] this was
+ * built with, rather than passed at each call.
  *
- * Streaming is deliberately absent: a request here is one call and one answer.
- *
- * @param backend what sends the request
- * @param endpoint where to post
- * @param headers what to send with it — the credential, and whatever else a provider attributes a call by
+ * @param client what the call is made through
+ * @param config what every call this makes asks for, beyond the conversation itself
  */
 final class ChatCompletionModel(
-  backend: Backend[Task],
-  endpoint: Uri,
-  headers: Map[String, String],
+  client: ChatCompletionClient,
+  config: ChatCompletionModel.Config = ChatCompletionModel.Config(),
 ) extends Model[ChatCompletionError] {
 
   /**
@@ -35,174 +31,126 @@ final class ChatCompletionModel(
    *
    * @param model which model to ask for, as this provider names it
    * @param request the conversation and the tools on offer
-   * @return what the model said, asked for, and cost; aborts with what the provider or the transport refused
+   * @return what the model said, asked for, and cost; aborts with what the provider or the transport
+   *         refused
    */
   override def complete(model: Model.Name, request: Model.Request): IO[ChatCompletionError, Model.Completion] =
-    for
-      response   <- send(CompletionRequest.body(model, request).toJson)
-      body       <- read(response)
-      completion <- ZIO.fromEither(CompletionResponse.completion(body))
-    yield completion
+    client.complete(asked(model, request)).flatMap(answer)
 
   /**
-   * Post one body and get whatever came back.
+   * A conversation as the protocol asks for it.
    *
-   * @param body the request body, already rendered
-   * @return the response, whatever its status; aborts when the call did not complete
+   * Two sources meet here and neither is the other's business: the call brings the model, the conversation
+   * and the tools a session permits, and the config brings everything this instance always asks for.
+   *
+   * @param model which model to ask for
+   * @param request the conversation and the tools on offer
+   * @return what to ask the client for
    */
-  private def send(body: String): IO[ChatCompletionError, Response[Either[String, String]]] =
-    basicRequest
-      .post(endpoint)
-      .headers(headers)
-      .header("Content-Type", "application/json")
-      .body(body)
-      .send(backend)
-      .mapError(failure => ChatCompletionError.Unavailable(failure.getMessage))
+  private def asked(model: Model.Name, request: Model.Request): CompletionRequest = CompletionRequest(
+    model = model,
+    messages = request.messages.map(MessageRequest.from).toList,
+    tools = Option.when(request.tools.nonEmpty)(request.tools.map(ToolRequest.from)),
+    toolChoice = config.toolChoice,
+    maxTokens = config.maxTokens,
+    temperature = config.temperature,
+    topP = config.topP,
+    stop = config.stop,
+    responseFormat = config.responseFormat,
+    seed = config.seed,
+    user = config.user,
+    extra = config.extra.merge(request.extra),
+  )
 
   /**
-   * What a response means.
-   *
-   * The status is read before the body, because a 4xx and a 2xx do not carry the same shape and a decoder
-   * pointed at the wrong one reports the wrong thing.
+   * One completion, out of everything the provider answered.
    *
    * @param response what the provider answered
-   * @return the decoded body; aborts with what its status and body say together
+   * @return the completion; aborts when the body carries no choice to read
    */
-  private def read(response: Response[Either[String, String]]): IO[ChatCompletionError, CompletionResponse] =
-    response.body match
-      case Right(body) => ZIO.fromEither(body.fromJson[CompletionResponse].left.map(unreadable(body)))
-      case Left(body)  => ZIO.fail(refused(response.code, body))
-
-  /**
-   * What the provider refused with.
-   *
-   * A 401 and a 403 are the credential; a 429 and a 5xx are worth another attempt; anything else is the
-   * request itself, and repeating it unchanged will fail the same way.
-   *
-   * @param status what it answered with
-   * @param body what it said, which is usually an error object and sometimes prose
-   * @return the failure
-   */
-  private def refused(status: StatusCode, body: String): ChatCompletionError =
-    val detail = body.fromJson[FailureResponse].map(_.error.message).getOrElse(body.take(200))
-    if status == StatusCode.Unauthorized || status == StatusCode.Forbidden then ChatCompletionError.Refused(detail)
-    else if status == StatusCode.TooManyRequests || status.isServerError then ChatCompletionError.Unavailable(detail)
-    else ChatCompletionError.Rejected(status.code, detail)
-
-  /**
-   * What to say about a body that parsed as JSON and is not a completion.
-   *
-   * @param body what came back
-   * @param reason what the decoder reported
-   * @return the failure, carrying enough of the body to see what arrived
-   */
-  private def unreadable(body: String)(reason: String): ChatCompletionError =
-    ChatCompletionError.Malformed(s"$reason, in ${body.take(200)}")
+  private def answer(response: CompletionResponse): IO[ChatCompletionError, Model.Completion] =
+    ZIO.fromEither(CompletionResponse.completion(response))
 }
 
 
 object ChatCompletionModel:
 
-  /** Where OpenRouter serves chat completions. */
-  val OpenRouter: Uri = uri"https://openrouter.ai/api/v1/chat/completions"
-
-  /** Where OpenAI serves them. */
-  val OpenAi: Uri = uri"https://api.openai.com/v1/chat/completions"
+  /**
+   * What an instance asks for on every call, beyond the conversation itself.
+   *
+   * The protocol takes more than a conversation implies, and none of it belongs in
+   * [[homelab.llm.Model.Request]], which is the general case. Settling it here means a caller chooses once
+   * — a cooler model for classification, a forced tool for extraction, a ceiling on what any one answer
+   * may cost — rather than at each call, and a caller who wants none of it builds the default.
+   *
+   * What is absent is as deliberate. The tools come from the session, which decides what a caller may use,
+   * so they are not an instance's to fix. And `n` is not here because a [[homelab.llm.Model.Completion]]
+   * holds one answer: an instance asking for three would pay for three and discard two, every call. A
+   * caller who wants alternatives holds [[ChatCompletionClient]], where `n` is a field of the request.
+   *
+   * @param toolChoice whether and which tool to force, as the provider spells it
+   * @param maxTokens the most the model may produce
+   * @param temperature how much to let it wander
+   * @param topP the nucleus to sample from, an alternative to temperature
+   * @param stop what to stop on, beyond the model deciding to
+   * @param responseFormat what shape the answer must take, as the provider spells it
+   * @param seed what to seed sampling with, where a provider offers repeatability
+   * @param user who this is on behalf of, which some providers use for abuse signals
+   * @param extra fields every call carries, which [[homelab.llm.Model.Request.extra]] is merged over
+   */
+  final case class Config(
+    toolChoice: Option[Json] = None,
+    maxTokens: Option[Int] = None,
+    temperature: Option[Double] = None,
+    topP: Option[Double] = None,
+    stop: Option[List[String]] = None,
+    responseFormat: Option[Json] = None,
+    seed: Option[Int] = None,
+    user: Option[String] = None,
+    extra: Json.Obj = Json.Obj(),
+  )
 
   /**
-   * OpenRouter, which fronts many providers and reports what a call cost.
-   *
-   * The transport is made here and closed when the scope ends, which is what a caller wants who has one
-   * provider and no opinion about how to reach it. The overload taking a backend is for everyone else.
-   *
-   * The referer is what OpenRouter attributes a call to on its public rankings.
+   * OpenRouter, with a transport of its own.
    *
    * @param apiKey the credential
-   * @param referer what to be attributed as, where a caller wants that
+   * @param referer what to be attributed as on OpenRouter's rankings, where a caller wants that
+   * @param config what every call asks for, beyond the conversation
    * @return the model, holding a transport for as long as the scope; aborts when one cannot be opened
    */
   def openRouter(
     apiKey: String,
     referer: Option[String] = None,
+    config: Config = Config(),
   ): ZIO[Scope, ChatCompletionError, ChatCompletionModel] =
-    transport.map(backend => openRouter(backend, apiKey, referer))
+    ChatCompletionClient.openRouter(apiKey, referer).map(ChatCompletionModel(_, config))
 
   /**
-   * OpenAI itself.
+   * OpenAI itself, with a transport of its own.
    *
    * @param apiKey the credential
    * @param organisation which organisation to bill, where an account has more than one
+   * @param config what every call asks for, beyond the conversation
    * @return the model, holding a transport for as long as the scope; aborts when one cannot be opened
    */
   def openAi(
     apiKey: String,
     organisation: Option[String] = None,
+    config: Config = Config(),
   ): ZIO[Scope, ChatCompletionError, ChatCompletionModel] =
-    transport.map(backend => openAi(backend, apiKey, organisation))
+    ChatCompletionClient.openAi(apiKey, organisation).map(ChatCompletionModel(_, config))
 
   /**
-   * Anything else that serves this protocol — a fast-inference host, or a server running locally.
-   *
-   * Azure is not one of these: it takes its credential in an `api-key` header and names a deployment in the
-   * path, so it needs its own headers rather than a different endpoint.
+   * Anything else that serves this protocol, with a transport of its own.
    *
    * @param endpoint where that provider serves completions
    * @param apiKey the credential, where it wants one
+   * @param config what every call asks for, beyond the conversation
    * @return the model, holding a transport for as long as the scope; aborts when one cannot be opened
    */
   def compatible(
     endpoint: Uri,
     apiKey: Option[String] = None,
+    config: Config = Config(),
   ): ZIO[Scope, ChatCompletionError, ChatCompletionModel] =
-    transport.map(backend => compatible(backend, endpoint, apiKey))
-
-  /**
-   * OpenRouter, over a transport the caller holds.
-   *
-   * @param backend what sends the request
-   * @param apiKey the credential
-   * @param referer what to be attributed as, where a caller wants that
-   * @return the model
-   */
-  def openRouter(backend: Backend[Task], apiKey: String, referer: Option[String]): ChatCompletionModel =
-    val attribution = referer.fold(Map.empty[String, String])(site => Map("HTTP-Referer" -> site))
-    new ChatCompletionModel(backend, OpenRouter, bearer(apiKey) ++ attribution)
-
-  /**
-   * OpenAI, over a transport the caller holds.
-   *
-   * @param backend what sends the request
-   * @param apiKey the credential
-   * @param organisation which organisation to bill, where an account has more than one
-   * @return the model
-   */
-  def openAi(backend: Backend[Task], apiKey: String, organisation: Option[String]): ChatCompletionModel =
-    val billed = organisation.fold(Map.empty[String, String])(org => Map("OpenAI-Organization" -> org))
-    new ChatCompletionModel(backend, OpenAi, bearer(apiKey) ++ billed)
-
-  /**
-   * Anything else that serves this protocol, over a transport the caller holds.
-   *
-   * @param backend what sends the request
-   * @param endpoint where that provider serves completions
-   * @param apiKey the credential, where it wants one
-   * @return the model
-   */
-  def compatible(backend: Backend[Task], endpoint: Uri, apiKey: Option[String]): ChatCompletionModel =
-    new ChatCompletionModel(backend, endpoint, apiKey.fold(Map.empty[String, String])(bearer))
-
-  /**
-   * A transport for a caller who has no opinion about one: the JDK's own client, closed with the scope.
-   *
-   * @return the backend; aborts when one cannot be opened
-   */
-  private def transport: ZIO[Scope, ChatCompletionError, Backend[Task]] =
-    HttpClientZioBackend.scoped().mapError(failure => ChatCompletionError.Unavailable(failure.getMessage))
-
-  /**
-   * The credential, as most of them take it.
-   *
-   * @param apiKey the key
-   * @return the header
-   */
-  private def bearer(apiKey: String): Map[String, String] = Map("Authorization" -> s"Bearer $apiKey")
+    ChatCompletionClient.compatible(endpoint, apiKey).map(ChatCompletionModel(_, config))
