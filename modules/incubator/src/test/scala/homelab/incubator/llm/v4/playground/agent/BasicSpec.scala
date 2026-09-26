@@ -66,7 +66,7 @@ object BasicSpec extends ZIOSpecDefault:
     yield (Scripted(script, seen), seen)
 
   private def toolAnswers(request: Model.Request): Chunk[Message.Content] =
-    request.messages.collect { case Message.ToolResult(_, content) => content }.flatten
+    request.messages.collect { case Message.ToolResult(_, content, _) => content }.flatten
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("Basic")(
     test("calls a tool the model asked for, then answers with what the model said next") {

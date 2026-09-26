@@ -76,9 +76,19 @@ without the model class. That is harmless while both live in one artifact, and i
 client ever moves into one of its own. Putting the builder on `Config` — `config.asked(model, request)` —
 is the change that would restore the direction, and it is a small one.
 
-## What is still missing
+## Where the two protocols differ on a tool's answer
 
-`is_error`. Both APIs carry it on a tool result, `Outcome` knows `result.failed`, and `Message.ToolResult`
-has no field for it — so an adapter cannot set the flag even though the information exists upstream. That
-is a missing field rather than a wrong shape, and it is the kind of gap that has to close before any of
-this is lifted into `common`. See [module boundaries](module-boundaries.md) for what that lift requires.
+Anthropic's `tool_result` block carries `is_error`; the chat-completions `tool` message has no such field,
+only `role`, `tool_call_id` and `content`. So the same fact reaches the two providers by different routes,
+and `Message.ToolResult` carries it in a way that serves both:
+
+```scala
+case ToolResult(callId: Tool.Call.Id, content: Chunk[Content], failed: Boolean = false)
+```
+
+`Tool.Result.render` writes an `{isError, reason}` envelope into the text, which is what a provider with no
+flag has to read it from. `failed` carries the same fact as a value, which is what a provider with a flag
+sets from — so the Anthropic adapter marks the block without parsing its own content back open.
+
+The flag is a fact about what happened, and the text is how the model is told. Keeping them apart is what
+stops an adapter having to recover one from the other.

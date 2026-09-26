@@ -99,7 +99,7 @@ object Progress {
    * @return what they establish together
    */
   private def advance(reading: Reading, message: Message): Reading = message match
-    case turn: Message.Assistant       => Reading(Some(turn), Set.empty)
-    case Message.ToolResult(callId, _) => reading.copy(answered = reading.answered + callId)
-    case _                             => reading
+    case turn: Message.Assistant          => Reading(Some(turn), Set.empty)
+    case Message.ToolResult(callId, _, _) => reading.copy(answered = reading.answered + callId)
+    case _                                => reading
 }

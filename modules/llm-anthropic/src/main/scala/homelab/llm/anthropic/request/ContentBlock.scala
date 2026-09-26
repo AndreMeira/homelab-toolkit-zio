@@ -43,8 +43,10 @@ enum ContentBlock derives JsonEncoder {
    *
    * @param toolUseId the id of the call this answers
    * @param content the answer, as the model will read it
+   * @param isError set when the tool could not answer, and absent otherwise, which the API reads the same
+   *                as false
    */
-  @jsonHint("tool_result") @jsonMemberNames(SnakeCase) case ToolResult(toolUseId: String, content: String)
+  @jsonHint("tool_result") @jsonMemberNames(SnakeCase) case ToolResult(toolUseId: String, content: String, isError: Option[Boolean])
 }
 
 
@@ -78,10 +80,11 @@ object ContentBlock:
    *
    * @param callId the id of the call this answers
    * @param content the answer
+   * @param failed whether the tool could not answer, which this API takes as a flag on the block
    * @return the block
    */
-  def answered(callId: Tool.Call.Id, content: Chunk[Message.Content]): Json =
-    written(ToolResult(callId, text(content)))
+  def answered(callId: Tool.Call.Id, content: Chunk[Message.Content], failed: Boolean): Json =
+    written(ToolResult(callId, text(content), Option.when(failed)(true)))
 
   /**
    * The words of a message, for a tool result, which takes text rather than blocks.

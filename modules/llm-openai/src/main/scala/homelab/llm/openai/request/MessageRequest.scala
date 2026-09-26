@@ -65,8 +65,8 @@ object MessageRequest:
    * @return what to send for it
    */
   def from(message: Message): MessageRequest = message match
-    case Message.System(content)             => System(ContentPart.parts(content))
-    case Message.User(content)               => User(ContentPart.parts(content))
-    case Message.ToolResult(callId, content) => Tool(callId, ContentPart.text(content))
-    case Message.Assistant(content, calls)   =>
+    case Message.System(content)                => System(ContentPart.parts(content))
+    case Message.User(content)                  => User(ContentPart.parts(content))
+    case Message.ToolResult(callId, content, _) => Tool(callId, ContentPart.text(content))
+    case Message.Assistant(content, calls)      =>
       Assistant(ContentPart.parts(content), Option.when(calls.nonEmpty)(calls.map(CallRequest.from).toList))
