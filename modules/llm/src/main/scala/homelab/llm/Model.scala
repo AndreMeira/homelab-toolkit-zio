@@ -124,7 +124,7 @@ object Model {
      * @param tools the tool objects to advertise, or empty to offer none
      * @return what the model said, asked for, and cost; aborts with what the adapter refuses on
      */
-    def complete(messages: Chunk[Message], tools: List[Advertised] = List.empty): IO[E, Model.Completion] =
+    def complete(messages: Chunk[Message], tools: Chunk[Advertised] = Chunk.empty): IO[E, Model.Completion] =
       complete(Request(messages = messages, tools = tools))
 
   /**
@@ -179,7 +179,7 @@ object Model {
    */
   final case class Request(
     messages: Chunk[Message],
-    tools: List[Advertised] = Nil,
+    tools: Chunk[Advertised] = Chunk.empty,
   )
 
   /**

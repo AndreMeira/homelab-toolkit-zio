@@ -107,8 +107,8 @@ trait Basic[Ctx] extends Workflow[Any, ApplicationError, String, Chunk[Message],
   private def answer(messages: Chunk[Message], pending: NonEmptyChunk[Tool.Call.Raw]): IO[ApplicationError, Next] =
     for
       session  <- tools.forSession(context)
-      outcomes <- session.dispatchAll(pending.toList)
-    yield Step.Continue(messages ++ Chunk.fromIterable(outcomes).map(answered))
+      outcomes <- session.dispatchAll(pending.toChunk)
+    yield Step.Continue(messages ++ outcomes.map(answered))
 
   /**
    * One tool's answer, as the conversation carries it.

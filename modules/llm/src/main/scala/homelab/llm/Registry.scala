@@ -78,7 +78,7 @@ final class Registry[Ctx] private (
       case None           =>
         ZIO
           .filter(entries.values)(_.permits(context))
-          .map(allowed => Session(allowed.toList, context))
+          .map(allowed => Session(Chunk.fromIterable(allowed), context))
 }
 
 

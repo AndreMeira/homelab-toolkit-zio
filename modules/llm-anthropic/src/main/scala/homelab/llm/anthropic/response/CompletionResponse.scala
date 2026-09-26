@@ -25,7 +25,7 @@ import zio.json.ast.Json
  */
 @jsonMemberNames(SnakeCase)
 final case class CompletionResponse(
-  content: List[CompletionResponse.Block],
+  content: Chunk[CompletionResponse.Block],
   stopReason: Option[String],
   usage: Option[CompletionResponse.Usage],
 ) derives JsonDecoder
@@ -109,7 +109,7 @@ object CompletionResponse:
    */
   def completion(response: CompletionResponse): Either[AnthropicError, Model.Completion] =
     response.content -> response.stopReason match {
-      case Nil -> None       => Left(AnthropicError.noResponseContent)
+      case Chunk() -> None   => Left(AnthropicError.noResponseContent)
       case content -> reason => Right(completed(content, reason, response.usage))
     }
 
@@ -126,7 +126,7 @@ object CompletionResponse:
    * @return the completion
    */
   private def completed(
-    content: List[Block],
+    content: Chunk[Block],
     stopReason: Option[String],
     usage: Option[Usage],
   ): Model.Completion =
@@ -146,12 +146,12 @@ object CompletionResponse:
    * @param blocks what it produced
    * @return its content, as the conversation carries it
    */
-  private def said(blocks: List[Block]): Chunk[Message.Content] =
-    Chunk.fromIterable(blocks.flatMap {
+  private def said(blocks: Chunk[Block]): Chunk[Message.Content] =
+    blocks.flatMap {
       case Block.Decoded(Block.Kind.Text(text))       => Some(Message.Content.Text(text))
       case Block.Decoded(Block.Kind.ToolUse(_, _, _)) => None
       case Block.Raw(json)                            => Some(Message.Content.Raw(json))
-    })
+    }
 
   /**
    * What the model asked to have run.
@@ -162,11 +162,11 @@ object CompletionResponse:
    * @param blocks what it produced
    * @return the calls, raw
    */
-  private def requested(blocks: List[Block]): Chunk[Tool.Call.Raw] =
-    Chunk.fromIterable(blocks.collect {
+  private def requested(blocks: Chunk[Block]): Chunk[Tool.Call.Raw] =
+    blocks.collect {
       case Block.Decoded(Block.Kind.ToolUse(id, name, input)) =>
         Tool.Call.Raw(Tool.Call.Id(id), name, input.toJson)
-    })
+    }
 
   /**
    * Why the model stopped.

@@ -105,8 +105,8 @@ final class Robot(
     completion: Model.Completion,
   ): IO[ApplicationError, Next] =
     for
-      outcomes <- session.dispatchAll(completion.calls.toList)
-      answers   = Chunk.fromIterable(outcomes).map(answered)
+      outcomes <- session.dispatchAll(completion.calls)
+      answers   = outcomes.map(answered)
       appended  = asked ++ (Message.fromCompletion(completion) +: answers)
       taken     = state.decisions + 1
     yield outcomes.flatMap(ending).headOption match

@@ -5,6 +5,7 @@ import homelab.llm.Model
 import homelab.llm.anthropic.AnthropicModel
 import zio.json.*
 import zio.json.ast.Json
+import zio.Chunk
 
 
 /**
@@ -38,13 +39,13 @@ import zio.json.ast.Json
 final case class CompletionRequest(
   model: String,
   maxTokens: Int,
-  messages: List[MessageRequest],
+  messages: Chunk[MessageRequest],
   system: Option[String] = None,
-  tools: Option[List[ToolRequest]] = None,
+  tools: Option[Chunk[ToolRequest]] = None,
   toolChoice: Option[ToolChoice] = None,
   temperature: Option[Double] = None,
   topP: Option[Double] = None,
-  stopSequences: Option[List[String]] = None,
+  stopSequences: Option[Chunk[String]] = None,
   topK: Option[Int] = None,
   thinking: Option[Thinking] = None,
   metadata: Option[Metadata] = None,

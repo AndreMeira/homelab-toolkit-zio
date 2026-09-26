@@ -93,7 +93,7 @@ object AnthropicModelSpec extends ZIOSpecDefault:
           asked         <- seen.get.map(_.map(_._1))
         yield assertTrue(
           asked.flatMap(_.system) == Some("be brief"),
-          asked.exists(_.messages.map(_.role) == List("user")),
+          asked.exists(_.messages.map(_.role) == Chunk("user")),
         )
       }
     ),

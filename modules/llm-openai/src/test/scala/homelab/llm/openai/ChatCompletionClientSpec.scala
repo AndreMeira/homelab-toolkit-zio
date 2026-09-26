@@ -39,7 +39,7 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
     def measure[R, E, A](name: String, tags: (String, String)*)(effect: => ZIO[R, E, A]): ZIO[R, E, A] =
       seen.update(_ :+ (name -> tags.toMap)) *> effect
 
-  private val asked = CompletionRequest(Model.Name("anthropic/claude-3.5-sonnet"), List(MessageRequest.User(Nil)))
+  private val asked = CompletionRequest(Model.Name("anthropic/claude-3.5-sonnet"), Chunk(MessageRequest.User(Chunk.empty)))
 
   private def ask(client: ChatCompletionClient) = client.complete(asked)
 
@@ -64,7 +64,7 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
         for response <- ask(answering(answered))
         yield assertTrue(
           response.choices.size == 2,
-          response.choices.map(_.message.content) == List(Some("12 degrees"), Some("about twelve")),
+          response.choices.map(_.message.content) == Chunk(Some("12 degrees"), Some("about twelve")),
         )
       },
       test("the usage as the provider reported it, cost included") {
@@ -78,7 +78,7 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
         for response <- ask(answering(body))
         yield assertTrue(
           response.choices.head.message.toolCalls.map(_.map(_.function.arguments)) ==
-            Some(List("""{"city":"Hamburg"}"""))
+            Some(Chunk("""{"city":"Hamburg"}"""))
         )
       },
     ),

@@ -109,8 +109,8 @@ final class Chat(
   private def answer(ongoing: Ongoing, pending: NonEmptyChunk[Tool.Call.Raw]): IO[ApplicationError, Next] =
     for
       session  <- tools.forSession(ongoing.conversation)
-      outcomes <- session.dispatchAll(pending.toList)
-      answers   = Chunk.fromIterable(outcomes).map(answered)
+      outcomes <- session.dispatchAll(pending.toChunk)
+      answers   = outcomes.map(answered)
     yield Step.Continue(ongoing ++ answers)
 
   /**
