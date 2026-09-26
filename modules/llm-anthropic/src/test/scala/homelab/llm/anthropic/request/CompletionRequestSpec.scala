@@ -55,6 +55,15 @@ object CompletionRequestSpec extends ZIOSpecDefault:
         val body = sent(Message.toolResult(id("c1"), text("one")), Message.toolResult(id("c2"), text("two")))
         assertTrue(body.split(""""role":"user"""").length == 2, body.contains("c1"), body.contains("c2"))
       },
+      test("that could not answer is marked on the block, which this API has a field for") {
+        val body = sent(Message.toolResult(id("c1"), text("no such city"), failed = true))
+        assertTrue(
+          body.contains(""""type":"tool_result","tool_use_id":"c1","content":"no such city","is_error":true""")
+        )
+      },
+      test("that answered carries no flag at all, which the API reads as false") {
+        assertTrue(!sent(Message.toolResult(id("c1"), text("done"))).contains("is_error"))
+      },
       test("one after a model turn opens a user turn of its own") {
         val asked = Message.assistant(Chunk.empty, Chunk(Tool.Call.Raw(id("c1"), "weather", "{}")))
         val body  = sent(Message.user(text("hi")), asked, Message.toolResult(id("c1"), text("done")))

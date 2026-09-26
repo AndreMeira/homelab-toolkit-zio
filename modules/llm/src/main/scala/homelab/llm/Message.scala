@@ -41,10 +41,14 @@ enum Message:
   /**
    * What a tool answered, paired to the call that asked.
    *
+   * Whether it failed is carried apart from the content because it is what happened rather than how the
+   * model is told: a provider with a flag for it marks the turn, and one without has it only in the words.
+   *
    * @param callId the id of the call this answers
    * @param content the answer, as the model will read it
+   * @param failed whether the tool could not answer
    */
-  case ToolResult(callId: Tool.Call.Id, content: Chunk[Message.Content])
+  case ToolResult(callId: Tool.Call.Id, content: Chunk[Message.Content], failed: Boolean = false)
 
 
 object Message:
@@ -127,9 +131,11 @@ object Message:
    *
    * @param callId the id of the call this answers
    * @param content the answer, as the model will read it
+   * @param failed whether the tool could not answer
    * @return the message, as itself rather than as a [[Message]]
    */
-  def toolResult(callId: Tool.Call.Id, content: Chunk[Content]): ToolResult = ToolResult(callId, content)
+  def toolResult(callId: Tool.Call.Id, content: Chunk[Content], failed: Boolean = false): ToolResult =
+    ToolResult(callId, content, failed)
 
   /**
    * Adjacent messages of one role joined into one, for a provider that will not take them separately.
@@ -168,10 +174,11 @@ object Message:
    * What a tool answered, as the conversation carries it.
    *
    * The text is whatever the result renders to, a failure included — everything a model can react to
-   * reaches it as words.
+   * reaches it as words. A failure also sets the flag, so a provider that marks an errored turn can,
+   * without reading the words back out.
    *
    * @param outcome what dispatch produced
    * @return the tool message to append
    */
   def fromOutcome(outcome: Outcome): ToolResult =
-    ToolResult(outcome.call.id, Chunk(Content.Text(outcome.result.render)))
+    ToolResult(outcome.call.id, Chunk(Content.Text(outcome.result.render)), outcome.result.failed)

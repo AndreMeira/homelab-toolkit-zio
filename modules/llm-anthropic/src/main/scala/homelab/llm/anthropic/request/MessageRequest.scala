@@ -53,11 +53,11 @@ object MessageRequest:
         case built -> Message.Assistant(content, calls) =>
           built :+ assistant(ContentBlock.blocks(content) ++ calls.map(ContentBlock.asked))
 
-        case (before :+ last) -> Message.ToolResult(callId, content) if last.role == User =>
-          before :+ last.copy(content = last.content :+ ContentBlock.answered(callId, content))
+        case (before :+ last) -> Message.ToolResult(callId, content, failed) if last.role == User =>
+          before :+ last.copy(content = last.content :+ ContentBlock.answered(callId, content, failed))
 
-        case built -> Message.ToolResult(callId, content) =>
-          built :+ user(List(ContentBlock.answered(callId, content)))
+        case built -> Message.ToolResult(callId, content, failed) =>
+          built :+ user(List(ContentBlock.answered(callId, content, failed)))
       }
       .toList
 

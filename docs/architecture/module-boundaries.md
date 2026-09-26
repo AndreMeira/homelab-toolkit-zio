@@ -67,7 +67,7 @@ mechanical and total.
 ### What the two adapters found (2026-09-26)
 
 `homelab-llm-openai` and `homelab-llm-anthropic` now both exist, which is what step 2 of the rule asks for.
-Three things changed because of them, and one has not:
+Four things changed because of them:
 
 - **`Registered.advertised` emitted `{"type":"function",…}`** — OpenAI's spelling inside a port. Anthropic's
   Messages API takes the same three things flat, so an adapter handed that JSON would have had to parse it
@@ -77,9 +77,11 @@ Three things changed because of them, and one has not:
   [llm adapters](llm-adapters.md).
 - **`Model.Request.extra` was incoherent.** Filling it meant naming a field only one provider reads, which
   is what the port hides. Removed; the hatches that remain all sit where the caller knows the provider.
-- **`is_error` still has nowhere to go.** Both APIs carry it on a tool result, `Outcome` knows
-  `result.failed`, and `Message.ToolResult` has no field for it. A missing field rather than a wrong shape
-  — and the kind of thing a published artifact cannot afford, so it closes before any lift.
+- **`is_error` had nowhere to go.** Anthropic's `tool_result` block carries it, the chat-completions `tool`
+  message does not, and `Message.ToolResult` had no field — so the fact that a tool failed survived only as
+  text inside its own content, which an adapter would have had to parse back open. `ToolResult` carries
+  `failed` now. A missing field rather than a wrong shape, and exactly what a published artifact cannot
+  afford to add later.
 
 The lift into `common/llm/` is then likely to be `Tool`, `Model`, `Message` and whatever `Registry` has
 become — the types an application writes down. `schema/` and `Registered` stay behind, in the `JwksSource`

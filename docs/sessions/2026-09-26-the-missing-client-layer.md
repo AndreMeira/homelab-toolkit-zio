@@ -22,7 +22,7 @@ anything the port cannot carry has nowhere to go and is lost at the wire:
 
 - **`n`** — OpenAI returns several choices; the first is taken and the rest dropped.
 - **`max_tokens`** — Anthropic requires it; a default is invented inside the adapter.
-- **`is_error`** — both APIs carry it on a tool result; nothing holds it.
+- **`is_error`** — Anthropic carries it on a tool result; nothing holds it.
 
 Each was written down as an adapter quirk. They are one thing: a capability with no home.
 
