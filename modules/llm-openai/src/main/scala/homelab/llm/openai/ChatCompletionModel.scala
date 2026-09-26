@@ -2,7 +2,7 @@ package homelab.llm.openai
 
 
 import homelab.llm.openai.error.ChatCompletionError
-import homelab.llm.openai.request.{ CompletionRequest, MessageRequest, ToolRequest }
+import homelab.llm.openai.request.{ CompletionRequest, MessageRequest, ResponseFormat, ToolChoice, ToolRequest }
 import homelab.llm.openai.response.CompletionResponse
 import homelab.llm.{ Message, Model }
 import sttp.model.Uri
@@ -35,7 +35,7 @@ final class ChatCompletionModel(
    *         refused
    */
   override def complete(model: Model.Name, request: Model.Request): IO[ChatCompletionError, Model.Completion] =
-    client.complete(asked(model, request)).flatMap(answer)
+    client.complete(asked(model, request), config.extra).flatMap(answer)
 
   /**
    * A conversation as the protocol asks for it.
@@ -59,7 +59,10 @@ final class ChatCompletionModel(
     responseFormat = config.responseFormat,
     seed = config.seed,
     user = config.user,
-    extra = config.extra.merge(request.extra),
+    parallelToolCalls = config.parallelToolCalls,
+    frequencyPenalty = config.frequencyPenalty,
+    presencePenalty = config.presencePenalty,
+    logitBias = config.logitBias,
   )
 
   /**
@@ -88,25 +91,35 @@ object ChatCompletionModel:
    * holds one answer: an instance asking for three would pay for three and discard two, every call. A
    * caller who wants alternatives holds [[ChatCompletionClient]], where `n` is a field of the request.
    *
-   * @param toolChoice whether and which tool to force, as the provider spells it
+   * @param toolChoice whether the model may call a tool, must call one, or must call a named one
    * @param maxTokens the most the model may produce
    * @param temperature how much to let it wander
    * @param topP the nucleus to sample from, an alternative to temperature
    * @param stop what to stop on, beyond the model deciding to
-   * @param responseFormat what shape the answer must take, as the provider spells it
+   * @param responseFormat what shape the answer must take
    * @param seed what to seed sampling with, where a provider offers repeatability
    * @param user who this is on behalf of, which some providers use for abuse signals
-   * @param extra fields every call carries, which [[homelab.llm.Model.Request.extra]] is merged over
+   * @param parallelToolCalls whether it may ask for several tools in one turn
+   * @param frequencyPenalty how much to discourage a token for having appeared often
+   * @param presencePenalty how much to discourage a token for having appeared at all
+   * @param logitBias what to make more or less likely, by token
+   * @param extra fields merged over every call, for a protocol that has moved since
+   *              [[homelab.llm.openai.request.CompletionRequest]] last did; a field that type names
+   *              belongs in the field
    */
   final case class Config(
-    toolChoice: Option[Json] = None,
+    toolChoice: Option[ToolChoice] = None,
     maxTokens: Option[Int] = None,
     temperature: Option[Double] = None,
     topP: Option[Double] = None,
     stop: Option[List[String]] = None,
-    responseFormat: Option[Json] = None,
+    responseFormat: Option[ResponseFormat] = None,
     seed: Option[Int] = None,
     user: Option[String] = None,
+    parallelToolCalls: Option[Boolean] = None,
+    frequencyPenalty: Option[Double] = None,
+    presencePenalty: Option[Double] = None,
+    logitBias: Option[Map[String, Int]] = None,
     extra: Json.Obj = Json.Obj(),
   )
 

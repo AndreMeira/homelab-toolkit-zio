@@ -7,6 +7,7 @@ import homelab.llm.anthropic.response.CompletionResponse
 import sttp.client4.*
 import sttp.client4.httpclient.zio.HttpClientZioBackend
 import sttp.model.Uri
+import zio.json.ast.Json
 import zio.{ IO, Scope, Task, ZIO }
 
 
@@ -26,9 +27,11 @@ trait AnthropicClient {
    * Ask for a completion.
    *
    * @param request what to ask for
+   * @param extra fields merged over the request, for an API that has moved since [[CompletionRequest]]
+   *              last did — a field this type already names belongs in the field
    * @return what the API answered; aborts with what it or the transport refused
    */
-  def complete(request: CompletionRequest): IO[AnthropicError, CompletionResponse]
+  def complete(request: CompletionRequest, extra: Json.Obj = Json.Obj()): IO[AnthropicError, CompletionResponse]
 }
 
 

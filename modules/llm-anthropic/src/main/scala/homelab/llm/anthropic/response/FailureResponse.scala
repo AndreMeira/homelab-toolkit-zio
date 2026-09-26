@@ -1,8 +1,6 @@
 package homelab.llm.anthropic.response
 
-
 import zio.json.*
-
 
 /**
  * What the API answers when it will not serve a request.

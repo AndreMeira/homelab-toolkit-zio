@@ -2,7 +2,6 @@ package homelab.llm
 
 
 import homelab.common.error.ApplicationError
-import zio.json.ast.Json
 import zio.{ Chunk, IO, UIO, ZIO }
 
 
@@ -173,18 +172,14 @@ object Model {
    * One call's worth of conversation.
    *
    * The tools come from a session, which decides what a caller may use, and carry what a provider has to be
-   * told rather than one provider's way of telling it — the adapter shapes them. `extra` is the escape
-   * hatch for the request body — temperature, routing preferences, a provider's own options — so a caller
-   * is not held to what is modelled here.
+   * told rather than one provider's way of telling it — the adapter shapes them.
    *
    * @param messages the conversation so far, oldest first
    * @param tools the tool objects to advertise, or empty to offer none
-   * @param extra fields merged into the request body by the adapter
    */
   final case class Request(
     messages: Chunk[Message],
     tools: List[Advertised] = Nil,
-    extra: Json.Obj = Json.Obj(),
   )
 
   /**

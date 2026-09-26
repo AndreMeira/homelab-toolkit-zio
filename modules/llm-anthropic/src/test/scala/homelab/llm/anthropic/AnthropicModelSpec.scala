@@ -2,7 +2,7 @@ package homelab.llm.anthropic
 
 
 import homelab.llm.anthropic.error.AnthropicError
-import homelab.llm.anthropic.request.CompletionRequest
+import homelab.llm.anthropic.request.{ CompletionRequest, Thinking }
 import homelab.llm.anthropic.response.CompletionResponse
 import homelab.llm.{ Message, Model }
 import zio.json.*
@@ -18,15 +18,17 @@ object AnthropicModelSpec extends ZIOSpecDefault:
     body.fromJson[CompletionResponse].getOrElse(throw new IllegalArgumentException(s"unreadable fixture: $body"))
 
   /** A client that answers from a fixture, and records what it was asked for. */
-  private final class Scripted(answer: CompletionResponse, seen: Ref[Option[CompletionRequest]])
-      extends AnthropicClient:
+  final private class Scripted(answer: CompletionResponse, seen: Ref[Option[(CompletionRequest, Json.Obj)]]) extends AnthropicClient:
 
-    override def complete(request: CompletionRequest): IO[AnthropicError, CompletionResponse] =
-      seen.set(Some(request)).as(answer)
+    override def complete(
+      request: CompletionRequest,
+      extra: Json.Obj = Json.Obj(),
+    ): IO[AnthropicError, CompletionResponse] =
+      seen.set(Some(request -> extra)).as(answer)
 
   private def asking(body: String, config: AnthropicModel.Config = AnthropicModel.Config()) =
     for
-      seen <- Ref.make(Option.empty[CompletionRequest])
+      seen <- Ref.make(Option.empty[(CompletionRequest, Json.Obj)])
       model = AnthropicModel(Scripted(decoded(body), seen), config)
     yield (model, seen)
 
@@ -45,41 +47,41 @@ object AnthropicModelSpec extends ZIOSpecDefault:
         for
           (model, seen) <- asking(said)
           _             <- ask(model)
-          asked         <- seen.get
+          asked         <- seen.get.map(_.map(_._1))
         yield assertTrue(asked.map(_.maxTokens) == Some(AnthropicModel.DefaultMaxTokens))
       },
       test("the one an instance was built with instead") {
         for
           (model, seen) <- asking(said, AnthropicModel.Config(maxTokens = 64))
           _             <- ask(model)
-          asked         <- seen.get
+          asked         <- seen.get.map(_.map(_._1))
         yield assertTrue(asked.map(_.maxTokens) == Some(64))
       },
       test("asks for nothing else the conversation did not imply") {
         for
           (model, seen) <- asking(said)
           _             <- ask(model)
-          asked         <- seen.get
+          asked         <- seen.get.map(_.map(_._1))
         yield assertTrue(
           asked.exists(request => request.temperature.isEmpty && request.toolChoice.isEmpty),
           asked.exists(_.thinking.isEmpty),
         )
       },
       test("what the instance always asks for, without the conversation saying so") {
-        val warm = AnthropicModel.Config(temperature = Some(0.9), thinking = Some(Json.Obj()))
+        val warm = AnthropicModel.Config(temperature = Some(0.9), thinking = Some(Thinking.Enabled(512)))
         for
           (model, seen) <- asking(said, warm)
           _             <- ask(model)
-          asked         <- seen.get
+          asked         <- seen.get.map(_.map(_._1))
         yield assertTrue(asked.flatMap(_.temperature) == Some(0.9), asked.exists(_.thinking.isDefined))
       },
-      test("carries a caller's own fields through, over the instance's own") {
-        val configured = AnthropicModel.Config(extra = Json.Obj("top_k" -> Json.Num(5)))
+      test("what the instance asks for beyond the API this adapter models") {
+        val configured = AnthropicModel.Config(extra = Json.Obj("service_tier" -> Json.Str("standard")))
         for
           (model, seen) <- asking(said, configured)
-          _             <- ask(model, conversation.copy(extra = Json.Obj("top_k" -> Json.Num(9))))
-          asked         <- seen.get
-        yield assertTrue(asked.map(_.extra) == Some(Json.Obj("top_k" -> Json.Num(9))))
+          _             <- ask(model)
+          carried       <- seen.get.map(_.map(_._2))
+        yield assertTrue(carried == Some(Json.Obj("service_tier" -> Json.Str("standard"))))
       },
     ),
     suite("what it reshapes")(
@@ -88,12 +90,12 @@ object AnthropicModelSpec extends ZIOSpecDefault:
         for
           (model, seen) <- asking(said)
           _             <- ask(model, told)
-          asked         <- seen.get
+          asked         <- seen.get.map(_.map(_._1))
         yield assertTrue(
           asked.flatMap(_.system) == Some("be brief"),
           asked.exists(_.messages.map(_.role) == List("user")),
         )
-      },
+      }
     ),
     suite("what it reads")(
       test("the words, why it stopped, and what it consumed — with no cost, which this API does not report") {
@@ -133,6 +135,6 @@ object AnthropicModelSpec extends ZIOSpecDefault:
           (model, _) <- asking("""{"content":[]}""")
           failure    <- ask(model).flip
         yield assertTrue(failure.isInstanceOf[AnthropicError.Malformed])
-      },
+      }
     ),
   )

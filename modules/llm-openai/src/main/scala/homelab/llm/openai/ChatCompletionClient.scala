@@ -3,12 +3,12 @@ package homelab.llm.openai
 
 import homelab.llm.openai.error.ChatCompletionError
 import homelab.llm.openai.request.CompletionRequest
-import homelab.llm.openai.response.{CompletionResponse, FailureResponse}
+import homelab.llm.openai.response.{ CompletionResponse, FailureResponse }
 import sttp.client4.*
 import sttp.client4.httpclient.zio.HttpClientZioBackend
-import sttp.model.{StatusCode, Uri}
-import zio.json.*
-import zio.{IO, Scope, Task, ZIO}
+import sttp.model.{ StatusCode, Uri }
+import zio.json.ast.Json
+import zio.{ IO, Scope, Task, ZIO }
 
 
 /**
@@ -27,9 +27,11 @@ trait ChatCompletionClient {
    * Ask for a completion.
    *
    * @param request what to ask for
+   * @param extra fields merged over the request, for a protocol that has moved since [[CompletionRequest]]
+   *              last did — a field this type already names belongs in the field
    * @return what the provider answered; aborts with what it or the transport refused
    */
-  def complete(request: CompletionRequest): IO[ChatCompletionError, CompletionResponse]
+  def complete(request: CompletionRequest, extra: Json.Obj = Json.Obj()): IO[ChatCompletionError, CompletionResponse]
 }
 
 

@@ -3,7 +3,7 @@ package homelab.llm.anthropic
 
 import homelab.llm.Model
 import homelab.llm.anthropic.error.AnthropicError
-import homelab.llm.anthropic.request.{ CompletionRequest, MessageRequest, ToolRequest }
+import homelab.llm.anthropic.request.{ CompletionRequest, MessageRequest, Metadata, Thinking, ToolChoice, ToolRequest }
 import homelab.llm.anthropic.response.CompletionResponse
 import sttp.client4.Backend
 import zio.json.ast.Json
@@ -35,7 +35,7 @@ final class AnthropicModel(
    *         refused
    */
   override def complete(model: Model.Name, request: Model.Request): IO[AnthropicError, Model.Completion] =
-    client.complete(asked(model, request)).flatMap(answer)
+    client.complete(asked(model, request), config.extra).flatMap(answer)
 
   /**
    * A conversation as the API asks for it.
@@ -61,9 +61,9 @@ final class AnthropicModel(
       temperature = config.temperature,
       topP = config.topP,
       stopSequences = config.stopSequences,
+      topK = config.topK,
       thinking = config.thinking,
       metadata = config.metadata,
-      extra = config.extra.merge(request.extra),
     )
 
   /**
@@ -100,22 +100,26 @@ object AnthropicModel:
    * will not answer without it.
    *
    * @param maxTokens the most the model may produce, which this API requires
-   * @param toolChoice whether and which tool to force, as the API spells it
+   * @param toolChoice whether the model may call a tool, must call one, or must call a named one
    * @param temperature how much to let it wander
    * @param topP the nucleus to sample from, an alternative to temperature
    * @param stopSequences what to stop on, beyond the model deciding to
-   * @param thinking whether to let it reason first, and for how long, as the API spells it
+   * @param topK how many of the likeliest tokens to sample from
+   * @param thinking whether it reasons before it answers, and how much room it has to
    * @param metadata what the API records about who this is for
-   * @param extra fields every call carries, which [[homelab.llm.Model.Request.extra]] is merged over
+   * @param extra fields merged over every call, for an API that has moved since
+   *              [[homelab.llm.anthropic.request.CompletionRequest]] last did; a field that type names
+   *              belongs in the field
    */
   final case class Config(
     maxTokens: Int = DefaultMaxTokens,
-    toolChoice: Option[Json] = None,
+    toolChoice: Option[ToolChoice] = None,
     temperature: Option[Double] = None,
     topP: Option[Double] = None,
     stopSequences: Option[List[String]] = None,
-    thinking: Option[Json] = None,
-    metadata: Option[Json] = None,
+    topK: Option[Int] = None,
+    thinking: Option[Thinking] = None,
+    metadata: Option[Metadata] = None,
     extra: Json.Obj = Json.Obj(),
   )
 

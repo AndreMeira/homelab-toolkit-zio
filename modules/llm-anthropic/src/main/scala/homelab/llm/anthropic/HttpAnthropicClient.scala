@@ -7,6 +7,7 @@ import homelab.llm.anthropic.response.{ CompletionResponse, FailureResponse }
 import sttp.client4.*
 import sttp.model.{ StatusCode, Uri }
 import zio.json.*
+import zio.json.ast.Json
 import zio.{ IO, Task, ZIO }
 
 
@@ -33,10 +34,14 @@ final class HttpAnthropicClient(
    * Ask for a completion.
    *
    * @param request what to ask for
+   * @param extra fields merged over the request
    * @return what the API answered; aborts with what it or the transport refused
    */
-  override def complete(request: CompletionRequest): IO[AnthropicError, CompletionResponse] =
-    send(CompletionRequest.body(request).toJson).flatMap(read)
+  override def complete(
+    request: CompletionRequest,
+    extra: Json.Obj = Json.Obj(),
+  ): IO[AnthropicError, CompletionResponse] =
+    send(CompletionRequest.body(request, extra).toJson).flatMap(read)
 
   /**
    * Post one body and get whatever came back.

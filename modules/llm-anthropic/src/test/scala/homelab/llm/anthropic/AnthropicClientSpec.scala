@@ -3,7 +3,7 @@ package homelab.llm.anthropic
 
 import homelab.llm.Model
 import homelab.llm.anthropic.error.AnthropicError
-import homelab.llm.anthropic.request.{ CompletionRequest, MessageRequest }
+import homelab.llm.anthropic.request.{ CompletionRequest, MessageRequest, Thinking, ToolChoice }
 import homelab.llm.anthropic.response.CompletionResponse
 import sttp.client4.impl.zio.RIOMonadAsyncError
 import sttp.client4.testing.BackendStub
@@ -37,6 +37,14 @@ object AnthropicClientSpec extends ZIOSpecDefault:
     CompletionRequest(Model.Name("claude-3-5-sonnet-latest"), 64, List(MessageRequest("user", Nil)))
 
   private def ask(client: AnthropicClient) = client.complete(asked)
+
+  /** The body one request renders to, as the API would receive it. */
+  private def posted(request: CompletionRequest, extra: zio.json.ast.Json.Obj = zio.json.ast.Json.Obj()) =
+    for
+      seen <- Ref.make(Option.empty[sttp.client4.GenericRequest[?, ?]])
+      _    <- AnthropicClient.make(recording(seen), "k").complete(request, extra).ignore
+      body <- seen.get.map(_.map(_.body.show))
+    yield body
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("AnthropicClient")(
     suite("what it answers with")(
@@ -74,23 +82,29 @@ object AnthropicClientSpec extends ZIOSpecDefault:
           request.exists(sent => !sent.headers.exists(_.name == "Authorization")),
         )
       },
-      test("a request's own fields reach the body, and extra is merged over them") {
-        for
-          seen <- Ref.make(Option.empty[sttp.client4.GenericRequest[?, ?]])
-          rich  = asked.copy(temperature = Some(0.2), extra = zio.json.ast.Json.Obj("top_k" -> zio.json.ast.Json.Num(5)))
-          _    <- AnthropicClient.make(recording(seen), "k").complete(rich).ignore
-          body <- seen.get.map(_.map(_.body.show))
+      test("a request's own fields reach the body, each under the name the API uses") {
+        val rich = asked.copy(temperature = Some(0.2), topK = Some(40), toolChoice = Some(ToolChoice.Named("weather")))
+        for body <- posted(rich)
         yield assertTrue(
           body.exists(_.contains(""""max_tokens":64""")),
           body.exists(_.contains(""""temperature":0.2""")),
-          body.exists(_.contains(""""top_k":5""")),
+          body.exists(_.contains(""""top_k":40""")),
+          body.exists(_.contains(""""tool_choice":{"type":"tool","name":"weather"}""")),
         )
+      },
+      test("thinking carries its budget, and says so the way the API does") {
+        for body <- posted(asked.copy(thinking = Some(Thinking.Enabled(1024))))
+        yield assertTrue(body.exists(_.contains(""""thinking":{"type":"enabled","budget_tokens":1024}""")))
+      },
+      test("what a caller adds is merged over the request, for an API that has moved") {
+        for body <- posted(asked, zio.json.ast.Json.Obj("service_tier" -> zio.json.ast.Json.Str("auto")))
+        yield assertTrue(body.exists(_.contains(""""service_tier":"auto"""")))
       },
     ),
     suite("a transport of its own")(
       test("a caller with no opinion gets one, and it is closed with the scope") {
         ZIO.scoped(AnthropicClient.make("k")).map(client => assertTrue(client.isInstanceOf[AnthropicClient]))
-      },
+      }
     ),
     suite("what it refuses")(
       test("a refused credential is not worth retrying") {

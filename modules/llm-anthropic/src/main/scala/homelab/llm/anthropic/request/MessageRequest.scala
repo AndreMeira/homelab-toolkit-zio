@@ -45,33 +45,18 @@ object MessageRequest:
    * @return the turns to send, oldest first
    */
   private def turns(messages: Chunk[Message]): List[MessageRequest] =
-    messages.foldLeft(List.empty[MessageRequest])(absorb).reverse
-
-  /**
-   * Add one message to the turns built so far.
-   *
-   * @param built the turns so far, most recent first
-   * @param next the message to add
-   * @return the turns including it
-   */
-  private def absorb(built: List[MessageRequest], next: Message): List[MessageRequest] = (built, next) match
-    case (_, Message.System(_))                             => built
-    case (_, Message.User(content))                         => user(ContentBlock.blocks(content)) :: built
-    case (_, Message.Assistant(content, calls))             =>
-      assistant(ContentBlock.blocks(content) ++ calls.map(ContentBlock.asked)) :: built
-    case (last :: rest, Message.ToolResult(callId, content)) if last.role == User =>
-      last.copy(content = last.content :+ answer(callId, content)) :: rest
-    case (_, Message.ToolResult(callId, content))           => user(List(answer(callId, content))) :: built
-
-  /**
-   * What a tool answered, as a block.
-   *
-   * @param callId the id of the call this answers
-   * @param content the answer
-   * @return the block
-   */
-  private def answer(callId: Tool.Call.Id, content: Chunk[Message.Content]): Json =
-    ContentBlock.answered(callId, content)
+    messages
+      .foldLeft(List.empty[MessageRequest]) {
+        case built -> Message.System(_)                                                 => built
+        case built -> Message.User(content)                                             => user(ContentBlock.blocks(content)) :: built
+        case built -> Message.Assistant(content, calls)                                 =>
+          assistant(ContentBlock.blocks(content) ++ calls.map(ContentBlock.asked)) :: built
+        case (last :: rest) -> Message.ToolResult(callId, content) if last.role == User =>
+          last.copy(content = last.content :+ ContentBlock.answered(callId, content)) :: rest
+        case built -> Message.ToolResult(callId, content)                               =>
+          user(List(ContentBlock.answered(callId, content))) :: built
+      }
+      .reverse
 
   /** What the API calls the caller's side. */
   private val User: String = "user"

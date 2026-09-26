@@ -1,8 +1,6 @@
 package homelab.llm
 
-
 import homelab.llm.schema.JsonSchema
-
 
 /**
  * A tool as a provider is told about it: what it is called, what it is for, and what it takes.

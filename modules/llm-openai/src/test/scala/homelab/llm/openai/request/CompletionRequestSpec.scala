@@ -28,14 +28,9 @@ object CompletionRequestSpec extends ZIOSpecDefault:
     body(CompletionRequest(model, messages.map(MessageRequest.from).toList))
 
   private def body(tools: List[Advertised] = Nil, extra: Json.Obj = Json.Obj()): String =
-    body(
-      CompletionRequest(
-        model,
-        Nil,
-        tools = Option.when(tools.nonEmpty)(tools.map(ToolRequest.from)),
-        extra = extra,
-      )
-    )
+    CompletionRequest
+      .body(CompletionRequest(model, Nil, tools = Option.when(tools.nonEmpty)(tools.map(ToolRequest.from))), extra)
+      .toJson
 
   private def body(request: CompletionRequest): String = CompletionRequest.body(request).toJson
 

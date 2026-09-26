@@ -1,6 +1,5 @@
 package homelab.llm.anthropic.error
 
-
 import homelab.common.error.ApplicationError
 
 

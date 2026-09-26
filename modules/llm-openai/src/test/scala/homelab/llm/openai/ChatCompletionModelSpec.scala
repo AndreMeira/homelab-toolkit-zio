@@ -4,11 +4,11 @@ package homelab.llm.openai
 import homelab.llm.openai.error.ChatCompletionError
 import homelab.llm.openai.request.CompletionRequest
 import homelab.llm.openai.response.CompletionResponse
-import homelab.llm.{Message, Model}
+import homelab.llm.{ Message, Model }
 import zio.json.*
 import zio.json.ast.Json
 import zio.test.*
-import zio.{Chunk, IO, Ref, Scope, ZIO}
+import zio.{ Chunk, IO, Ref, Scope, ZIO }
 
 
 /** What the port narrows, and what it leaves to whoever holds the client. */
@@ -18,15 +18,17 @@ object ChatCompletionModelSpec extends ZIOSpecDefault:
     body.fromJson[CompletionResponse].getOrElse(throw new IllegalArgumentException(s"unreadable fixture: $body"))
 
   /** A client that answers from a fixture, and records what it was asked for. */
-  private final class Scripted(answer: CompletionResponse, seen: Ref[Option[CompletionRequest]])
-      extends ChatCompletionClient:
+  final private class Scripted(answer: CompletionResponse, seen: Ref[Option[(CompletionRequest, Json.Obj)]]) extends ChatCompletionClient:
 
-    override def complete(request: CompletionRequest): IO[ChatCompletionError, CompletionResponse] =
-      seen.set(Some(request)).as(answer)
+    override def complete(
+      request: CompletionRequest,
+      extra: Json.Obj = Json.Obj(),
+    ): IO[ChatCompletionError, CompletionResponse] =
+      seen.set(Some(request -> extra)).as(answer)
 
   private def asking(body: String, config: ChatCompletionModel.Config = ChatCompletionModel.Config()) =
     for
-      seen <- Ref.make(Option.empty[CompletionRequest])
+      seen <- Ref.make(Option.empty[(CompletionRequest, Json.Obj)])
       model = ChatCompletionModel(Scripted(decoded(body), seen), config)
     yield (model, seen)
 
@@ -52,7 +54,7 @@ object ChatCompletionModelSpec extends ZIOSpecDefault:
         for
           (model, seen) <- asking(body)
           _             <- ask(model)
-          asked         <- seen.get
+          asked         <- seen.get.map(_.map(_._1))
         yield assertTrue(
           asked.exists(request => request.n.isEmpty && request.maxTokens.isEmpty && request.temperature.isEmpty),
           asked.exists(_.model == "gpt-4o"),
@@ -64,17 +66,17 @@ object ChatCompletionModelSpec extends ZIOSpecDefault:
         for
           (model, seen) <- asking(body, cool)
           _             <- ask(model)
-          asked         <- seen.get
+          asked         <- seen.get.map(_.map(_._1))
         yield assertTrue(asked.flatMap(_.temperature) == Some(0.1), asked.flatMap(_.maxTokens) == Some(256))
       },
-      test("carries a caller's own fields through, over the instance's own") {
+      test("what the instance asks for beyond the protocol this adapter models") {
         val body       = """{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}"""
-        val configured = ChatCompletionModel.Config(extra = Json.Obj("seed" -> Json.Num(1)))
+        val configured = ChatCompletionModel.Config(extra = Json.Obj("service_tier" -> Json.Str("flex")))
         for
           (model, seen) <- asking(body, configured)
-          _             <- ask(model, conversation.copy(extra = Json.Obj("seed" -> Json.Num(7))))
-          asked         <- seen.get
-        yield assertTrue(asked.map(_.extra) == Some(Json.Obj("seed" -> Json.Num(7))))
+          _             <- ask(model)
+          carried       <- seen.get.map(_.map(_._2))
+        yield assertTrue(carried == Some(Json.Obj("service_tier" -> Json.Str("flex"))))
       },
     ),
     suite("what it reads")(
@@ -117,6 +119,6 @@ object ChatCompletionModelSpec extends ZIOSpecDefault:
           (model, _) <- asking("""{"choices":[]}""")
           failure    <- ask(model).flip
         yield assertTrue(failure == ChatCompletionError.Malformed("the response carried no choices"))
-      },
+      }
     ),
   )

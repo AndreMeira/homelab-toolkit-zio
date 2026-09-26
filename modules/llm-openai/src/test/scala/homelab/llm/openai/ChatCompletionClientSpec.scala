@@ -3,13 +3,14 @@ package homelab.llm.openai
 
 import homelab.llm.Model
 import homelab.llm.openai.error.ChatCompletionError
-import homelab.llm.openai.request.{CompletionRequest, MessageRequest}
+import homelab.llm.openai.request.{ CompletionRequest, MessageRequest, ResponseFormat, ToolChoice }
+import homelab.llm.schema.{ JsonSchema, Node, Shape }
 import sttp.client4.UriContext
 import sttp.client4.impl.zio.RIOMonadAsyncError
 import sttp.client4.testing.BackendStub
 import sttp.model.StatusCode
 import zio.test.*
-import zio.{Ref, Scope, Task, ZIO}
+import zio.{ Ref, Scope, Task, ZIO }
 
 
 /** The call itself: what goes out, and everything a provider's answer carries back — without a network. */
@@ -33,6 +34,14 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
   private val asked = CompletionRequest(Model.Name("anthropic/claude-3.5-sonnet"), List(MessageRequest.User(Nil)))
 
   private def ask(client: ChatCompletionClient) = client.complete(asked)
+
+  /** The body one request renders to, as the provider would receive it. */
+  private def posted(request: CompletionRequest, extra: zio.json.ast.Json.Obj = zio.json.ast.Json.Obj()) =
+    for
+      seen <- Ref.make(Option.empty[sttp.client4.GenericRequest[?, ?]])
+      _    <- ChatCompletionClient.openRouter(recording(seen), "k", None).complete(request, extra).ignore
+      body <- seen.get.map(_.map(_.body.show))
+    yield body
 
   private def sent(build: sttp.client4.Backend[Task] => ChatCompletionClient) =
     for
@@ -66,17 +75,36 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
       },
     ),
     suite("what it sends")(
-      test("a request's own fields reach the body, and extra is merged over them") {
-        for
-          seen <- Ref.make(Option.empty[sttp.client4.GenericRequest[?, ?]])
-          rich  = asked.copy(n = Some(3), maxTokens = Some(64), extra = zio.json.ast.Json.Obj("seed" -> zio.json.ast.Json.Num(7)))
-          _    <- ChatCompletionClient.openRouter(recording(seen), "k", None).complete(rich).ignore
-          body <- seen.get.map(_.flatMap(request => Option(request.body.show)))
+      test("a request's own fields reach the body, each under the name the protocol uses") {
+        val rich = asked.copy(
+          n = Some(3),
+          maxTokens = Some(64),
+          toolChoice = Some(ToolChoice.Named("weather")),
+          parallelToolCalls = Some(false),
+        )
+        for body <- posted(rich)
         yield assertTrue(
           body.exists(_.contains(""""n":3""")),
           body.exists(_.contains(""""max_tokens":64""")),
-          body.exists(_.contains(""""seed":7""")),
+          body.exists(_.contains(""""tool_choice":{"type":"function","function":{"name":"weather"}}""")),
+          body.exists(_.contains(""""parallel_tool_calls":false""")),
         )
+      },
+      test("a tool choice that is a bare word is sent as one, not as an object") {
+        for body <- posted(asked.copy(toolChoice = Some(ToolChoice.Required)))
+        yield assertTrue(body.exists(_.contains(""""tool_choice":"required"""")))
+      },
+      test("a response format carries the schema the answer must conform to") {
+        val schema = JsonSchema(Node.obj(Shape.Obj.Field("city", Node.text)))
+        for body <- posted(asked.copy(responseFormat = Some(ResponseFormat.conforming("place", schema))))
+        yield assertTrue(
+          body.exists(_.contains(""""response_format":{"type":"json_schema","json_schema":{"name":"place"""")),
+          body.exists(_.contains(""""strict":true""")),
+        )
+      },
+      test("what a caller adds is merged over the request, for a protocol that has moved") {
+        for body <- posted(asked, zio.json.ast.Json.Obj("service_tier" -> zio.json.ast.Json.Str("flex")))
+        yield assertTrue(body.exists(_.contains(""""service_tier":"flex"""")))
       },
     ),
     suite("presets")(
@@ -111,7 +139,7 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
     suite("a transport of its own")(
       test("a caller with no opinion gets one, and it is closed with the scope") {
         ZIO.scoped(ChatCompletionClient.openAi("k")).map(client => assertTrue(client.isInstanceOf[ChatCompletionClient]))
-      },
+      }
     ),
     suite("what it refuses")(
       test("a body that is not a completion says what could not be read, and out of what") {

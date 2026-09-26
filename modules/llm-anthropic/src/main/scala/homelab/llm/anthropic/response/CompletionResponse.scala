@@ -140,25 +140,18 @@ object CompletionResponse:
   /**
    * What the model said.
    *
-   * Everything but a call, since a call is read separately — and a block this adapter does not model is
-   * kept as it came, which is what a conversation carrying reasoning back to the next turn needs.
+   * A call is read by [[requested]] instead, and a block this adapter does not model is kept as it came,
+   * which is what a conversation carrying reasoning back to the next turn needs.
    *
    * @param blocks what it produced
    * @return its content, as the conversation carries it
    */
   private def said(blocks: List[Block]): Chunk[Message.Content] =
-    Chunk.fromIterable(blocks.map(part).flatten)
-
-  /**
-   * One block, as content.
-   *
-   * @param block what the API sent
-   * @return the part, or nothing when the block is a call, which [[requested]] reads instead
-   */
-  private def part(block: Block): Option[Message.Content] = block match
-    case Block.Decoded(Block.Kind.Text(said))       => Some(Message.Content.Text(said))
-    case Block.Decoded(Block.Kind.ToolUse(_, _, _)) => None
-    case Block.Raw(json)                            => Some(Message.Content.Raw(json))
+    Chunk.fromIterable(blocks.flatMap {
+      case Block.Decoded(Block.Kind.Text(text))       => Some(Message.Content.Text(text))
+      case Block.Decoded(Block.Kind.ToolUse(_, _, _)) => None
+      case Block.Raw(json)                            => Some(Message.Content.Raw(json))
+    })
 
   /**
    * What the model asked to have run.
@@ -170,17 +163,10 @@ object CompletionResponse:
    * @return the calls, raw
    */
   private def requested(blocks: List[Block]): Chunk[Tool.Call.Raw] =
-    Chunk.fromIterable(blocks.collect(asked))
-
-  /**
-   * One call, as the toolkit carries it.
-   *
-   * @return the calls among the blocks that were read
-   */
-  private def asked: PartialFunction[Block, Tool.Call.Raw] = {
-    case Block.Decoded(Block.Kind.ToolUse(id, name, input)) =>
-      Tool.Call.Raw(Tool.Call.Id(id), name, input.toJson)
-  }
+    Chunk.fromIterable(blocks.collect {
+      case Block.Decoded(Block.Kind.ToolUse(id, name, input)) =>
+        Tool.Call.Raw(Tool.Call.Id(id), name, input.toJson)
+    })
 
   /**
    * Why the model stopped.

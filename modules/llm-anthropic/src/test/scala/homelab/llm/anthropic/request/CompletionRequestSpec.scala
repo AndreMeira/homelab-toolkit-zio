@@ -94,8 +94,9 @@ object CompletionRequestSpec extends ZIOSpecDefault:
       test("is always sent, because the API will not do without") {
         assertTrue(sent(Message.user(text("hi"))).contains(s""""max_tokens":$ceiling"""))
       },
-      test("is a caller's to replace through the escape hatch") {
-        val overridden = body(CompletionRequest(model, ceiling, Nil, extra = Json.Obj("max_tokens" -> Json.Num(64))))
+      test("is a caller's to replace through what the call merges over the request") {
+        val overridden =
+          CompletionRequest.body(CompletionRequest(model, ceiling, Nil), Json.Obj("max_tokens" -> Json.Num(64))).toJson
         assertTrue(overridden.contains(""""max_tokens":64"""), !overridden.contains(s""""max_tokens":$ceiling"""))
       },
     ),

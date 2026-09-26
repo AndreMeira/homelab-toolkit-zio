@@ -3,11 +3,12 @@ package homelab.llm.openai
 
 import homelab.llm.openai.error.ChatCompletionError
 import homelab.llm.openai.request.CompletionRequest
-import homelab.llm.openai.response.{CompletionResponse, FailureResponse}
+import homelab.llm.openai.response.{ CompletionResponse, FailureResponse }
 import sttp.client4.*
-import sttp.model.{StatusCode, Uri}
+import sttp.model.{ StatusCode, Uri }
 import zio.json.*
-import zio.{IO, Task, ZIO}
+import zio.json.ast.Json
+import zio.{ IO, Task, ZIO }
 
 
 /**
@@ -30,10 +31,14 @@ final class HttpChatCompletionClient(
    * Ask for a completion.
    *
    * @param request what to ask for
+   * @param extra fields merged over the request
    * @return what the provider answered; aborts with what it or the transport refused
    */
-  override def complete(request: CompletionRequest): IO[ChatCompletionError, CompletionResponse] =
-    send(CompletionRequest.body(request).toJson).flatMap(read)
+  override def complete(
+    request: CompletionRequest,
+    extra: Json.Obj = Json.Obj(),
+  ): IO[ChatCompletionError, CompletionResponse] =
+    send(CompletionRequest.body(request, extra).toJson).flatMap(read)
 
   /**
    * Post one body and get whatever came back.
