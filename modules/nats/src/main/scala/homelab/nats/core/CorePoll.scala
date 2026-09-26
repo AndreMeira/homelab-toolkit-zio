@@ -51,8 +51,8 @@ final class CorePoll(
    * @return the drained messages (1..`maxMessages`); aborts with [[NatsError.Connect]] if the lazy
    *         subscription can't be set up
    */
-  def many(maxMessages: Int): IO[NatsError, List[Message]] =
-    subscribed *> queue.takeBetween(1, maxMessages).map(_.toList)
+  def many(maxMessages: Int): IO[NatsError, Chunk[Message]] =
+    subscribed *> queue.takeBetween(1, maxMessages)
 
   /**
    * Establish the subscription exactly once, on first demand.

@@ -42,7 +42,7 @@ object JwksTokenVerifierSpec extends ZIOSpecDefault:
     val p = rsaPair.getPublic.asInstanceOf[RSAPublicKey]
     JsonWebKey.RSA(rsaKid, "sig", "RS256", b64url(p.getModulus), b64url(p.getPublicExponent))
 
-  private val jwks = JsonWebKey.Set(List(edJwk, rsaJwk))
+  private val jwks = JsonWebKey.Set(Chunk(edJwk, rsaJwk))
 
   // --- issue tokens ------------------------------------------------------------------------------
 

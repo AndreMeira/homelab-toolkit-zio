@@ -3,6 +3,7 @@ package homelab.common.data
 
 import homelab.common.error.ApplicationError
 import homelab.common.data.Batch.LineageMismatch
+import zio.Chunk
 
 
 /**
@@ -31,14 +32,14 @@ trait Batch[+E, +A] {
    *
    * @return the value of every successful slot, ordered by input position
    */
-  def values: List[A]
+  def values: Chunk[A]
 
   /**
    * The errors, in input order.
    *
    * @return the error of every failed slot, ordered by input position
    */
-  def errors: List[E]
+  def errors: Chunk[E]
 
   /**
    * Check whether `other` comes from the same input universe as this batch.
@@ -66,7 +67,14 @@ trait Batch[+E, +A] {
    *
    * @return each slot as `Right(value)` or `Left(error)`, ordered by input position
    */
-  def toList: List[Either[E, A]]
+  def toChunk: Chunk[Either[E, A]]
+
+  /**
+   * Every slot as an `Either`, for a caller that wants a `List`.
+   *
+   * @return [[toChunk]] as a `List`, same order
+   */
+  def toList: List[Either[E, A]] = toChunk.toList
 
   /**
    * View this batch as a same-lineage [[Batch.Partial]], forgetting completeness.
@@ -268,7 +276,7 @@ object Batch {
    * @tparam A the value type
    * @return a batch containing exactly `value`, marked successful at position `0`
    */
-  def single[A](value: A): Batch.Success[A] = make(List(value))
+  def single[A](value: A): Batch.Success[A] = make(Chunk(value))
 
   /**
    * A fresh, all-successful batch indexed by input position, under a new lineage.
@@ -277,7 +285,7 @@ object Batch {
    * @tparam A the value type
    * @return a complete batch of `items` carrying a brand-new lineage
    */
-  def make[A](items: List[A]): Batch[Nothing, A] = BatchMap(
+  def make[A](items: Chunk[A]): Batch[Nothing, A] = BatchMap(
     new BatchMap.Lineage,
     items.zipWithIndex.map((value, index) => index -> Right(value)).toMap,
   )
@@ -298,21 +306,28 @@ object Batch {
      *
      * @return the value of every successful retained slot, ordered by input position
      */
-    def values: List[A]
+    def values: Chunk[A]
 
     /**
      * The errors, in input order.
      *
      * @return the error of every failed retained slot, ordered by input position
      */
-    def errors: List[E]
+    def errors: Chunk[E]
 
     /**
      * Every retained slot as an `Either`, in input order.
      *
      * @return each retained slot as `Right(value)` or `Left(error)`, ordered by input position
      */
-    def toList: List[Either[E, A]]
+    def toChunk: Chunk[Either[E, A]]
+
+    /**
+     * Every retained slot as an `Either`, for a caller that wants a `List`.
+     *
+     * @return [[toChunk]] as a `List`, same order
+     */
+    def toList: List[Either[E, A]] = toChunk.toList
 
     /**
      * Check whether `other` comes from the same input universe as this partial.

@@ -3,6 +3,7 @@ package homelab.auth
 
 import zio.json.JsonDecoder
 import zio.json.ast.Json
+import zio.Chunk
 
 
 enum JsonWebKey:
@@ -16,7 +17,7 @@ enum JsonWebKey:
 
 object JsonWebKey:
   case class KeyType(kty: String) derives JsonDecoder
-  case class Set(keys: List[JsonWebKey]) derives JsonDecoder
+  case class Set(keys: Chunk[JsonWebKey]) derives JsonDecoder
 
   given JsonDecoder[JsonWebKey.OKP] = JsonDecoder.derived
 

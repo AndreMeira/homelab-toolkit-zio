@@ -32,7 +32,7 @@ sealed trait QueueSource[A] {
    * @param n the maximum number to take
    * @return between one and `n` elements, in take order
    */
-  def takeUpTo(n: Int): UIO[List[A]]
+  def takeUpTo(n: Int): UIO[Chunk[A]]
 
   /**
    * Transform every element via `f`. Fluent shorthand for `QueueSource.Mapped(this, f)`.
@@ -51,10 +51,10 @@ sealed trait QueueSource[A] {
    *
    * @return the leaf sources (`Pure` or `Mapped`) of this tree
    */
-  def unnest: List[QueueSource[A]] = this match
+  def unnest: Chunk[QueueSource[A]] = this match
     case QueueSource.Merged(_, sources, _, _) => sources.flatMap(_.unnest)
     case QueueSource.Mapped(source, fn)       => source.unnest.map(_.map(fn))
-    case other                                => List(other)
+    case other                                => Chunk(other)
 
   /**
    * Non-blocking batched poll — up to `n` elements currently available, possibly empty. Internal
@@ -75,9 +75,9 @@ object QueueSource {
    * @param queue the backing queue
    */
   final case class Pure[A](queue: Queue[A]) extends QueueSource[A] {
-    def poll: UIO[Option[A]]           = queue.poll
-    def take: UIO[A]                   = queue.take
-    def takeUpTo(n: Int): UIO[List[A]] = queue.takeBetween(1, n).map(_.toList)
+    def poll: UIO[Option[A]]            = queue.poll
+    def take: UIO[A]                    = queue.take
+    def takeUpTo(n: Int): UIO[Chunk[A]] = queue.takeBetween(1, n)
 
     private[messaging] def pollUpTo(n: Int): UIO[Chunk[A]] = queue.takeUpTo(n)
   }
@@ -90,9 +90,9 @@ object QueueSource {
    * @param f      the per-element mapping
    */
   final case class Mapped[A, B](source: QueueSource[B], f: B => A) extends QueueSource[A] {
-    def poll: UIO[Option[A]]           = source.poll.map(_.map(f))
-    def take: UIO[A]                   = source.take.map(f)
-    def takeUpTo(n: Int): UIO[List[A]] = source.takeUpTo(n).map(_.map(f))
+    def poll: UIO[Option[A]]            = source.poll.map(_.map(f))
+    def take: UIO[A]                    = source.take.map(f)
+    def takeUpTo(n: Int): UIO[Chunk[A]] = source.takeUpTo(n).map(_.map(f))
 
     private[messaging] def pollUpTo(n: Int): UIO[Chunk[A]] = source.pollUpTo(n).map(_.map(f))
   }
@@ -109,7 +109,7 @@ object QueueSource {
    */
   final case class Merged[A](
     destination: Queue[A],
-    sources: List[QueueSource[A]],
+    sources: Chunk[QueueSource[A]],
     rotation: Ref[Int],
     batching: Int = 100,
   ) extends QueueSource[A] {
@@ -155,10 +155,10 @@ object QueueSource {
      * @param n the maximum number to take
      * @return between one and `n` elements
      */
-    def takeUpTo(n: Int): UIO[List[A]] =
+    def takeUpTo(n: Int): UIO[Chunk[A]] =
       pollUpTo(n).flatMap { chunk =>
-        if chunk.isEmpty then forkAndWait.map(List(_))
-        else ZIO.succeed(chunk.toList)
+        if chunk.isEmpty then forkAndWait.map(Chunk(_))
+        else ZIO.succeed(chunk)
       }
 
     /**
@@ -241,7 +241,7 @@ object QueueSource {
      * @param sources the sources to interleave
      * @return the merged source
      */
-    def make[A](sources: List[QueueSource[A]]): UIO[Merged[A]] =
+    def make[A](sources: Chunk[QueueSource[A]]): UIO[Merged[A]] =
       for {
         destination <- Queue.unbounded[A]
         rotation    <- Ref.make(0)

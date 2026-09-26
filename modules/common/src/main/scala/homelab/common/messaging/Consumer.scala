@@ -79,8 +79,8 @@ object Consumer {
    * @tparam E the error consuming aborts with
    * @tparam A the element type of each delivered batch
    */
-  trait Batched[+E, +A] extends Consumer[E, List[A]]:
-    def aggregate[B](fn: List[A] => B): Consumer[E, B] = map(fn)
+  trait Batched[+E, +A] extends Consumer[E, Chunk[A]]:
+    def aggregate[B](fn: Chunk[A] => B): Consumer[E, B] = map(fn)
 
   /**
    * A consumer that runs its logic once with `()` and never fails — a no-op intake.

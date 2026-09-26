@@ -52,8 +52,8 @@ final class ClusterStreamTail(
    * @tparam E2 the widened error, admitting `logic`'s failures
    * @return noop once the batch is processed; aborts with `E2` when `logic` does
    */
-  def consume[E2 >: StreamError](logic: List[StreamMessage[String, Array[Byte]]] => IO[E2, Unit]): IO[E2, Unit] =
-    inbox.take.flatMap(logic)
+  def consume[E2 >: StreamError](logic: Chunk[StreamMessage[String, Array[Byte]]] => IO[E2, Unit]): IO[E2, Unit] =
+    inbox.take.flatMap(batch => logic(Chunk.fromIterable(batch)))
 
   /**
    * Where each reader has got to, by slot.
@@ -94,7 +94,7 @@ object ClusterStreamTail:
                   for
                     redis  <- open(slot)
                     reader <- StreamTailConsumer.make(redis, keys, block, count)
-                    _      <- reader.consume(batch => inbox.offer(batch).unit).forever.forkScoped
+                    _      <- reader.consume(batch => inbox.offer(batch.toList).unit).forever.forkScoped
                   yield slot -> reader
     yield ClusterStreamTail(groups, inbox)
 

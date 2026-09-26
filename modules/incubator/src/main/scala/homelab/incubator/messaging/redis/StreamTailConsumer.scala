@@ -71,12 +71,12 @@ final class StreamTailConsumer(
    * @return noop once the batch is processed; aborts with `E2` when `logic` fails, or with `StreamError`
    *         when Redis does
    */
-  def consume[E2 >: StreamError](logic: List[StreamMessage[String, Array[Byte]]] => IO[E2, Unit]): IO[E2, Unit] =
+  def consume[E2 >: StreamError](logic: Chunk[StreamMessage[String, Array[Byte]]] => IO[E2, Unit]): IO[E2, Unit] =
     for
       offs <- offsets.get
       _    <- read(offs).flatMap:
                 case Nil     => ZIO.unit
-                case entries => logic(entries) *> advance(entries)
+                case entries => logic(Chunk.fromIterable(entries)) *> advance(entries)
     yield ()
 
   /**

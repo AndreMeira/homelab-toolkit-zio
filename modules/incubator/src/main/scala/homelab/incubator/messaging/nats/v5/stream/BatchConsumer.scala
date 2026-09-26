@@ -27,7 +27,7 @@ class BatchConsumer[A: Serde](
    * @tparam E2 the widened error, admitting `logic`'s failures
    * @return noop once the value is processed and committed; aborts with `E2` on failure
    */
-  override def consume[E2 >: NatsError](logic: List[A] => IO[E2, Unit]): IO[E2, Unit] =
+  override def consume[E2 >: NatsError](logic: Chunk[A] => IO[E2, Unit]): IO[E2, Unit] =
     for
       messages <- poll.many(batchSize)
       decoded  <- decode(messages)
@@ -35,7 +35,7 @@ class BatchConsumer[A: Serde](
                     case Nil   => ZIO.unit // all undecodable and termed in decode (Discard) — nothing to settle
                     case pairs =>
                       val (validMessages, values) = pairs.unzip
-                      StreamPoll.heartbeat(heartbeat, validMessages)(logic(values).either).flatMap(handleResult(validMessages, _))
+                      StreamPoll.heartbeat(heartbeat, validMessages)(logic(Chunk.fromIterable(values)).either).flatMap(handleResult(validMessages, _))
     yield ()
 
   private def decode(messages: List[Message]): IO[NatsError, List[(Message, A)]] = {

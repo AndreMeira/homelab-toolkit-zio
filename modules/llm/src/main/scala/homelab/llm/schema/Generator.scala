@@ -191,7 +191,7 @@ object Generator {
     recursive: Set[TypeId],
     defs: Defs,
   ): Either[Unsupported, (Node, Defs)] =
-    val cases = enumeration.cases.toList
+    val cases = enumeration.cases
     if cases.isEmpty then Left(Unsupported("a sum type with no cases describes no value"))
     else if cases.forall(one => payloadless(one.schema)) then
       val labels = cases.map(label)
@@ -207,9 +207,9 @@ object Generator {
         case Some(tag) =>
           branches(cases, tag, recursive, defs).map { (nodes, next) =>
             val union = nodes match
-              case single :: Nil           => single
-              case first :: second :: rest => Node.anyOf(first, second, rest*)
-              case Nil                     => Node.nothing
+              case Chunk(single)           => single
+              case first +: second +: rest => Node.anyOf(first, second, rest*)
+              case _                       => Node.nothing
             describe(union, enumeration.annotations) -> next
           }
 
@@ -223,12 +223,12 @@ object Generator {
    * @return one node per case, or why a case cannot be described
    */
   private def branches(
-    cases: List[Schema.Case[?, ?]],
+    cases: Chunk[Schema.Case[?, ?]],
     tag: String,
     recursive: Set[TypeId],
     defs: Defs,
-  ): Either[Unsupported, (List[Node], Defs)] =
-    cases.foldLeft[Either[Unsupported, (List[Node], Defs)]](Right(Nil -> defs)) { (acc, next) =>
+  ): Either[Unsupported, (Chunk[Node], Defs)] =
+    cases.foldLeft[Either[Unsupported, (Chunk[Node], Defs)]](Right(Chunk.empty -> defs)) { (acc, next) =>
       acc.flatMap { (nodes, carried) =>
         for
           (node, after) <- generateNodes(next.schema, recursive, carried)
@@ -287,9 +287,9 @@ object Generator {
     record: Schema.Record[?],
     recursive: Set[TypeId],
     defs: Defs,
-  ): Either[Unsupported, (List[Shape.Obj.Field], Defs)] = {
-    type Acc = Either[Unsupported, (List[Shape.Obj.Field], Defs)]
-    record.fields.foldLeft[Acc](Right(Nil -> defs)): (acc, field) =>
+  ): Either[Unsupported, (Chunk[Shape.Obj.Field], Defs)] = {
+    type Acc = Either[Unsupported, (Chunk[Shape.Obj.Field], Defs)]
+    record.fields.foldLeft[Acc](Right(Chunk.empty -> defs)): (acc, field) =>
       acc.flatMap { (fields, carried) =>
         generateNodes(field.schema, recursive, carried).map { (node, after) =>
           val described = Shape.Obj.Field(field.name, describe(node, field.annotations), !optional(field.schema))
@@ -305,7 +305,7 @@ object Generator {
    * @param fields its rendered properties
    * @return the object node
    */
-  private def object0(record: Schema.Record[?], fields: List[Shape.Obj.Field]): Node =
+  private def object0(record: Schema.Record[?], fields: Chunk[Shape.Obj.Field]): Node =
     describe(Node.obj(fields*), record.annotations)
 
   /**

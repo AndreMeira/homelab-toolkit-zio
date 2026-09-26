@@ -32,18 +32,18 @@ object PollConsumerTeardownSpec extends ZIOSpecDefault:
     available: Queue[Int],
     val asks: Ref[List[Int]],
     val claimed: Ref[List[Int]],
-    val acked: Ref[List[List[Int]]],
-    val nacked: Ref[List[List[Int]]],
+    val acked: Ref[List[Chunk[Int]]],
+    val nacked: Ref[List[Chunk[Int]]],
     val nackWaits: Ref[List[Duration]],
     gate: Option[Promise[Nothing, Unit]],
   ) extends PollConsumer.Source[Nothing, Int]:
 
-    override def claim(upTo: Int): IO[Nothing, List[Int]] =
+    override def claim(upTo: Int): IO[Nothing, Chunk[Int]] =
       asks.update(_ :+ upTo) *> ZIO.foreachDiscard(gate)(_.await) *> take(upTo)
 
-    override def ack(elements: List[Int]): IO[Nothing, Unit] = acked.update(_ :+ elements)
+    override def ack(elements: Chunk[Int]): IO[Nothing, Unit] = acked.update(_ :+ elements)
 
-    override def nack(elements: List[Int], wait: Duration): IO[Nothing, Unit] =
+    override def nack(elements: Chunk[Int], wait: Duration): IO[Nothing, Unit] =
       nacked.update(_ :+ elements) *> nackWaits.update(_ :+ wait)
 
     /**
@@ -56,10 +56,9 @@ object PollConsumerTeardownSpec extends ZIOSpecDefault:
      * @param upTo the ceiling the fetcher asked for
      * @return the claimed elements; never fails
      */
-    private def take(upTo: Int): UIO[List[Int]] =
+    private def take(upTo: Int): UIO[Chunk[Int]] =
       available
         .takeUpTo(upTo)
-        .map(_.toList)
         .tap(got => claimed.update(_ ++ got))
         .uninterruptible
 
@@ -84,8 +83,8 @@ object PollConsumerTeardownSpec extends ZIOSpecDefault:
       _         <- available.offerAll(elements)
       asks      <- Ref.make(List.empty[Int])
       claimed   <- Ref.make(List.empty[Int])
-      acked     <- Ref.make(List.empty[List[Int]])
-      nacked    <- Ref.make(List.empty[List[Int]])
+      acked     <- Ref.make(List.empty[Chunk[Int]])
+      nacked    <- Ref.make(List.empty[Chunk[Int]])
       waits     <- Ref.make(List.empty[Duration])
     yield Store(available, asks, claimed, acked, nacked, waits, gate)
 
@@ -151,9 +150,9 @@ object PollConsumerTeardownSpec extends ZIOSpecDefault:
       // fiber's death, not merely its cooperation. Note the finalizer is uninterruptible, so `timeout` cannot
       // rescue a genuine deadlock here — a regression fails this suite by exhausting its own timeout.
       val broken = new PollConsumer.Source[String, Int]:
-        override def claim(upTo: Int): IO[String, List[Int]]                     = ZIO.succeed(List(1))
-        override def ack(elements: List[Int]): IO[String, Unit]                  = ZIO.fail("store is gone")
-        override def nack(elements: List[Int], wait: Duration): IO[String, Unit] = ZIO.unit
+        override def claim(upTo: Int): IO[String, Chunk[Int]]                     = ZIO.succeed(Chunk(1))
+        override def ack(elements: Chunk[Int]): IO[String, Unit]                  = ZIO.fail("store is gone")
+        override def nack(elements: Chunk[Int], wait: Duration): IO[String, Unit] = ZIO.unit
       for outcome <- ZIO
                        .scoped {
                          PollConsumer

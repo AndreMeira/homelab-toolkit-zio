@@ -2,7 +2,7 @@
 title: Messaging — the two ports everything else is built from
 type: architecture
 status: current
-updated: 2026-08-23
+updated: 2026-09-26
 tags: [messaging, producer, consumer, pipe, partitioner, hub, router, inmemory, pollconsumer, polling]
 ---
 
@@ -89,9 +89,9 @@ The store side is one port, three non-blocking methods, one statement each:
 
 ```scala
 trait Source[E, A]:
-  def claim(upTo: Int): IO[E, List[A]]
-  def ack(elements: List[A]): IO[E, Unit]
-  def nack(elements: List[A], wait: Duration): IO[E, Unit]
+  def claim(upTo: Int): IO[E, Chunk[A]]
+  def ack(elements: Chunk[A]): IO[E, Unit]
+  def nack(elements: Chunk[A], wait: Duration): IO[E, Unit]
 ```
 
 **Four queues, four owners**, and the consumer itself touches the store not at all — a caller's fiber owns
@@ -144,10 +144,42 @@ Specs: `PollConsumerSpec`, `PollConsumerTeardownSpec`, `PollConsumerConcurrencyS
 
 ## Batched
 
-`Consumer.Batched[+E, +A] extends Consumer[E, List[A]]` — the batch shape is carried by the *type*, not by a
+`Consumer.Batched[+E, +A] extends Consumer[E, Chunk[A]]` — the batch shape is carried by the *type*, not by a
 size parameter at the call site, because the size is fixed where the adapter is built. `aggregate` folds a
 batch to a single value. Note that `map`/`mapZIO` on a `Batched` return a plain `Consumer` — the batched
 subtype is erased by the combinators, so an adapter that wants to keep it re-wraps (as `homelab.nats` does).
+
+## Closing a resource that lives inside one blocking call
+
+An adapter that pulls a batch from a blocking client has a resource to close, and the reflex is
+`ZIO.acquireRelease`. That is right where the resource outlives the effect that made it and belongs to a
+`Scope` — a connection, a subscription. It is the wrong reach where the resource is opened, drained and
+closed inside a single blocking call, which is the shape `homelab.nats`'s JetStream `BatchConsumer.fetch`
+has: the fetch consumer exists only for the duration of that call.
+
+The reason is what a release does on interruption. Measured with a blocking body that ignores
+`Thread.interrupt`:
+
+```
+acquire -> release -> interrupt-returned          # the body never reported finishing
+```
+
+The release runs **on the fiber**, promptly, while the blocking thread is abandoned and still running. Split
+a fetch into `acquireRelease(open)(close)(drain)` and `close` can therefore be called while a thread is
+still inside `nextMessage` on the same consumer — a race on an object with no documented thread safety. A
+`try`/`finally` inside the one blocking call keeps open, drain and close on one thread, in order.
+
+Two facts make that safe rather than merely simple. `FetchConsumer.nextMessage` declares
+`throws InterruptedException`, so `attemptBlockingInterrupt` delivers an interrupt as an exception and the
+`finally` runs. And `expiresIn` is what makes the interruptible variant necessary at all: the call can block
+for that long, so a scope closing without interrupting the thread would leave it parked.
+
+The trade is a delayed close against a concurrent one. For a resource with no thread safety, delayed is the
+safer failure.
+
+Thread affinity is not the reason: creating the fetch consumer on one blocking thread and draining it on
+another works against a live server. `FetchConsumeOptions` is immutable and built once on the class, since
+it needs neither the thread nor rebuilding.
 
 ## Deliberately absent
 

@@ -29,7 +29,7 @@ object PostgresSpecLayers:
   /** Flyway config pointing at the test migrations; clean enabled so local re-runs against a reused daemon
     * start from a known state. */
   private val migrationConfig =
-    MigrationConfig(initSql = "", locations = List("classpath:migrations/schema"), allowClean = true)
+    MigrationConfig(initSql = "", locations = Chunk("classpath:migrations/schema"), allowClean = true)
 
   /**
    * A migrated [[PostgresDatabase]] over a throwaway Testcontainers Postgres.
