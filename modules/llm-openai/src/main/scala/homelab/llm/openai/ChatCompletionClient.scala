@@ -1,6 +1,7 @@
 package homelab.llm.openai
 
 
+import homelab.common.monitor.Monitor
 import homelab.llm.openai.error.ChatCompletionError
 import homelab.llm.openai.request.CompletionRequest
 import homelab.llm.openai.response.{ CompletionResponse, FailureResponse }
@@ -37,6 +38,9 @@ trait ChatCompletionClient {
 
 object ChatCompletionClient:
 
+  /** Metric and span tag marking calls to a language model. */
+  val Tag: (String, String) = "resource" -> "llm"
+
   /** Where OpenRouter serves chat completions. */
   val OpenRouter: Uri = uri"https://openrouter.ai/api/v1/chat/completions"
 
@@ -51,10 +55,15 @@ object ChatCompletionClient:
    *
    * @param apiKey the credential
    * @param referer what to be attributed as on OpenRouter's public rankings, where a caller wants that
+   * @param monitor observes each call
    * @return the client, holding a transport for as long as the scope; aborts when one cannot be opened
    */
-  def openRouter(apiKey: String, referer: Option[String] = None): ZIO[Scope, ChatCompletionError, ChatCompletionClient] =
-    transport.map(backend => openRouter(backend, apiKey, referer))
+  def openRouter(
+    apiKey: String,
+    referer: Option[String] = None,
+    monitor: Monitor = Monitor.Noop,
+  ): ZIO[Scope, ChatCompletionError, ChatCompletionClient] =
+    transport.map(backend => openRouter(backend, apiKey, referer, monitor))
 
   /**
    * OpenRouter, over a transport the caller holds.
@@ -62,24 +71,32 @@ object ChatCompletionClient:
    * @param backend what sends the request
    * @param apiKey the credential
    * @param referer what to be attributed as, where a caller wants that
+   * @param monitor observes each call
    * @return the client
    */
-  def openRouter(backend: Backend[Task], apiKey: String, referer: Option[String]): ChatCompletionClient =
+  def openRouter(
+    backend: Backend[Task],
+    apiKey: String,
+    referer: Option[String],
+    monitor: Monitor,
+  ): ChatCompletionClient =
     val attribution = referer.fold(Map.empty[String, String])(site => Map("HTTP-Referer" -> site))
-    HttpChatCompletionClient(backend, OpenRouter, bearer(apiKey) ++ attribution)
+    HttpChatCompletionClient(backend, OpenRouter, bearer(apiKey) ++ attribution, monitor)
 
   /**
    * OpenAI itself.
    *
    * @param apiKey the credential
    * @param organisation which organisation to bill, where an account has more than one
+   * @param monitor observes each call
    * @return the client, holding a transport for as long as the scope; aborts when one cannot be opened
    */
   def openAi(
     apiKey: String,
     organisation: Option[String] = None,
+    monitor: Monitor = Monitor.Noop,
   ): ZIO[Scope, ChatCompletionError, ChatCompletionClient] =
-    transport.map(backend => openAi(backend, apiKey, organisation))
+    transport.map(backend => openAi(backend, apiKey, organisation, monitor))
 
   /**
    * OpenAI, over a transport the caller holds.
@@ -87,11 +104,17 @@ object ChatCompletionClient:
    * @param backend what sends the request
    * @param apiKey the credential
    * @param organisation which organisation to bill, where an account has more than one
+   * @param monitor observes each call
    * @return the client
    */
-  def openAi(backend: Backend[Task], apiKey: String, organisation: Option[String]): ChatCompletionClient =
+  def openAi(
+    backend: Backend[Task],
+    apiKey: String,
+    organisation: Option[String],
+    monitor: Monitor,
+  ): ChatCompletionClient =
     val billed = organisation.fold(Map.empty[String, String])(org => Map("OpenAI-Organization" -> org))
-    HttpChatCompletionClient(backend, OpenAi, bearer(apiKey) ++ billed)
+    HttpChatCompletionClient(backend, OpenAi, bearer(apiKey) ++ billed, monitor)
 
   /**
    * Anything else that serves this protocol — a fast-inference host, or a server running locally.
@@ -101,13 +124,15 @@ object ChatCompletionClient:
    *
    * @param endpoint where that provider serves completions
    * @param apiKey the credential, where it wants one
+   * @param monitor observes each call
    * @return the client, holding a transport for as long as the scope; aborts when one cannot be opened
    */
   def compatible(
     endpoint: Uri,
     apiKey: Option[String] = None,
+    monitor: Monitor = Monitor.Noop,
   ): ZIO[Scope, ChatCompletionError, ChatCompletionClient] =
-    transport.map(backend => compatible(backend, endpoint, apiKey))
+    transport.map(backend => compatible(backend, endpoint, apiKey, monitor))
 
   /**
    * Anything else that serves this protocol, over a transport the caller holds.
@@ -115,10 +140,16 @@ object ChatCompletionClient:
    * @param backend what sends the request
    * @param endpoint where that provider serves completions
    * @param apiKey the credential, where it wants one
+   * @param monitor observes each call
    * @return the client
    */
-  def compatible(backend: Backend[Task], endpoint: Uri, apiKey: Option[String]): ChatCompletionClient =
-    HttpChatCompletionClient(backend, endpoint, apiKey.fold(Map.empty[String, String])(bearer))
+  def compatible(
+    backend: Backend[Task],
+    endpoint: Uri,
+    apiKey: Option[String],
+    monitor: Monitor,
+  ): ChatCompletionClient =
+    HttpChatCompletionClient(backend, endpoint, apiKey.fold(Map.empty[String, String])(bearer), monitor)
 
   /**
    * A transport for a caller who has no opinion about one: the JDK's own client, closed with the scope.

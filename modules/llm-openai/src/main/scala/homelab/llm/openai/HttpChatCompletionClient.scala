@@ -1,6 +1,7 @@
 package homelab.llm.openai
 
 
+import homelab.common.monitor.Monitor
 import homelab.llm.openai.error.ChatCompletionError
 import homelab.llm.openai.request.CompletionRequest
 import homelab.llm.openai.response.{ CompletionResponse, FailureResponse }
@@ -20,11 +21,13 @@ import zio.{ IO, Task, ZIO }
  * @param backend what sends the request
  * @param endpoint where to post
  * @param headers what to send with it — the credential, and whatever else a provider attributes a call by
+ * @param monitor observes each call, tagged with the model it asked for
  */
 final class HttpChatCompletionClient(
   backend: Backend[Task],
   endpoint: Uri,
   headers: Map[String, String],
+  monitor: Monitor = Monitor.Noop,
 ) extends ChatCompletionClient {
 
   /**
@@ -38,11 +41,12 @@ final class HttpChatCompletionClient(
     request: CompletionRequest,
     extra: Json.Obj = Json.Obj(),
   ): IO[ChatCompletionError, CompletionResponse] =
-    send(CompletionRequest.body(request, extra).toJson).flatMap { response =>
-      response.body match
-        case Right(body) => ZIO.fromEither(body.fromJson[CompletionResponse]).mapError(unreadable(body))
-        case Left(body)  => ZIO.fail(refused(response.code, body))
-    }
+    monitor.measure("ChatCompletionClient.complete", ChatCompletionClient.Tag, "model" -> request.model):
+      send(CompletionRequest.body(request, extra).toJson).flatMap { response =>
+        response.body match
+          case Right(body) => ZIO.fromEither(body.fromJson[CompletionResponse]).mapError(unreadable(body))
+          case Left(body)  => ZIO.fail(refused(response.code, body))
+      }
 
   /**
    * Post one body and get whatever came back.

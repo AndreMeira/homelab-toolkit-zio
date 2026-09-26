@@ -1,6 +1,7 @@
 package homelab.llm.anthropic
 
 
+import homelab.common.monitor.Monitor
 import homelab.llm.anthropic.error.AnthropicError
 import homelab.llm.anthropic.request.CompletionRequest
 import homelab.llm.anthropic.response.{ CompletionResponse, FailureResponse }
@@ -21,6 +22,7 @@ import zio.{ IO, Task, ZIO }
  * @param backend what sends the request
  * @param apiKey the credential, sent in the header this API reads it from
  * @param endpoint where to post, which a proxy may differ on
+ * @param monitor observes each call, tagged with the model it asked for
  * @param version which version of the API to speak, which it requires on every call
  */
 final class HttpAnthropicClient(
@@ -28,6 +30,7 @@ final class HttpAnthropicClient(
   apiKey: String,
   endpoint: Uri,
   version: String,
+  monitor: Monitor = Monitor.Noop,
 ) extends AnthropicClient {
 
   /**
@@ -41,7 +44,8 @@ final class HttpAnthropicClient(
     request: CompletionRequest,
     extra: Json.Obj = Json.Obj(),
   ): IO[AnthropicError, CompletionResponse] =
-    send(CompletionRequest.body(request, extra).toJson).flatMap(read)
+    monitor.measure("AnthropicClient.complete", AnthropicClient.Tag, "model" -> request.model):
+      send(CompletionRequest.body(request, extra).toJson).flatMap(read)
 
   /**
    * Post one body and get whatever came back.

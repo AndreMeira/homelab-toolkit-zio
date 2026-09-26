@@ -1,6 +1,7 @@
 package homelab.llm.anthropic
 
 
+import homelab.common.monitor.Monitor
 import homelab.llm.anthropic.error.AnthropicError
 import homelab.llm.anthropic.request.CompletionRequest
 import homelab.llm.anthropic.response.CompletionResponse
@@ -37,6 +38,9 @@ trait AnthropicClient {
 
 object AnthropicClient:
 
+  /** Metric and span tag marking calls to a language model. */
+  val Tag: (String, String) = "resource" -> "llm"
+
   /** Where Anthropic serves the Messages API. */
   val Endpoint: Uri = uri"https://api.anthropic.com/v1/messages"
 
@@ -50,20 +54,22 @@ object AnthropicClient:
    * opinion about how to reach it. The overload taking a backend is for everyone else.
    *
    * @param apiKey the credential
+   * @param monitor observes each call
    * @return the client, holding a transport for as long as the scope; aborts when one cannot be opened
    */
-  def make(apiKey: String): ZIO[Scope, AnthropicError, AnthropicClient] =
-    transport.map(backend => make(backend, apiKey))
+  def make(apiKey: String, monitor: Monitor = Monitor.Noop): ZIO[Scope, AnthropicError, AnthropicClient] =
+    transport.map(backend => make(backend, apiKey, monitor))
 
   /**
    * Anthropic, over a transport the caller holds.
    *
    * @param backend what sends the request
    * @param apiKey the credential
+   * @param monitor observes each call
    * @return the client
    */
-  def make(backend: Backend[Task], apiKey: String): AnthropicClient =
-    HttpAnthropicClient(backend, apiKey, Endpoint, Version)
+  def make(backend: Backend[Task], apiKey: String, monitor: Monitor): AnthropicClient =
+    HttpAnthropicClient(backend, apiKey, Endpoint, Version, monitor)
 
   /**
    * A transport for a caller who has no opinion about one: the JDK's own client, closed with the scope.

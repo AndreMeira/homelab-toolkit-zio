@@ -1,6 +1,7 @@
 package homelab.llm.openai
 
 
+import homelab.common.monitor.Monitor
 import homelab.llm.openai.error.ChatCompletionError
 import homelab.llm.openai.request.{ CompletionRequest, ResponseFormat, ToolChoice }
 import homelab.llm.openai.response.CompletionResponse
@@ -101,14 +102,16 @@ object ChatCompletionModel:
    * @param apiKey the credential
    * @param referer what to be attributed as on OpenRouter's rankings, where a caller wants that
    * @param config what every call asks for, beyond the conversation
+   * @param monitor observes each call
    * @return the model, holding a transport for as long as the scope; aborts when one cannot be opened
    */
   def openRouter(
     apiKey: String,
     referer: Option[String] = None,
     config: Config = Config(),
+    monitor: Monitor = Monitor.Noop,
   ): ZIO[Scope, ChatCompletionError, ChatCompletionModel] =
-    ChatCompletionClient.openRouter(apiKey, referer).map(ChatCompletionModel(_, config))
+    ChatCompletionClient.openRouter(apiKey, referer, monitor).map(ChatCompletionModel(_, config))
 
   /**
    * OpenAI itself, with a transport of its own.
@@ -116,14 +119,16 @@ object ChatCompletionModel:
    * @param apiKey the credential
    * @param organisation which organisation to bill, where an account has more than one
    * @param config what every call asks for, beyond the conversation
+   * @param monitor observes each call
    * @return the model, holding a transport for as long as the scope; aborts when one cannot be opened
    */
   def openAi(
     apiKey: String,
     organisation: Option[String] = None,
     config: Config = Config(),
+    monitor: Monitor = Monitor.Noop,
   ): ZIO[Scope, ChatCompletionError, ChatCompletionModel] =
-    ChatCompletionClient.openAi(apiKey, organisation).map(ChatCompletionModel(_, config))
+    ChatCompletionClient.openAi(apiKey, organisation, monitor).map(ChatCompletionModel(_, config))
 
   /**
    * Anything else that serves this protocol, with a transport of its own.
@@ -131,11 +136,13 @@ object ChatCompletionModel:
    * @param endpoint where that provider serves completions
    * @param apiKey the credential, where it wants one
    * @param config what every call asks for, beyond the conversation
+   * @param monitor observes each call
    * @return the model, holding a transport for as long as the scope; aborts when one cannot be opened
    */
   def compatible(
     endpoint: Uri,
     apiKey: Option[String] = None,
     config: Config = Config(),
+    monitor: Monitor = Monitor.Noop,
   ): ZIO[Scope, ChatCompletionError, ChatCompletionModel] =
-    ChatCompletionClient.compatible(endpoint, apiKey).map(ChatCompletionModel(_, config))
+    ChatCompletionClient.compatible(endpoint, apiKey, monitor).map(ChatCompletionModel(_, config))
