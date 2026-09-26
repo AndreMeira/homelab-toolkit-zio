@@ -1,4 +1,4 @@
-package homelab.llm.openai
+package homelab.llm.openai.error
 
 import homelab.common.error.ApplicationError
 

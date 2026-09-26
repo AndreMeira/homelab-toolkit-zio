@@ -171,6 +171,23 @@ lazy val llmOpenai = project
   )
 
 
+// LLM adapter — Anthropic's Messages API, which shapes a conversation differently: two roles rather than
+// four, the instructions in a field of their own, and what a tool answered as a block inside a user turn.
+// The second adapter, and what tests whether `homelab-llm`'s ports are a protocol or one provider's.
+lazy val llmAnthropic = project
+  .in(file("modules/llm-anthropic"))
+  .dependsOn(common, llm)
+  .settings(
+    name := "homelab-llm-anthropic",
+    libraryDependencies ++= Seq(
+      "com.softwaremill.sttp.client4" %% "zio"          % sttpVersion,
+      "dev.zio"                       %% "zio-test"     % zioVersion % Test,
+      "dev.zio"                       %% "zio-test-sbt" % zioVersion % Test,
+    ),
+    testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
+  )
+
+
 // Messaging adapter — NATS (Core NATS ephemeral pub/sub + JetStream durable delivery), promoted from the
 // llm's messaging/nats sketches. Implements the common `messaging` ports; ZStream is an internal
 // bridge detail (never surfaced). Integration tests via Testcontainers (a JetStream-enabled nats server).
@@ -230,7 +247,7 @@ lazy val incubator = project
 
 lazy val root = project
   .in(file("."))
-  .aggregate(common, postgres, telemetry, auth, llm, llmOpenai, incubator, nats)
+  .aggregate(common, postgres, telemetry, auth, llm, llmOpenai, llmAnthropic, incubator, nats)
   .settings(
     name           := "homelab-toolkit-zio",
     publish / skip := true,

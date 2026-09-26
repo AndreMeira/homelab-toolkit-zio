@@ -1,7 +1,7 @@
 package homelab.llm.openai.response
 
 
-import homelab.llm.openai.ChatCompletionError
+import homelab.llm.openai.error.ChatCompletionError
 import homelab.llm.{ Message, Model, Tool }
 import zio.Chunk
 import zio.json.*
@@ -15,7 +15,7 @@ import zio.json.ast.Json
  * sends and nothing here uses — `id`, `created`, `provider` — are not named, because a decoder that
  * ignores them cannot be broken by one more arriving.
  *
- * @param choices what the model produced, of which the first is taken
+ * @param choices what the model produced, of which the first is taken — see [[CompletionResponse.completion]]
  * @param usage what the call consumed, absent on some providers
  */
 final case class CompletionResponse(
@@ -98,6 +98,11 @@ object CompletionResponse:
    * Every refusal is an [[ChatCompletionError.Malformed]]: the body parsed as JSON and still did not say what a
    * completion needs. A gateway that answers with no choices has not answered.
    *
+   * Only the first choice is read, and the rest are dropped. There is more than one only when a caller
+   * asked for several through [[request.CompletionRequest.n]], which is reached by holding the client —
+   * what the port carries back is one completion, with nowhere to put an alternative. A caller that wants
+   * several is asking for something [[Model]] does not model, and is served by the client instead.
+   *
    * @param response what the gateway sent
    * @return the completion; refuses when the body carries no choice to read
    */
@@ -140,16 +145,9 @@ object CompletionResponse:
    * @return the calls, raw, since the arguments are a string the model wrote
    */
   private def requested(calls: Option[List[CompletionResponse.Call]]): Chunk[Tool.Call.Raw] =
-    Chunk.fromIterable(calls.getOrElse(Nil).map(asked))
-
-  /**
-   * One call, as the toolkit carries it.
-   *
-   * @param call what the gateway sent
-   * @return the raw call
-   */
-  private def asked(call: CompletionResponse.Call): Tool.Call.Raw =
-    Tool.Call.Raw(Tool.Call.Id(call.id), call.function.name, call.function.arguments)
+    Chunk.fromIterable(calls.getOrElse(Nil).map { call =>
+      Tool.Call.Raw(Tool.Call.Id(call.id), call.function.name, call.function.arguments)
+    })
 
   /**
    * Why the model stopped.

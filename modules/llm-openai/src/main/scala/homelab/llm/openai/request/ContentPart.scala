@@ -8,48 +8,37 @@ import zio.json.ast.Json
 
 
 /**
- * One piece of a message, as a request carries it.
+ * One piece of a message this adapter writes.
+ *
+ * A part the caller built is not one of these — it is already JSON, and goes out as written. That is why it
+ * is not a case here and why [[ContentPart.parts]] answers in `Json`.
  *
  * @see [[Message.Content]], which this is the wire's spelling of
  */
-enum ContentPart {
+@jsonDiscriminator("type")
+enum ContentPart derives JsonEncoder {
 
   /**
    * Words.
    *
    * @param text what they are
    */
-  case Text(text: String)
-
-  /**
-   * A part the toolkit does not model, which the caller built and which goes out as it was written.
-   *
-   * @param json the part
-   */
-  case Raw(json: Json)
+  @jsonHint("text") case Text(text: String)
 }
 
 
 object ContentPart:
 
   /**
-   * How a part is written.
-   *
-   * A [[Raw]] is spliced rather than wrapped — what the caller built is the part, not a field of one — and
-   * that is why this is written by hand where everything around it is derived.
-   */
-  given JsonEncoder[ContentPart] = JsonEncoder[Json].contramap {
-    case Text(text) => Json.Obj("type" -> Json.Str("text"), "text" -> Json.Str(text))
-    case Raw(json)  => json
-  }
-
-  /**
    * The parts of a message, as the wire carries them.
+   *
+   * A part the caller built passes through as it was written; a part this adapter models is written by the
+   * derived encoder.
    *
    * @param content what the toolkit holds
    * @return the parts to send
    */
-  def from(content: Chunk[Message.Content]): List[ContentPart] = content.map(part).toList
+  def parts(content: Chunk[Message.Content]): List[Json] = content.map(part).toList
 
   /**
    * The words of a message, for the one field that takes a string rather than an array.
@@ -68,6 +57,17 @@ object ContentPart:
    * @param content what the toolkit holds
    * @return the part to send
    */
-  private def part(content: Message.Content): ContentPart = content match
-    case Message.Content.Text(text) => Text(text)
-    case Message.Content.Raw(json)  => Raw(json)
+  private def part(content: Message.Content): Json = content match
+    case Message.Content.Text(said) => written(Text(said))
+    case Message.Content.Raw(json)  => json
+
+  /**
+   * One part this adapter wrote, as JSON.
+   *
+   * The derived encoder answers an `Either`, and the left is unreachable: a text part is one string, and
+   * nothing about it can fail to be written.
+   *
+   * @param part the part
+   * @return it, written
+   */
+  private def written(part: ContentPart): Json = part.toJsonAST.getOrElse(Json.Null)

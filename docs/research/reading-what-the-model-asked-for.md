@@ -2,7 +2,7 @@
 title: "Reading what the model asked for — why a call carries its decoded arguments"
 type: research
 status: current
-updated: 2026-09-24
+updated: 2026-09-26
 tags: [llm, agent, tool, loop, types, extraction, structured-output, v4]
 ---
 
@@ -131,7 +131,8 @@ be normalised afterwards is usually just this.
 Three things that are not obvious the first time:
 
 - **Nothing forces the model to call it.** It may answer in prose and stop. Providers take `tool_choice` to
-  force a named function; `Model.Request.extra` is where that goes, since the port does not model it.
+  force a named function; the port does not model it, so it is set on the adapter's `Config` — an
+  extraction model is one instance with `toolChoice` fixed — or on the request a caller hands the client.
 - **Keep it out of the agent's registry.** An extraction tool sitting beside `search` and `terminate`
   invites the model to call it at odd moments. A registry holding only that tool, used for a call of its
   own, keeps the agent's list about what the agent does.
@@ -169,8 +170,9 @@ And the subset in `llm/v4/schema` already fits. Strict mode demands `additionalP
 everywhere, every property in `required`, and refuses validation keywords like `minLength` and `pattern` —
 which is what [`the schema ADT`](../learning-material/json-schema-as-scala.md) renders and nothing else.
 Optionality is the one difference: strict mode wants `anyOf[T, null]` rather than an omission, and
-`Generator` already emits both. A `strict` flag on an advertised function would mostly just work, through
-`Request.extra` or an adapter that knows.
+`Generator` already emits both. A `strict` flag on an advertised function would mostly just work, as a
+field on the adapter's `ToolRequest.Function` — it is one protocol's spelling, so it belongs there rather
+than on `Advertised`.
 
 This table was written against knowledge current to May 2026 and the area moves; check the provider you are
 about to write an adapter for.

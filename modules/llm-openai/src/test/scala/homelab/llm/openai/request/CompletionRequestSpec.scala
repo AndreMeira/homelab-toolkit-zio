@@ -1,14 +1,15 @@
 package homelab.llm.openai.request
 
 
-import homelab.llm.{ Message, Model, Tool }
+import homelab.llm.schema.{ JsonSchema, Node, Shape }
+import homelab.llm.{ Advertised, Message, Model, Tool }
 import zio.json.*
 import zio.json.ast.Json
 import zio.test.*
 import zio.{ Chunk, Scope }
 
 
-/** What a conversation looks like by the time OpenRouter receives it. */
+/** What a request looks like on the wire, and what a conversation becomes on the way there. */
 object CompletionRequestSpec extends ZIOSpecDefault:
 
   private val model = Model.Name("anthropic/claude-3.5-sonnet")
@@ -17,11 +18,21 @@ object CompletionRequestSpec extends ZIOSpecDefault:
 
   private def id(value: String): Tool.Call.Id = Tool.Call.Id(value)
 
-  private def sent(messages: Message*): String =
-    CompletionRequest.body(model, Model.Request(Chunk.fromIterable(messages))).toJson
+  private val weather = Advertised(
+    "weather",
+    "Report it.",
+    JsonSchema(Node.obj(Shape.Obj.Field("city", Node.text))),
+  )
 
-  private def body(tools: List[Json] = Nil, extra: Json.Obj = Json.Obj()): String =
-    CompletionRequest.body(model, Model.Request(Chunk.empty, tools, extra)).toJson
+  private def sent(messages: Message*): String =
+    body(CompletionRequest(model, messages.map(MessageRequest.from).toList))
+
+  private def body(tools: List[Advertised] = Nil, extra: Json.Obj = Json.Obj()): String =
+    CompletionRequest
+      .body(CompletionRequest(model, Nil, tools = Option.when(tools.nonEmpty)(tools.map(ToolRequest.from))), extra)
+      .toJson
+
+  private def body(request: CompletionRequest): String = CompletionRequest.body(request).toJson
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("CompletionRequest")(
     suite("roles")(
@@ -60,8 +71,16 @@ object CompletionRequestSpec extends ZIOSpecDefault:
         assertTrue(!sent(Message.assistant(text("hi"))).contains("tool_calls"))
       },
       test("tools are offered only when there are any") {
-        val offered = body(tools = List(Json.Obj("type" -> Json.Str("function"))))
-        assertTrue(offered.contains(""""tools":["""), !body().contains("tools"))
+        assertTrue(body(tools = List(weather)).contains(""""tools":["""), !body().contains("tools"))
+      },
+      test("a tool is wrapped in a function object, with its schema under parameters") {
+        assertTrue(
+          body(tools = List(weather)).contains(
+            """"tools":[{"type":"function","function":{"name":"weather","description":"Report it.",""" +
+              """"parameters":{"type":"object","properties":{"city":{"type":"string"}},""" +
+              """"required":["city"],"additionalProperties":false}}}]"""
+          )
+        )
       },
     ),
     suite("content")(

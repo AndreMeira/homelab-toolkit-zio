@@ -1,6 +1,7 @@
 package homelab.llm
 
 
+import zio.json.EncoderOps
 import zio.json.ast.Json
 import zio.schema.{ Schema, derived }
 import zio.test.*
@@ -47,7 +48,8 @@ object RegistrySpec extends ZIOSpecDefault:
 
   private def rendered(session: Session[Unit]): String = session.advertised.map(asString).mkString(",")
 
-  private def asString(advertised: Json): String = advertised.toString
+  private def asString(advertised: Advertised): String =
+    s"${advertised.name}:${advertised.description}:${advertised.arguments.json.toJson}"
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("Registry")(
     test("adding a tool leaves the registry it was added to alone") {
@@ -56,10 +58,10 @@ object RegistrySpec extends ZIOSpecDefault:
         original <- registry.forSession(())
         wider    <- extended.forSession(())
       yield assertTrue(
-        rendered(original).contains(""""name":"weather""""),
+        rendered(original).contains("weather:"),
         !rendered(original).contains("forecast"),
-        rendered(wider).contains(""""name":"weather""""),
-        rendered(wider).contains(""""name":"forecast""""),
+        rendered(wider).contains("weather:"),
+        rendered(wider).contains("forecast:"),
       )
     },
     test("a tool whose arguments cannot be described is set aside, not registered") {

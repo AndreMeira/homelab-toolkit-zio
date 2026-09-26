@@ -2,7 +2,6 @@ package homelab.llm
 
 
 import homelab.common.error.ApplicationError
-import zio.json.ast.Json
 import zio.{ Chunk, IO, UIO, ZIO }
 
 
@@ -125,7 +124,7 @@ object Model {
      * @param tools the tool objects to advertise, or empty to offer none
      * @return what the model said, asked for, and cost; aborts with what the adapter refuses on
      */
-    def complete(messages: Chunk[Message], tools: List[Json] = List.empty): IO[E, Model.Completion] =
+    def complete(messages: Chunk[Message], tools: List[Advertised] = List.empty): IO[E, Model.Completion] =
       complete(Request(messages = messages, tools = tools))
 
   /**
@@ -172,19 +171,15 @@ object Model {
   /**
    * One call's worth of conversation.
    *
-   * The tools are carried as the objects a provider expects rather than as anything this type models: they
-   * come from a session, which decides what a caller may use, and reach the wire unchanged. `extra` is the
-   * same idea for the request body — temperature, routing preferences, a provider's own options — so a
-   * caller is not held to what is modelled here.
+   * The tools come from a session, which decides what a caller may use, and carry what a provider has to be
+   * told rather than one provider's way of telling it — the adapter shapes them.
    *
    * @param messages the conversation so far, oldest first
    * @param tools the tool objects to advertise, or empty to offer none
-   * @param extra fields merged into the request body by the adapter
    */
   final case class Request(
     messages: Chunk[Message],
-    tools: List[Json] = Nil,
-    extra: Json.Obj = Json.Obj(),
+    tools: List[Advertised] = Nil,
   )
 
   /**
