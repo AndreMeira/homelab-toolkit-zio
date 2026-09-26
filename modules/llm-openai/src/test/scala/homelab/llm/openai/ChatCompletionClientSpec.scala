@@ -1,6 +1,7 @@
 package homelab.llm.openai
 
 
+import homelab.common.monitor.Monitor
 import homelab.llm.Model
 import homelab.llm.openai.error.ChatCompletionError
 import homelab.llm.openai.request.{ CompletionRequest, MessageRequest, ResponseFormat, ToolChoice }
@@ -10,7 +11,7 @@ import sttp.client4.impl.zio.RIOMonadAsyncError
 import sttp.client4.testing.BackendStub
 import sttp.model.StatusCode
 import zio.test.*
-import zio.{ Ref, Scope, Task, ZIO }
+import zio.{ Chunk, Ref, Scope, Task, ZIO }
 
 
 /** The call itself: what goes out, and everything a provider's answer carries back — without a network. */
@@ -23,13 +24,20 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
 
   private def answering(body: String, status: StatusCode = StatusCode.Ok): ChatCompletionClient =
     val backend = BackendStub[Task](RIOMonadAsyncError[Any]).whenAnyRequest.thenRespondAdjust(body, status)
-    ChatCompletionClient.openRouter(backend, "test-key", None)
+    ChatCompletionClient.openRouter(backend, "test-key", None, Monitor.Noop)
 
   /** A stub that answers nothing, and records the one request it was handed. */
   private def recording(seen: Ref[Option[sttp.client4.GenericRequest[?, ?]]]) =
     BackendStub[Task](RIOMonadAsyncError[Any]).whenAnyRequest.thenRespondF { request =>
       seen.set(Some(request)).as(sttp.client4.testing.ResponseStub.adjust("""{"choices":[]}"""))
     }
+
+  /** A monitor that records what it was asked to measure, and runs the work untouched. */
+  private class Watching(seen: Ref[Chunk[(String, Map[String, String])]]) extends Monitor:
+    def trace[R, E, A](name: String, tags: (String, String)*)(effect: => ZIO[R, E, A]): ZIO[R, E, A] = effect
+
+    def measure[R, E, A](name: String, tags: (String, String)*)(effect: => ZIO[R, E, A]): ZIO[R, E, A] =
+      seen.update(_ :+ (name -> tags.toMap)) *> effect
 
   private val asked = CompletionRequest(Model.Name("anthropic/claude-3.5-sonnet"), List(MessageRequest.User(Nil)))
 
@@ -39,7 +47,7 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
   private def posted(request: CompletionRequest, extra: zio.json.ast.Json.Obj = zio.json.ast.Json.Obj()) =
     for
       seen <- Ref.make(Option.empty[sttp.client4.GenericRequest[?, ?]])
-      _    <- ChatCompletionClient.openRouter(recording(seen), "k", None).complete(request, extra).ignore
+      _    <- ChatCompletionClient.openRouter(recording(seen), "k", None, Monitor.Noop).complete(request, extra).ignore
       body <- seen.get.map(_.map(_.body.show))
     yield body
 
@@ -107,9 +115,31 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
         yield assertTrue(body.exists(_.contains(""""service_tier":"flex"""")))
       },
     ),
+    suite("what it reports")(
+      test("one measured call, named for the client and tagged with the model it asked for") {
+        val backend = BackendStub[Task](RIOMonadAsyncError[Any]).whenAnyRequest.thenRespondAdjust(answered)
+        for
+          seen     <- Ref.make(Chunk.empty[(String, Map[String, String])])
+          _        <- ChatCompletionClient.openRouter(backend, "k", None, Watching(seen)).complete(asked)
+          recorded <- seen.get
+        yield assertTrue(
+          recorded.map(_._1) == Chunk("ChatCompletionClient.complete"),
+          recorded.head._2 == Map("resource" -> "llm", "model" -> "anthropic/claude-3.5-sonnet"),
+        )
+      },
+      test("a refused call is measured too, since a failure is what a dashboard is for") {
+        val backend =
+          BackendStub[Task](RIOMonadAsyncError[Any]).whenAnyRequest.thenRespondAdjust("""{"error":{"message":"nope"}}""", StatusCode.Unauthorized)
+        for
+          seen     <- Ref.make(Chunk.empty[(String, Map[String, String])])
+          _        <- ChatCompletionClient.openRouter(backend, "k", None, Watching(seen)).complete(asked).flip
+          recorded <- seen.get
+        yield assertTrue(recorded.size == 1)
+      },
+    ),
     suite("presets")(
       test("openRouter posts to openrouter with a bearer token, and attributes when asked") {
-        for request <- sent(ChatCompletionClient.openRouter(_, "k", Some("https://example.test")))
+        for request <- sent(ChatCompletionClient.openRouter(_, "k", Some("https://example.test"), Monitor.Noop))
         yield assertTrue(
           request.exists(_.uri == ChatCompletionClient.OpenRouter),
           request.exists(_.headers.exists(header => header.name == "Authorization" && header.value == "Bearer k")),
@@ -117,11 +147,11 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
         )
       },
       test("openRouter sends no attribution when none was asked for") {
-        for request <- sent(ChatCompletionClient.openRouter(_, "k", None))
+        for request <- sent(ChatCompletionClient.openRouter(_, "k", None, Monitor.Noop))
         yield assertTrue(request.exists(sent => !sent.headers.exists(_.name == "HTTP-Referer")))
       },
       test("openAi posts to openai, and names an organisation when given one") {
-        for request <- sent(ChatCompletionClient.openAi(_, "k", Some("org-1")))
+        for request <- sent(ChatCompletionClient.openAi(_, "k", Some("org-1"), Monitor.Noop))
         yield assertTrue(
           request.exists(_.uri == ChatCompletionClient.OpenAi),
           request.exists(_.headers.exists(header => header.name == "OpenAI-Organization" && header.value == "org-1")),
@@ -129,7 +159,7 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
       },
       test("a compatible server needs no credential at all") {
         val local = uri"http://localhost:11434/v1/chat/completions"
-        for request <- sent(ChatCompletionClient.compatible(_, local, None))
+        for request <- sent(ChatCompletionClient.compatible(_, local, None, Monitor.Noop))
         yield assertTrue(
           request.exists(_.uri == local),
           request.exists(sent => !sent.headers.exists(_.name == "Authorization")),

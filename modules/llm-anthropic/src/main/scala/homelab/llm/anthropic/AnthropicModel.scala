@@ -2,6 +2,7 @@ package homelab.llm.anthropic
 
 
 import homelab.llm.Model
+import homelab.common.monitor.Monitor
 import homelab.llm.anthropic.error.AnthropicError
 import homelab.llm.anthropic.request.{ CompletionRequest, Metadata, Thinking, ToolChoice }
 import homelab.llm.anthropic.response.CompletionResponse
@@ -99,10 +100,15 @@ object AnthropicModel:
    *
    * @param apiKey the credential
    * @param config what every call asks for, beyond the conversation
+   * @param monitor observes each call
    * @return the model, holding a transport for as long as the scope; aborts when one cannot be opened
    */
-  def make(apiKey: String, config: Config = Config()): ZIO[Scope, AnthropicError, AnthropicModel] =
-    AnthropicClient.make(apiKey).map(AnthropicModel(_, config))
+  def make(
+    apiKey: String,
+    config: Config = Config(),
+    monitor: Monitor = Monitor.Noop,
+  ): ZIO[Scope, AnthropicError, AnthropicModel] =
+    AnthropicClient.make(apiKey, monitor).map(AnthropicModel(_, config))
 
   /**
    * Anthropic, over a transport the caller holds.
@@ -110,7 +116,8 @@ object AnthropicModel:
    * @param backend what sends the request
    * @param apiKey the credential
    * @param config what every call asks for, beyond the conversation
+   * @param monitor observes each call
    * @return the model
    */
-  def make(backend: Backend[Task], apiKey: String, config: Config): AnthropicModel =
-    AnthropicModel(AnthropicClient.make(backend, apiKey), config)
+  def make(backend: Backend[Task], apiKey: String, config: Config, monitor: Monitor): AnthropicModel =
+    AnthropicModel(AnthropicClient.make(backend, apiKey, monitor), config)

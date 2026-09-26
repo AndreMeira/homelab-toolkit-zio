@@ -1,6 +1,7 @@
 package homelab.llm.anthropic
 
 
+import homelab.common.monitor.Monitor
 import homelab.llm.Model
 import homelab.llm.anthropic.error.AnthropicError
 import homelab.llm.anthropic.request.{ CompletionRequest, MessageRequest, Thinking, ToolChoice }
@@ -9,7 +10,7 @@ import sttp.client4.impl.zio.RIOMonadAsyncError
 import sttp.client4.testing.BackendStub
 import sttp.model.StatusCode
 import zio.test.*
-import zio.{ Ref, Scope, Task, ZIO }
+import zio.{ Chunk, Ref, Scope, Task, ZIO }
 
 
 /** The call itself: what goes out, and everything Anthropic's answer carries back — without a network. */
@@ -25,13 +26,20 @@ object AnthropicClientSpec extends ZIOSpecDefault:
 
   private def answering(body: String, status: StatusCode = StatusCode.Ok): AnthropicClient =
     val backend = BackendStub[Task](RIOMonadAsyncError[Any]).whenAnyRequest.thenRespondAdjust(body, status)
-    AnthropicClient.make(backend, "test-key")
+    AnthropicClient.make(backend, "test-key", Monitor.Noop)
 
   /** A stub that answers nothing, and records the one request it was handed. */
   private def recording(seen: Ref[Option[sttp.client4.GenericRequest[?, ?]]]) =
     BackendStub[Task](RIOMonadAsyncError[Any]).whenAnyRequest.thenRespondF { request =>
       seen.set(Some(request)).as(sttp.client4.testing.ResponseStub.adjust("""{"content":[]}"""))
     }
+
+  /** A monitor that records what it was asked to measure, and runs the work untouched. */
+  private class Watching(seen: Ref[Chunk[(String, Map[String, String])]]) extends Monitor:
+    def trace[R, E, A](name: String, tags: (String, String)*)(effect: => ZIO[R, E, A]): ZIO[R, E, A] = effect
+
+    def measure[R, E, A](name: String, tags: (String, String)*)(effect: => ZIO[R, E, A]): ZIO[R, E, A] =
+      seen.update(_ :+ (name -> tags.toMap)) *> effect
 
   private val asked =
     CompletionRequest(Model.Name("claude-3-5-sonnet-latest"), 64, List(MessageRequest("user", Nil)))
@@ -42,11 +50,33 @@ object AnthropicClientSpec extends ZIOSpecDefault:
   private def posted(request: CompletionRequest, extra: zio.json.ast.Json.Obj = zio.json.ast.Json.Obj()) =
     for
       seen <- Ref.make(Option.empty[sttp.client4.GenericRequest[?, ?]])
-      _    <- AnthropicClient.make(recording(seen), "k").complete(request, extra).ignore
+      _    <- AnthropicClient.make(recording(seen), "k", Monitor.Noop).complete(request, extra).ignore
       body <- seen.get.map(_.map(_.body.show))
     yield body
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("AnthropicClient")(
+    suite("what it reports")(
+      test("one measured call, named for the client and tagged with the model it asked for") {
+        val backend = BackendStub[Task](RIOMonadAsyncError[Any]).whenAnyRequest.thenRespondAdjust(answered)
+        for
+          seen     <- Ref.make(Chunk.empty[(String, Map[String, String])])
+          _        <- AnthropicClient.make(backend, "k", Watching(seen)).complete(asked)
+          recorded <- seen.get
+        yield assertTrue(
+          recorded.map(_._1) == Chunk("AnthropicClient.complete"),
+          recorded.head._2 == Map("resource" -> "llm", "model" -> "claude-3-5-sonnet-latest"),
+        )
+      },
+      test("a refused call is measured too, since a failure is what a dashboard is for") {
+        val backend =
+          BackendStub[Task](RIOMonadAsyncError[Any]).whenAnyRequest.thenRespondAdjust("""{"error":{"message":"nope"}}""", StatusCode.Unauthorized)
+        for
+          seen     <- Ref.make(Chunk.empty[(String, Map[String, String])])
+          _        <- AnthropicClient.make(backend, "k", Watching(seen)).complete(asked).flip
+          recorded <- seen.get
+        yield assertTrue(recorded.size == 1)
+      },
+    ),
     suite("what it answers with")(
       test("every block, in the order they came") {
         for response <- ask(answering(answered))
@@ -73,7 +103,7 @@ object AnthropicClientSpec extends ZIOSpecDefault:
       test("the credential and the version in the headers this API reads them from") {
         for
           seen    <- Ref.make(Option.empty[sttp.client4.GenericRequest[?, ?]])
-          _       <- AnthropicClient.make(recording(seen), "k").complete(asked).ignore
+          _       <- AnthropicClient.make(recording(seen), "k", Monitor.Noop).complete(asked).ignore
           request <- seen.get
         yield assertTrue(
           request.exists(_.uri == AnthropicClient.Endpoint),
