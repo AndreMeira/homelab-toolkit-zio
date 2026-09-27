@@ -12,6 +12,9 @@ tags: [review, style, conventions, collections, chunk, list, naming, scaladoc]
 >
 > Measured at `3582a7e`, 2026-09-26. Counts are reproducible with the greps described; like every
 > note here they record a point in time and are not edited to stay true.
+>
+> **Correction, 2026-09-27.** The throwing-code table below was measured over `src/main` only and is wrong,
+> not merely dated. See *What this review got wrong* at the end.
 
 Measured against the repository's own rules in `CLAUDE.md`, across the eight published modules. The
 interesting result is the split: **the rules that are written down are followed with unusual rigour, and
@@ -22,7 +25,8 @@ discipline problem. It is a set of decisions that were never made once, so they 
 
 ## Where the written rules hold
 
-Every mechanically checkable rule, counted over 128 main source files:
+Every mechanically checkable rule, counted over 128 main source files — **and that scope is the error this
+review made; see the correction at the end before trusting the zeros**:
 
 | rule | occurrences |
 |---|---|
@@ -220,3 +224,32 @@ Recording it here so a future reader measuring against `CLAUDE.md` does not "fix
 None of this is urgent and none of it is a defect. It is the difference between a codebase that is
 consistent and one that is consistently *explained* — and given how much of this repository is explanation,
 the second is the one it is already paying for.
+
+## What this review got wrong (2026-09-27)
+
+**The throwing-code zeros counted `src/main` and nothing else.** The test sources are another 5,417 lines
+beside main's 13,913 — 28% of the Scala in the published modules — and they were never measured. Swept the
+next day, they held:
+
+| construct | in published tests |
+|---|---|
+| `throw new IllegalArgumentException` | 2, both in fixture decoders |
+| `asInstanceOf` | 2 |
+| partial `.head` / `.last` | 9 |
+
+So "zero unchecked partiality is the strongest single result in this review" was a statement about half the
+code, presented as a statement about the codebase. The scope was named in the sentence above the table,
+which is exactly what made it easy to read past.
+
+**And the six `.head` exceptions were defended, not examined.** Each did sit behind a guard, and each still
+had a total form worth having: `QueueSource.poll` and `Generator` fold their emptiness test into a `+:`
+match, and both batching `direct` methods now report an `ImplementationError` for the slot count that
+"cannot happen". Arguing that a guarded partial call satisfies the rule is following its letter; the rule's
+point is that a reader should not have to find the guard.
+
+Everything is total now, in main and test alike, and `incubator/` is the deliberate exception — see the
+rule in `CLAUDE.md`, which gained both of these as sub-points.
+
+The transferable part is not the count. It is that **a measurement is only as good as its stated scope, and
+a stated scope is not a defence** — if a reader would take the number to mean something broader, the number
+is misleading however carefully it was qualified.
