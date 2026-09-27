@@ -26,7 +26,7 @@ object AnthropicClientSpec extends ZIOSpecDefault:
         for
           backend   = HttpClient.stub(response = temperatureAnswer)
           monitor  <- Monitoring.make
-          _        <- AnthropicClient.make(backend, "api-key", monitor).complete(asked)
+          _        <- AnthropicClient.make(backend, "api-key", monitor).complete(userMessage)
           recorded <- monitor.callNames.map(_.headOption)
           tags     <- monitor.callTags.map(_.headOption)
         yield assertTrue(
@@ -38,7 +38,7 @@ object AnthropicClientSpec extends ZIOSpecDefault:
         for
           backend   = HttpClient.stub(response = """{"error":{"message":"nope"}}""", StatusCode.Unauthorized)
           monitor  <- Monitoring.make
-          result   <- AnthropicClient.make(backend, "api-key", monitor).complete(asked).either
+          result   <- AnthropicClient.make(backend, "api-key", monitor).complete(userMessage).either
           recorded <- monitor.seen
         yield assertTrue(result.isLeft, recorded.size == 1)
       },
@@ -47,7 +47,7 @@ object AnthropicClientSpec extends ZIOSpecDefault:
       test("every block, in the order they came") {
         for
           backend   = HttpClient.stub(response = temperatureAnswer)
-          response <- AnthropicClient.make(backend, "api-key", Monitor.Noop).complete(asked)
+          response <- AnthropicClient.make(backend, "api-key", Monitor.Noop).complete(userMessage)
         yield assertTrue(
           response.content == Chunk(CompletionResponse.Block.Decoded(CompletionResponse.Block.Kind.Text("12 degrees"))),
           response.stopReason.contains("end_turn"),
@@ -56,7 +56,7 @@ object AnthropicClientSpec extends ZIOSpecDefault:
       test("a block it does not model, kept whole so the next turn can carry it back") {
         for
           backend   = HttpClient.stub(response = reasoned)
-          response <- AnthropicClient.make(backend, "api-key", Monitor.Noop).complete(asked)
+          response <- AnthropicClient.make(backend, "api-key", Monitor.Noop).complete(userMessage)
         yield assertTrue(
           response.content.size == 2,
           response.content.headOption.exists {
@@ -68,7 +68,7 @@ object AnthropicClientSpec extends ZIOSpecDefault:
       test("the tokens it reported, which carry no cost on this API") {
         for
           backend   = HttpClient.stub(response = temperatureAnswer)
-          response <- AnthropicClient.make(backend, "api-key", Monitor.Noop).complete(asked)
+          response <- AnthropicClient.make(backend, "api-key", Monitor.Noop).complete(userMessage)
         yield assertTrue(response.usage.map(_.inputTokens).contains(11))
       },
     ),
@@ -77,7 +77,7 @@ object AnthropicClientSpec extends ZIOSpecDefault:
         for
           recorder <- Recorder.make
           backend   = recorder.httpClient(response = empty)
-          _        <- AnthropicClient.make(backend, "api-key", Monitor.Noop).complete(asked).ignore
+          _        <- AnthropicClient.make(backend, "api-key", Monitor.Noop).complete(userMessage).ignore
           request  <- recorder.seen
         yield assertTrue(
           request.exists(_.uri == AnthropicClient.Endpoint),
@@ -87,7 +87,7 @@ object AnthropicClientSpec extends ZIOSpecDefault:
         )
       },
       test("a request's own fields reach the body, each under the name the API uses") {
-        val rich = asked.copy(
+        val rich = userMessage.copy(
           temperature = Some(0.2),
           topK = Some(40),
           toolChoice = Some(ToolChoice.Named("weather")),
@@ -111,7 +111,7 @@ object AnthropicClientSpec extends ZIOSpecDefault:
           backend   = recorder.httpClient(response = empty)
           _        <- AnthropicClient
                         .make(backend, "api-key", Monitor.Noop)
-                        .complete(asked.copy(thinking = Some(Thinking.Enabled(1024))))
+                        .complete(userMessage.copy(thinking = Some(Thinking.Enabled(1024))))
                         .ignore
           body     <- recorder.requestBody
         yield assertTrue(body.exists(_.contains(""""thinking":{"type":"enabled","budget_tokens":1024}""")))
@@ -122,7 +122,7 @@ object AnthropicClientSpec extends ZIOSpecDefault:
           backend   = recorder.httpClient(response = empty)
           _        <- AnthropicClient
                         .make(backend, "api-key", Monitor.Noop)
-                        .complete(asked, Json.Obj("service_tier" -> Json.Str("auto")))
+                        .complete(userMessage, Json.Obj("service_tier" -> Json.Str("auto")))
                         .ignore
           body     <- recorder.requestBody
         yield assertTrue(body.exists(_.contains(""""service_tier":"auto"""")))
@@ -137,7 +137,7 @@ object AnthropicClientSpec extends ZIOSpecDefault:
       test("a refused credential is not worth retrying") {
         for
           backend  = HttpClient.stub(response = """{"error":{"message":"invalid x-api-key"}}""", StatusCode.Unauthorized)
-          failure <- AnthropicClient.make(backend, "api-key", Monitor.Noop).complete(asked).flip
+          failure <- AnthropicClient.make(backend, "api-key", Monitor.Noop).complete(userMessage).flip
         yield assertTrue(
           failure == AnthropicError.Refused("invalid x-api-key"),
           !failure.isInstanceOf[ApplicationError.TransientError],
@@ -146,13 +146,13 @@ object AnthropicClientSpec extends ZIOSpecDefault:
       test("an overloaded API is") {
         for
           backend  = HttpClient.stub(response = """{"error":{"message":"Overloaded"}}""", StatusCode.TooManyRequests)
-          failure <- AnthropicClient.make(backend, "api-key", Monitor.Noop).complete(asked).flip
+          failure <- AnthropicClient.make(backend, "api-key", Monitor.Noop).complete(userMessage).flip
         yield assertTrue(failure.isInstanceOf[ApplicationError.TransientError])
       },
       test("a request it will not take says what it called the problem") {
         for
           backend  = HttpClient.stub(response = """{"error":{"message":"max_tokens: field required"}}""", StatusCode.BadRequest)
-          failure <- AnthropicClient.make(backend, "api-key", Monitor.Noop).complete(asked).flip
+          failure <- AnthropicClient.make(backend, "api-key", Monitor.Noop).complete(userMessage).flip
         yield assertTrue(failure == AnthropicError.Rejected(400, "max_tokens: field required"))
       },
     ),
@@ -162,7 +162,7 @@ object AnthropicClientSpec extends ZIOSpecDefault:
   private object Support {
 
     /** The smallest request this API takes, naming the model the tag assertions expect. */
-    val asked = CompletionRequest(
+    val userMessage = CompletionRequest(
       Model.Name("claude-3-5-sonnet-latest"),
       64,
       Chunk(MessageRequest("user", Chunk.empty)),

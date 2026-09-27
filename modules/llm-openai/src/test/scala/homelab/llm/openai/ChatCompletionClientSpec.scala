@@ -25,7 +25,8 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
       test("every choice, not only the one a port would take") {
         for
           backend   = HttpClient.stub(response = answered)
-          response <- ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop).complete(asked)
+          client    = ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop)
+          response <- client.complete(userMessage)
         yield assertTrue(
           response.choices.size == 2,
           response.choices.map(_.message.content) == Chunk(Some("12 degrees"), Some("about twelve")),
@@ -34,31 +35,41 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
       test("the usage as the provider reported it, cost included") {
         for
           backend   = HttpClient.stub(response = answered)
-          response <- ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop).complete(asked)
-        yield assertTrue(response.usage.map(_.cost) == Some(Some(BigDecimal("0.00021"))))
+          client    = ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop)
+          response <- client.complete(userMessage)
+        yield assertTrue(
+          response.usage
+            .map(_.cost)
+            .contains(Some(BigDecimal("0.00021")))
+        )
       },
       test("a call's arguments, still the string the model wrote") {
         for
           backend   = HttpClient.stub(response = called)
-          response <- ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop).complete(asked)
+          client    = ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop)
+          response <- client.complete(userMessage)
         yield assertTrue(
-          response.choices.headOption.flatMap(_.message.toolCalls).map(_.map(_.function.arguments)) ==
-            Some(Chunk("""{"city":"Hamburg"}"""))
+          response.choices.headOption
+            .flatMap(_.message.toolCalls)
+            .map(_.map(_.function.arguments))
+            .contains(Chunk("""{"city":"Hamburg"}"""))
         )
       },
     ),
     suite("what it sends")(
       test("a request's own fields reach the body, each under the name the protocol uses") {
-        val rich = asked.copy(
+        val rich = userMessage.copy(
           n = Some(3),
           maxTokens = Some(64),
           toolChoice = Some(ToolChoice.Named("weather")),
           parallelToolCalls = Some(false),
         )
+
         for
           recorder <- Recorder.make
           backend   = recorder.httpClient(response = empty)
-          _        <- ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop).complete(rich).ignore
+          client    = ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop)
+          _        <- client.complete(rich).ignore
           body     <- recorder.requestBody
         yield assertTrue(
           body.exists(_.contains(""""n":3""")),
@@ -71,8 +82,9 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
         for
           recorder <- Recorder.make
           backend   = recorder.httpClient(response = empty)
-          request   = asked.copy(toolChoice = Some(ToolChoice.Required))
-          _        <- ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop).complete(request).ignore
+          request   = userMessage.copy(toolChoice = Some(ToolChoice.Required))
+          client    = ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop)
+          _        <- client.complete(request).ignore
           body     <- recorder.requestBody
         yield assertTrue(body.exists(_.contains(""""tool_choice":"required"""")))
       },
@@ -81,8 +93,9 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
         for
           recorder <- Recorder.make
           backend   = recorder.httpClient(response = empty)
-          request   = asked.copy(responseFormat = Some(ResponseFormat.conforming("place", schema)))
-          _        <- ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop).complete(request).ignore
+          request   = userMessage.copy(responseFormat = Some(ResponseFormat.conforming("place", schema)))
+          client    = ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop)
+          _        <- client.complete(request).ignore
           body     <- recorder.requestBody
         yield assertTrue(
           body.exists(_.contains(""""response_format":{"type":"json_schema","json_schema":{"name":"place"""")),
@@ -95,7 +108,7 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
           backend   = recorder.httpClient(response = empty)
           _        <- ChatCompletionClient
                         .openRouter(backend, "api-key", None, Monitor.Noop)
-                        .complete(asked, Json.Obj("service_tier" -> Json.Str("flex")))
+                        .complete(userMessage, Json.Obj("service_tier" -> Json.Str("flex")))
                         .ignore
           body     <- recorder.requestBody
         yield assertTrue(body.exists(_.contains(""""service_tier":"flex"""")))
@@ -106,7 +119,8 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
         for
           backend  = HttpClient.stub(response = answered)
           monitor <- Monitoring.make
-          _       <- ChatCompletionClient.openRouter(backend, "api-key", None, monitor).complete(asked)
+          client   = ChatCompletionClient.openRouter(backend, "api-key", None, monitor)
+          _       <- client.complete(userMessage)
           names   <- monitor.callNames
           tags    <- monitor.callTags.map(_.headOption)
         yield assertTrue(
@@ -118,7 +132,8 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
         for
           backend  = HttpClient.stub(response = """{"error":{"message":"nope"}}""", StatusCode.Unauthorized)
           monitor <- Monitoring.make
-          _       <- ChatCompletionClient.openRouter(backend, "api-key", None, monitor).complete(asked).flip
+          client   = ChatCompletionClient.openRouter(backend, "api-key", None, monitor)
+          _       <- client.complete(userMessage).flip
           seen    <- monitor.seen
         yield assertTrue(seen.size == 1)
       },
@@ -129,7 +144,7 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
           recorder <- Recorder.make
           backend   = recorder.httpClient(response = empty)
           client    = ChatCompletionClient.openRouter(backend, "api-key", Some("https://example.test"), Monitor.Noop)
-          _        <- client.complete(asked).ignore
+          _        <- client.complete(userMessage).ignore
           request  <- recorder.seen
         yield assertTrue(
           request.exists(_.uri == ChatCompletionClient.OpenRouter),
@@ -141,7 +156,8 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
         for
           recorder <- Recorder.make
           backend   = recorder.httpClient(response = empty)
-          _        <- ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop).complete(asked).ignore
+          client    = ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop)
+          _        <- client.complete(userMessage).ignore
           request  <- recorder.seen
         yield assertTrue(request.exists(sent => !sent.headers.exists(_.name == "HTTP-Referer")))
       },
@@ -149,7 +165,8 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
         for
           recorder <- Recorder.make
           backend   = recorder.httpClient(response = empty)
-          _        <- ChatCompletionClient.openAi(backend, "api-key", Some("org-1"), Monitor.Noop).complete(asked).ignore
+          client    = ChatCompletionClient.openAi(backend, "api-key", Some("org-1"), Monitor.Noop)
+          _        <- client.complete(userMessage).ignore
           request  <- recorder.seen
         yield assertTrue(
           request.exists(_.uri == ChatCompletionClient.OpenAi),
@@ -161,7 +178,8 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
         for
           recorder <- Recorder.make
           backend   = recorder.httpClient(response = empty)
-          _        <- ChatCompletionClient.compatible(backend, local, None, Monitor.Noop).complete(asked).ignore
+          client    = ChatCompletionClient.compatible(backend, local, None, Monitor.Noop)
+          _        <- client.complete(userMessage).ignore
           request  <- recorder.seen
         yield assertTrue(
           request.exists(_.uri == local),
@@ -171,20 +189,24 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
     ),
     suite("a transport of its own")(
       test("a caller with no opinion gets one, and it is closed with the scope") {
-        ZIO.scoped(ChatCompletionClient.openAi("api-key")).map(client => assertTrue(client.isInstanceOf[ChatCompletionClient]))
+        ZIO
+          .scoped(ChatCompletionClient.openAi("api-key"))
+          .map(client => assertTrue(client.isInstanceOf[ChatCompletionClient]))
       }
     ),
     suite("what it refuses")(
       test("a body that is not a completion says what could not be read, and out of what") {
         for
           backend  = HttpClient.stub(response = """{"unexpected":true}""")
-          failure <- ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop).complete(asked).flip
+          client   = ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop)
+          failure <- client.complete(userMessage).flip
         yield assertTrue(failure.isInstanceOf[ChatCompletionError.Malformed], failure.message.contains("unexpected"))
       },
       test("a refused credential is not worth retrying") {
         for
           backend  = HttpClient.stub(response = """{"error":{"message":"No auth credentials found"}}""", StatusCode.Unauthorized)
-          failure <- ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop).complete(asked).flip
+          client   = ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop)
+          failure <- client.complete(userMessage).flip
         yield assertTrue(
           failure == ChatCompletionError.Refused("No auth credentials found"),
           !failure.isInstanceOf[ApplicationError.TransientError],
@@ -194,8 +216,8 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
         for
           limiting = HttpClient.stub(response = """{"error":{"message":"rate limited"}}""", StatusCode.TooManyRequests)
           failing  = HttpClient.stub(response = """{"error":{"message":"upstream"}}""", StatusCode.BadGateway)
-          limited <- ChatCompletionClient.openRouter(limiting, "api-key", None, Monitor.Noop).complete(asked).flip
-          broken  <- ChatCompletionClient.openRouter(failing, "api-key", None, Monitor.Noop).complete(asked).flip
+          limited <- ChatCompletionClient.openRouter(limiting, "api-key", None, Monitor.Noop).complete(userMessage).flip
+          broken  <- ChatCompletionClient.openRouter(failing, "api-key", None, Monitor.Noop).complete(userMessage).flip
         yield assertTrue(
           limited.isInstanceOf[ApplicationError.TransientError],
           broken.isInstanceOf[ApplicationError.TransientError],
@@ -204,13 +226,15 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
       test("anything else is the request itself, and says what the provider called it") {
         for
           backend  = HttpClient.stub(response = """{"error":{"message":"model not found"}}""", StatusCode.NotFound)
-          failure <- ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop).complete(asked).flip
+          client   = ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop)
+          failure <- client.complete(userMessage).flip
         yield assertTrue(failure == ChatCompletionError.Rejected(404, "model not found"))
       },
       test("a refusal that is not an error object keeps what it said anyway") {
         for
           backend  = HttpClient.stub(response = "upstream timeout", StatusCode.BadRequest)
-          failure <- ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop).complete(asked).flip
+          client   = ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop)
+          failure <- client.complete(userMessage).flip
         yield assertTrue(failure == ChatCompletionError.Rejected(400, "upstream timeout"))
       },
     ),
@@ -220,7 +244,8 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
   private object Support {
 
     /** The smallest request this protocol takes, naming the model the tag assertions expect. */
-    val asked = CompletionRequest(Model.Name("anthropic/claude-3.5-sonnet"), Chunk(MessageRequest.User(Chunk.empty)))
+    val userMessage: CompletionRequest =
+      CompletionRequest(Model.Name("anthropic/claude-3.5-sonnet"), Chunk(MessageRequest.User(Chunk.empty)))
 
     /** A complete answer: two choices, a stop reason each, and a usage block that reports cost. */
     val answered: String =
