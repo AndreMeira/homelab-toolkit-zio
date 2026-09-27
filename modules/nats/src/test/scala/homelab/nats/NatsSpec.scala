@@ -27,10 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * Each test uses its own subject/stream so they don't interfere. Requires a running Docker daemon.
  */
 object NatsSpec extends ZIOSpecDefault:
-
-  /** A `Decoder[Int]` over decimal text — decoding fails on non-numeric payloads (the poison-message probe). */
-  private val intDecoder: Codec.Decoder[Int] =
-    message => new String(message.getData, StandardCharsets.UTF_8).toIntOption.toRight("not an int")
+  import Support.*
 
   def spec = suite("NATS — Core + JetStream (integration)")(
     suite("core (ephemeral)")(
@@ -434,3 +431,11 @@ object NatsSpec extends ZIOSpecDefault:
       },
     ),
   ).provideShared(NatsSpecLayers.connection) @@ TestAspect.withLiveClock @@ TestAspect.timeout(90.seconds) @@ TestAspect.sequential
+
+  /** How an int is read off the wire. */
+  private object Support {
+
+    /** A `Decoder[Int]` over decimal text — decoding fails on non-numeric payloads (the poison-message probe). */
+    val intDecoder: Codec.Decoder[Int] =
+      message => new String(message.getData, StandardCharsets.UTF_8).toIntOption.toRight("not an int")
+  }

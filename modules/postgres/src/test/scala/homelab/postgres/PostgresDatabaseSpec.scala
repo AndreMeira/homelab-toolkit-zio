@@ -14,18 +14,7 @@ import zio.test.*
  * transaction, and a failed transaction rolls its write back. Requires a running Docker daemon.
  */
 object PostgresDatabaseSpec extends ZIOSpecDefault:
-
-  /** A domain failure used to force a rollback. */
-  private case object Boom extends ApplicationError:
-    override def message: String = "boom"
-
-  /** Insert a widget within the ambient transaction, returning the affected row count. */
-  private def insert(id: String, name: String): ZIO[PostgresTransaction, PostgresTransaction.Error, Int] =
-    Transactional(sql"insert into widget (id, name) values ($id, $name)".update.run())
-
-  /** Count widgets with `id` within the ambient transaction. */
-  private def countById(id: String): ZIO[PostgresTransaction, PostgresTransaction.Error, Int] =
-    Transactional(sql"select count(*) from widget where id = $id".query[Int].run().headOption.getOrElse(0))
+  import Support.*
 
   def spec = suite("PostgresDatabase (integration)")(
     test("migrations build the schema and a committed insert is visible to a later transaction") {
@@ -43,3 +32,19 @@ object PostgresDatabaseSpec extends ZIOSpecDefault:
       yield assertTrue(outcome == Left(Boom), count == 0)
     },
   ).provideShared(PostgresSpecLayers.database) @@ TestAspect.sequential
+
+  /** The rows these tests write and count, and the failure that rolls them back. */
+  private object Support {
+
+    /** A domain failure used to force a rollback. */
+    case object Boom extends ApplicationError:
+      override def message: String = "boom"
+
+    /** Insert a widget within the ambient transaction, returning the affected row count. */
+    def insert(id: String, name: String): ZIO[PostgresTransaction, PostgresTransaction.Error, Int] =
+      Transactional(sql"insert into widget (id, name) values ($id, $name)".update.run())
+
+    /** Count widgets with `id` within the ambient transaction. */
+    def countById(id: String): ZIO[PostgresTransaction, PostgresTransaction.Error, Int] =
+      Transactional(sql"select count(*) from widget where id = $id".query[Int].run().headOption.getOrElse(0))
+  }

@@ -6,20 +6,7 @@ import zio.test.*
 
 
 object LoopSpec extends ZIOSpecDefault:
-
-  // A tiny service, only to probe whether `R` is inferred from an environmental step.
-  trait Counter:
-    def incr: UIO[Unit]
-    def value: UIO[Int]
-
-  object Counter:
-
-    val layer: ULayer[Counter] =
-      ZLayer.fromZIO(Ref.make(0).map { ref =>
-        new Counter:
-          def incr  = ref.update(_ + 1)
-          def value = ref.get
-      })
+  import Support.*
 
   // NOTE: every `Loop(...)` below is written WITHOUT type annotations on purpose — if it compiles,
   // pure inference handled the signature. The `val _: ExpectedType = …` lines assert *what* it inferred.
@@ -62,3 +49,21 @@ object LoopSpec extends ZIOSpecDefault:
       yield assertTrue(result == 3, count == 3)).provide(Counter.layer)
     },
   )
+
+  /** A service, only so that a step can need an environment. */
+  private object Support {
+
+    // A tiny service, only to probe whether `R` is inferred from an environmental step.
+    trait Counter:
+      def incr: UIO[Unit]
+      def value: UIO[Int]
+
+    object Counter:
+
+      val layer: ULayer[Counter] =
+        ZLayer.fromZIO(Ref.make(0).map { ref =>
+          new Counter:
+            def incr  = ref.update(_ + 1)
+            def value = ref.get
+        })
+  }

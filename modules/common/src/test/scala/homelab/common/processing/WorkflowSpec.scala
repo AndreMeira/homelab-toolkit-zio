@@ -15,26 +15,7 @@ import zio.test.*
 // `serialised` serialises runs per input. The store holds native `S` — no Serde — so there is no decode path.
 // A per-suite timeout turns any hang into a failure rather than blocking the run.
 object WorkflowSpec extends ZIOSpecDefault:
-
-  private val boom = new RuntimeException("boom")
-
-  // A counter keyed by a run id: seed to 0, increment until `target`, then finish with the count reached.
-  private def counter(target: Int): Workflow[Any, Nothing, String, Int, Int] =
-    Workflow.make("counter") {
-      case Step.Init(_)     => Step.Continue.succeed(0)
-      case Step.Continue(n) => if n >= target then Step.Done.succeed(n) else Step.Continue.succeed(n + 1)
-    }
-
-  // An interceptor is handed the whole `Step`, so a pass-through has to say what it does with an `Init`.
-  private def asNext(step: Step[String, Int, Int]): Step.Next[Int, Int] = step match
-    case Step.Continue(n) => Step.Continue(n)
-    case Step.Done(n)     => Step.Done(n)
-    case Step.Init(_)     => Step.Continue(0)
-
-  // A printable tag per step kind, so a tap's trace pins both the order and the kind of what it observed.
-  private def label(step: Step.Next[Int, Int]): String = step match
-    case Step.Continue(state) => s"continue $state"
-    case Step.Done(output)    => s"done $output"
+  import Support.*
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("Workflow")(
     test("in-memory run steps Init → Continue* → Done and returns the output") {
@@ -225,3 +206,27 @@ object WorkflowSpec extends ZIOSpecDefault:
       },
     ),
   ) @@ TestAspect.timeout(60.seconds)
+
+  /** The workflow these tests run, and how a step is read back. */
+  private object Support {
+
+    val boom = new RuntimeException("boom")
+
+    // A counter keyed by a run id: seed to 0, increment until `target`, then finish with the count reached.
+    def counter(target: Int): Workflow[Any, Nothing, String, Int, Int] =
+      Workflow.make("counter") {
+        case Step.Init(_)     => Step.Continue.succeed(0)
+        case Step.Continue(n) => if n >= target then Step.Done.succeed(n) else Step.Continue.succeed(n + 1)
+      }
+
+    // An interceptor is handed the whole `Step`, so a pass-through has to say what it does with an `Init`.
+    def asNext(step: Step[String, Int, Int]): Step.Next[Int, Int] = step match
+      case Step.Continue(n) => Step.Continue(n)
+      case Step.Done(n)     => Step.Done(n)
+      case Step.Init(_)     => Step.Continue(0)
+
+    // A printable tag per step kind, so a tap's trace pins both the order and the kind of what it observed.
+    def label(step: Step.Next[Int, Int]): String = step match
+      case Step.Continue(state) => s"continue $state"
+      case Step.Done(output)    => s"done $output"
+  }

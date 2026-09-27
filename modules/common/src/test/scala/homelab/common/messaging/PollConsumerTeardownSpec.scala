@@ -16,77 +16,7 @@ import zio.test.*
  * element left claimed is invisible from the inside; it shows up only as a claim with no matching settlement.
  */
 object PollConsumerTeardownSpec extends ZIOSpecDefault:
-
-  /**
-   * A store recording every claim and every settlement, optionally holding each claim on a gate so a teardown
-   * can be arranged around a poll that is in flight.
-   *
-   * @param available the elements not yet claimed
-   * @param asks every `upTo` the fetcher offered
-   * @param claimed every element handed out
-   * @param acked every `ack` call, batches kept apart
-   * @param nacked every `nack` call, batches kept apart
-   * @param gate held before each claim, when present
-   */
-  final private class Store(
-    available: Queue[Int],
-    val asks: Ref[List[Int]],
-    val claimed: Ref[List[Int]],
-    val acked: Ref[List[Chunk[Int]]],
-    val nacked: Ref[List[Chunk[Int]]],
-    val nackWaits: Ref[List[Duration]],
-    gate: Option[Promise[Nothing, Unit]],
-  ) extends PollConsumer.Source[Nothing, Int]:
-
-    override def claim(upTo: Int): IO[Nothing, Chunk[Int]] =
-      asks.update(_ :+ upTo) *> ZIO.foreachDiscard(gate)(_.await) *> take(upTo)
-
-    override def ack(elements: Chunk[Int]): IO[Nothing, Unit] = acked.update(_ :+ elements)
-
-    override def nack(elements: Chunk[Int], wait: Duration): IO[Nothing, Unit] =
-      nacked.update(_ :+ elements) *> nackWaits.update(_ :+ wait)
-
-    /**
-     * Take up to `upTo` elements and record them, as one indivisible step.
-     *
-     * A real store claims in a single statement, so a claim that was recorded but never returned cannot
-     * happen there and must not happen here either — it would show up as a phantom lease and fail these
-     * tests for a reason the consumer is not responsible for.
-     *
-     * @param upTo the ceiling the fetcher asked for
-     * @return the claimed elements; never fails
-     */
-    private def take(upTo: Int): UIO[Chunk[Int]] =
-      available
-        .takeUpTo(upTo)
-        .tap(got => claimed.update(_ ++ got))
-        .uninterruptible
-
-    /**
-     * Park until `count` elements have been claimed — a load-proof stand-in for sleeping.
-     *
-     * @param count how many claims to wait for
-     * @return noop once that many have been handed out
-     */
-    def awaitClaimed(count: Int): UIO[Unit] = claimed.get.map(_.size).repeatUntil(_ == count).unit
-
-  /**
-   * A store over `elements`.
-   *
-   * @param elements what is available to claim
-   * @param gate held before each claim, when present
-   * @return the store; never fails
-   */
-  private def store(elements: List[Int], gate: Option[Promise[Nothing, Unit]] = None): UIO[Store] =
-    for
-      available <- Queue.unbounded[Int]
-      _         <- available.offerAll(elements)
-      asks      <- Ref.make(List.empty[Int])
-      claimed   <- Ref.make(List.empty[Int])
-      acked     <- Ref.make(List.empty[Chunk[Int]])
-      nacked    <- Ref.make(List.empty[Chunk[Int]])
-      waits     <- Ref.make(List.empty[Duration])
-    yield Store(available, asks, claimed, acked, nacked, waits, gate)
+  import Support.*
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("PollConsumer teardown")(
     test("elements claimed for callers that have left are given back at once") {
@@ -174,3 +104,78 @@ object PollConsumerTeardownSpec extends ZIOSpecDefault:
       yield assertTrue(elapsed._1 < 5.seconds, acked.isEmpty, nacked.isEmpty)
     },
   ) @@ TestAspect.withLiveClock @@ TestAspect.timeout(60.seconds)
+
+  /** A store recording what it was told, which can hold a claim open. */
+  private object Support {
+
+    /**
+     * A store recording every claim and every settlement, optionally holding each claim on a gate so a teardown
+     * can be arranged around a poll that is in flight.
+     *
+     * @param available the elements not yet claimed
+     * @param asks every `upTo` the fetcher offered
+     * @param claimed every element handed out
+     * @param acked every `ack` call, batches kept apart
+     * @param nacked every `nack` call, batches kept apart
+     * @param gate held before each claim, when present
+     */
+    final class Store(
+      available: Queue[Int],
+      val asks: Ref[List[Int]],
+      val claimed: Ref[List[Int]],
+      val acked: Ref[List[Chunk[Int]]],
+      val nacked: Ref[List[Chunk[Int]]],
+      val nackWaits: Ref[List[Duration]],
+      gate: Option[Promise[Nothing, Unit]],
+    ) extends PollConsumer.Source[Nothing, Int]:
+
+      override def claim(upTo: Int): IO[Nothing, Chunk[Int]] =
+        asks.update(_ :+ upTo) *> ZIO.foreachDiscard(gate)(_.await) *> take(upTo)
+
+      override def ack(elements: Chunk[Int]): IO[Nothing, Unit] = acked.update(_ :+ elements)
+
+      override def nack(elements: Chunk[Int], wait: Duration): IO[Nothing, Unit] =
+        nacked.update(_ :+ elements) *> nackWaits.update(_ :+ wait)
+
+      /**
+       * Take up to `upTo` elements and record them, as one indivisible step.
+       *
+       * A real store claims in a single statement, so a claim that was recorded but never returned cannot
+       * happen there and must not happen here either — it would show up as a phantom lease and fail these
+       * tests for a reason the consumer is not responsible for.
+       *
+       * @param upTo the ceiling the fetcher asked for
+       * @return the claimed elements; never fails
+       */
+      private def take(upTo: Int): UIO[Chunk[Int]] =
+        available
+          .takeUpTo(upTo)
+          .tap(got => claimed.update(_ ++ got))
+          .uninterruptible
+
+      /**
+       * Park until `count` elements have been claimed — a load-proof stand-in for sleeping.
+       *
+       * @param count how many claims to wait for
+       * @return noop once that many have been handed out
+       */
+      def awaitClaimed(count: Int): UIO[Unit] = claimed.get.map(_.size).repeatUntil(_ == count).unit
+
+    /**
+     * A store over `elements`.
+     *
+     * @param elements what is available to claim
+     * @param gate held before each claim, when present
+     * @return the store; never fails
+     */
+    def store(elements: List[Int], gate: Option[Promise[Nothing, Unit]] = None): UIO[Store] =
+      for
+        available <- Queue.unbounded[Int]
+        _         <- available.offerAll(elements)
+        asks      <- Ref.make(List.empty[Int])
+        claimed   <- Ref.make(List.empty[Int])
+        acked     <- Ref.make(List.empty[Chunk[Int]])
+        nacked    <- Ref.make(List.empty[Chunk[Int]])
+        waits     <- Ref.make(List.empty[Duration])
+      yield Store(available, asks, claimed, acked, nacked, waits, gate)
+  }

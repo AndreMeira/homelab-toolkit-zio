@@ -6,17 +6,7 @@ import zio.test.*
 
 
 object ValidationErrorSpec extends ZIOSpecDefault:
-
-  private enum Problem extends ValidationError.InvalidInput:
-    case Missing
-    case TooLong(limit: Int)
-
-    def message: String = this match
-      case Missing        => "a name is required"
-      case TooLong(limit) => s"at most $limit characters"
-
-  private class Handwritten extends ValidationError.InvalidInput:
-    def message: String = "hand written"
+  import Support.*
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("ValidationError")(
     test("the aggregate reads as prose, because it is what a caller is told") {
@@ -34,3 +24,18 @@ object ValidationErrorSpec extends ZIOSpecDefault:
       assertTrue(Problem.TooLong(3).kind == "TooLong", new Handwritten().kind == "Handwritten")
     },
   )
+
+  /** Problems a field can have, derived and hand written. */
+  private object Support {
+
+    enum Problem extends ValidationError.InvalidInput:
+      case Missing
+      case TooLong(limit: Int)
+
+      def message: String = this match
+        case Missing        => "a name is required"
+        case TooLong(limit) => s"at most $limit characters"
+
+    class Handwritten extends ValidationError.InvalidInput:
+      def message: String = "hand written"
+  }

@@ -6,10 +6,7 @@ import zio.Chunk
 
 
 object BatchSpec extends ZIOSpecDefault:
-
-  sealed trait Request { def id: Int }
-  final case class Create(id: Int) extends Request
-  final case class Update(id: Int) extends Request
+  import Support.*
 
   def spec = suite("Batch")(
     test("partitionMap splits a union batch by type; each half is processed and overlaid back, complete and in order") {
@@ -103,3 +100,11 @@ object BatchSpec extends ZIOSpecDefault:
       )
     },
   )
+
+  /** The requests these batches carry. */
+  private object Support {
+
+    sealed trait Request { def id: Int }
+    final case class Create(id: Int) extends Request
+    final case class Update(id: Int) extends Request
+  }

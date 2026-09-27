@@ -10,25 +10,7 @@ import zio.test.*
  * fate of what that step holds, and neither depth nor a parked step costs the caller its ability to stop.
  */
 object RecursionSpec extends ZIOSpecDefault:
-
-  // A lock-shaped family, each state carrying the step out of itself.
-  sealed trait Wait extends Recursion.Reflective[Any, Nothing, Wait]
-
-  case class Placing(attempt: Int) extends Wait:
-    def next: UIO[Wait] = ZIO.succeed(Queued(attempt))
-
-  case class Queued(ticket: Int) extends Wait:
-    def next: UIO[Wait] = ZIO.succeed(Granted(s"hold-$ticket"))
-
-  case class Granted(hold: String) extends Wait:
-    def next: UIO[Wait] = ZIO.succeed(this)
-
-  case object GaveUp extends Wait:
-    def next: UIO[Wait] = ZIO.succeed(this)
-
-  private def held: PartialFunction[Wait, Option[String]] =
-    case Granted(hold) => Some(hold)
-    case GaveUp        => None
+  import Support.*
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("Recursion")(
     suite("following")(
@@ -114,3 +96,26 @@ object RecursionSpec extends ZIOSpecDefault:
       },
     ),
   ) @@ TestAspect.withLiveClock @@ TestAspect.timeout(30.seconds)
+
+  /** A state family carrying the step out of itself, and what its end states hold. */
+  private object Support {
+
+    // A lock-shaped family, each state carrying the step out of itself.
+    sealed trait Wait extends Recursion.Reflective[Any, Nothing, Wait]
+
+    case class Placing(attempt: Int) extends Wait:
+      def next: UIO[Wait] = ZIO.succeed(Queued(attempt))
+
+    case class Queued(ticket: Int) extends Wait:
+      def next: UIO[Wait] = ZIO.succeed(Granted(s"hold-$ticket"))
+
+    case class Granted(hold: String) extends Wait:
+      def next: UIO[Wait] = ZIO.succeed(this)
+
+    case object GaveUp extends Wait:
+      def next: UIO[Wait] = ZIO.succeed(this)
+
+    def held: PartialFunction[Wait, Option[String]] =
+      case Granted(hold) => Some(hold)
+      case GaveUp        => None
+  }

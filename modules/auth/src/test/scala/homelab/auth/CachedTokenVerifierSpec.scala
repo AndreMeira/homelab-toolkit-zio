@@ -9,25 +9,7 @@ import zio.test.*
 
 
 object CachedTokenVerifierSpec extends ZIOSpecDefault:
-
-  private val subject = "system:serviceaccount:inmemory:demo"
-  private val token   = SignedToken("token-abc")
-
-  // TestClock starts at the epoch, so token `exp` values are absolute epoch-seconds on that timeline.
-  private def claim(expEpochSecond: Long): JwtClaim =
-    JwtClaim(subject = Some(subject), expiration = Some(expEpochSecond))
-
-  private val farClaim  = claim(3600) // ~1h out — beyond any ttl used here, so ttl governs freshness
-  private val soonClaim = claim(10)   // 10s out — inside the ttl, so the token's exp caps the entry
-
-  private case object Boom extends AdapterError:
-    override def message: String = "boom"
-
-  /** A [[TokenVerifier]] that counts how often it's consulted and always yields `result`. */
-  private def counting(counter: Ref[Int], result: IO[AdapterError | UnauthorisedError, JwtClaim]): TokenVerifier =
-    new TokenVerifier:
-      def verify(t: SignedToken): IO[AdapterError | UnauthorisedError, JwtClaim] =
-        counter.update(_ + 1) *> result
+  import Support.*
 
   def spec = suite("CachedTokenVerifier")(
     test("returns the inner claims on a miss") {
@@ -76,3 +58,26 @@ object CachedTokenVerifierSpec extends ZIOSpecDefault:
       yield assertTrue(hits == 2)
     },
   )
+
+  /** The token these tests cache, the claims behind it, and a verifier that counts its callers. */
+  private object Support {
+
+    val subject = "system:serviceaccount:inmemory:demo"
+    val token   = SignedToken("token-abc")
+
+    // TestClock starts at the epoch, so token `exp` values are absolute epoch-seconds on that timeline.
+    def claim(expEpochSecond: Long): JwtClaim =
+      JwtClaim(subject = Some(subject), expiration = Some(expEpochSecond))
+
+    val farClaim  = claim(3600) // ~1h out — beyond any ttl used here, so ttl governs freshness
+    val soonClaim = claim(10)   // 10s out — inside the ttl, so the token's exp caps the entry
+
+    case object Boom extends AdapterError:
+      override def message: String = "boom"
+
+    /** A [[TokenVerifier]] that counts how often it's consulted and always yields `result`. */
+    def counting(counter: Ref[Int], result: IO[AdapterError | UnauthorisedError, JwtClaim]): TokenVerifier =
+      new TokenVerifier:
+        def verify(t: SignedToken): IO[AdapterError | UnauthorisedError, JwtClaim] =
+          counter.update(_ + 1) *> result
+  }
