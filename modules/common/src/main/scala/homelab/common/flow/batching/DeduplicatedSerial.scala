@@ -52,7 +52,7 @@ final private[flow] class DeduplicatedSerial[E, BE, Key, In, Out](
   }
 
   /**
-   * The unbatched one-shot (no dedup): a size-1 bulk call, its single result taken from `toList.head` with the
+   * The unbatched one-shot (no dedup): a size-1 bulk call, its single result taken from `toChunk.head` with the
    * per-item `BE` surfaced via `fromEither`. No routing, so lineage is irrelevant.
    *
    * @param in the request

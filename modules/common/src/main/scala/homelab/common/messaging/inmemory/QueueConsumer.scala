@@ -74,7 +74,7 @@ object QueueConsumer {
     Queue.unbounded[A].map(queue => new Batched(QueueSource.Pure(queue), maxBatchSize))
 
   /**
-   * In-memory batched consumer: each `consume` delivers up to `maxBatchSize` messages in a [[List]],
+   * In-memory batched consumer: each `consume` delivers up to `maxBatchSize` messages in a `Chunk`,
    * blocking until at least one is available.
    *
    * @param source       the take-side to read from

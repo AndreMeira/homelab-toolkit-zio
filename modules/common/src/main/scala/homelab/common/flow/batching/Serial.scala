@@ -49,7 +49,7 @@ final private[flow] class Serial[E, BE, In, Out](
       yield out
 
   /**
-   * The unbatched one-shot: a size-1 bulk call, its single result taken from `toList.head` (a `Batch` is
+   * The unbatched one-shot: a size-1 bulk call, its single result taken from `toChunk.head` (a `Batch` is
    * complete) with the per-item `BE` surfaced via `fromEither`. No routing, so lineage is irrelevant.
    *
    * @param in the request

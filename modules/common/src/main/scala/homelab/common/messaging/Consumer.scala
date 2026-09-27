@@ -73,7 +73,7 @@ object Consumer {
 
   /**
    * A consumer that delivers messages in batches — one `consume` call processes up to a whole
-   * [[List]] of `A`. The batch size is fixed where the adapter constructs it, not at the call site;
+   * `Chunk` of `A`. The batch size is fixed where the adapter constructs it, not at the call site;
    * the batching shape is carried by the type, not by a parameter.
    *
    * @tparam E the error consuming aborts with

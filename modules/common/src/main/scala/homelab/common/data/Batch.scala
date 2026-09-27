@@ -20,7 +20,7 @@ import zio.Chunk
  *
  * Slots carry a per-[[inmemory]] positional identity (their *lineage*). [[overlay]] merges only same-lineage
  * pieces; mixing lineages is a programming error, reported as [[LineageMismatch]]. Lineage is reference
- * identity, so `inmemory(xs)` and `inmemory(xs)` are distinct universes — compare [[toList]], not batches.
+ * identity, so `inmemory(xs)` and `inmemory(xs)` are distinct universes — compare [[toChunk]], not batches.
  *
  * @tparam E the error type of a failed slot
  * @tparam A the value type of a successful slot
@@ -99,8 +99,8 @@ trait Batch[+E, +A] {
    * Reify each slot as a success-side `Either`: failures become `Left(error)`, successes become
    * `Right(value)`, while preserving slot positions and lineage.
    *
-   * This is the total, lineage-preserving view of both channels as data (contrast with [[toList]], which
-   * materialises to a plain list).
+   * This is the total, lineage-preserving view of both channels as data (contrast with [[toChunk]], which
+   * materialises the slots).
    *
    * @return a success-only batch whose value at each position is that slot's `Either[E, A]`
    */

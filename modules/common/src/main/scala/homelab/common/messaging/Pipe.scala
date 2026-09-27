@@ -85,7 +85,7 @@ object Pipe:
 
   /**
    * A [[Pipe]] whose intake delivers batches: a [[Consumer.Batched]] of `A` on the read side, a single-`A`
-   * [[Producer]] on the write side. Values are emitted one or many at a time and consumed a `List[A]` at a
+   * [[Producer]] on the write side. Values are emitted one or many at a time and consumed a `Chunk[A]` at a
    * time.
    *
    * @tparam E the error emission or consumption aborts with
