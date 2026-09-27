@@ -1,12 +1,12 @@
 package homelab.llm.anthropic.request
 
 
-import homelab.llm.schema.{JsonSchema, Node, Shape}
-import homelab.llm.{Advertised, Message, Model, Tool}
+import homelab.llm.schema.{ JsonSchema, Node, Shape }
+import homelab.llm.{ Advertised, Message, Model, Tool }
 import zio.json.*
 import zio.json.ast.Json
 import zio.test.*
-import zio.{Chunk, Scope}
+import zio.{ Chunk, Scope }
 
 
 /** A conversation reshaped for an API that has two roles where the toolkit has four. */
@@ -117,6 +117,6 @@ object CompletionRequestSpec extends ZIOSpecDefault:
       val (system, turns) = MessageRequest.conversation(Chunk.fromIterable(messages))
       body(CompletionRequest(model, ceiling, turns, system = system))
 
-    def body(request: CompletionRequest): String = 
+    def body(request: CompletionRequest): String =
       CompletionRequest.body(request).toJson
   }
