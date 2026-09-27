@@ -49,14 +49,19 @@ final private[flow] class Serial[E, BE, In, Out](
       yield out
 
   /**
-   * The unbatched one-shot: a size-1 bulk call, its single result taken from `toChunk.head` (a `Batch` is
-   * complete) with the per-item `BE` surfaced via `fromEither`. No routing, so lineage is irrelevant.
+   * The unbatched one-shot: a size-1 bulk call, its single slot read out with the per-item `BE` surfaced
+   * via `fromEither`. A result carrying any other number of slots is a `logic` that broke its contract, so
+   * it reports [[Batch.LineageMismatch]]. No routing, so lineage is otherwise irrelevant.
    *
    * @param in the request
    * @return its result; aborts with the `E`/`BE` of a one-item `logic` call
    */
   override private[flow] def direct(in: In): IO[Err, Out] =
-    logic.run(Batch.single(in)).flatMap(result => ZIO.fromEither(result.toChunk.head))
+    logic.run(Batch.single(in)).flatMap { result =>
+      result.toChunk match
+        case Chunk(only) => ZIO.fromEither(only)
+        case _           => ZIO.fail(Batch.LineageMismatch)
+    }
 
   /**
    * Append `(in, promise)` to the queue.

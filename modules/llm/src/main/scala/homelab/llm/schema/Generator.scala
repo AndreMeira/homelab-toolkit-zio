@@ -194,8 +194,9 @@ object Generator {
     val cases = enumeration.cases
     if cases.isEmpty then Left(Unsupported("a sum type with no cases describes no value"))
     else if cases.forall(one => payloadless(one.schema)) then
-      val labels = cases.map(label)
-      Right(describe(Node.enumeration(labels.head, labels.tail*), enumeration.annotations) -> defs)
+      cases.map(label) match
+        case first +: rest => Right(describe(Node.enumeration(first, rest*), enumeration.annotations) -> defs)
+        case _             => Left(Unsupported("a sum type with no cases describes no value"))
     else
       discriminator(enumeration.annotations) match
         case None      =>

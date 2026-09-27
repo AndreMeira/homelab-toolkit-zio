@@ -48,8 +48,8 @@ object BatchSpec extends ZIOSpecDefault:
       assertTrue(
         batch.values == Chunk.fromIterable((1 to 19 by 2).map(_ * 10)),
         batch.errors == Chunk.fromIterable((2 to 20 by 2).map(n => s"even-$n")),
-        batch.toList.head == Right(10),
-        batch.toList.last == Left("even-20"),
+        batch.toChunk.headOption.contains(Right(10)),
+        batch.toChunk.lastOption.contains(Left("even-20")),
       )
     },
     test("overlay across distinct lineages fails with LineageMismatch") {

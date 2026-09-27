@@ -52,7 +52,7 @@ final private[flow] class DeduplicatedSerial[E, BE, Key, In, Out](
   }
 
   /**
-   * The unbatched one-shot (no dedup): a size-1 bulk call, its single result taken from `toChunk.head` with the
+   * The unbatched one-shot (no dedup): a size-1 bulk call, its single slot read out with the
    * per-item `BE` surfaced via `fromEither`. No routing, so lineage is irrelevant.
    *
    * @param in the request
@@ -63,7 +63,11 @@ final private[flow] class DeduplicatedSerial[E, BE, Key, In, Out](
     logic
       .run(batch)
       .tap(result => ZIO.fromEither(batch.verifyLineage(result)))
-      .flatMap(result => ZIO.fromEither(result.toChunk.head))
+      .flatMap { result =>
+        result.toChunk match
+          case Chunk(only) => ZIO.fromEither(only)
+          case _           => ZIO.fail(Batch.LineageMismatch)
+      }
   }
 
   /**

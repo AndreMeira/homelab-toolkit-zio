@@ -19,7 +19,7 @@ object WithLoggingSpec extends ZIOSpecDefault:
     },
     test("a typed failure is logged") {
       for lines <- logged(ZIO.fail("nope"))
-      yield assertTrue(lines.size == 1, lines.head.contains("Operation op failed"))
+      yield assertTrue(lines.size == 1, lines.headOption.exists(_.contains("Operation op failed")))
     },
     test("a defect is logged, with its cause rather than its toString") {
       // The failure most worth a line, and the one `tapError` used to miss.
@@ -28,7 +28,7 @@ object WithLoggingSpec extends ZIOSpecDefault:
         output <- ZTestLogger.logOutput
       yield assertTrue(
         output.size == 1,
-        output.head.cause.dieOption.exists(_.getMessage.contains("kaboom")),
+        output.headOption.exists(_.cause.dieOption.exists(_.getMessage.contains("kaboom"))),
       )
     },
     test("a cancelled fiber writes nothing") {

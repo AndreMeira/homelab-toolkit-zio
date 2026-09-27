@@ -79,7 +79,7 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
                      |"finish_reason":"tool_calls"}]}""".stripMargin
         for response <- ask(answering(body))
         yield assertTrue(
-          response.choices.head.message.toolCalls.map(_.map(_.function.arguments)) ==
+          response.choices.headOption.flatMap(_.message.toolCalls).map(_.map(_.function.arguments)) ==
             Some(Chunk("""{"city":"Hamburg"}"""))
         )
       },
@@ -126,7 +126,7 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
           recorded <- seen.get
         yield assertTrue(
           recorded.map(_._1) == Chunk("ChatCompletionClient.complete"),
-          recorded.head._2 == Map("resource" -> "llm", "model" -> "anthropic/claude-3.5-sonnet"),
+          recorded.headOption.map(_._2).contains(Map("resource" -> "llm", "model" -> "anthropic/claude-3.5-sonnet")),
         )
       },
       test("a refused call is measured too, since a failure is what a dashboard is for") {

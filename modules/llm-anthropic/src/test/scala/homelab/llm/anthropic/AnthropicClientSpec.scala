@@ -67,7 +67,7 @@ object AnthropicClientSpec extends ZIOSpecDefault:
           recorded <- seen.get
         yield assertTrue(
           recorded.map(_._1) == Chunk("AnthropicClient.complete"),
-          recorded.head._2 == Map("resource" -> "llm", "model" -> "claude-3-5-sonnet-latest"),
+          recorded.headOption.map(_._2).contains(Map("resource" -> "llm", "model" -> "claude-3-5-sonnet-latest")),
         )
       },
       test("a refused call is measured too, since a failure is what a dashboard is for") {
@@ -85,21 +85,22 @@ object AnthropicClientSpec extends ZIOSpecDefault:
         for response <- ask(answering(answered))
         yield assertTrue(
           response.content == Chunk(CompletionResponse.Block.Decoded(CompletionResponse.Block.Kind.Text("12 degrees"))),
-          response.stopReason == Some("end_turn"),
+          response.stopReason.contains("end_turn"),
         )
       },
       test("a block it does not model, kept whole so the next turn can carry it back") {
         for response <- ask(answering(reasoned))
         yield assertTrue(
           response.content.size == 2,
-          response.content.head match
+          response.content.headOption.exists {
             case CompletionResponse.Block.Raw(json) => json.toString.contains("weighing it up")
-            case _                                  => false,
+            case _                                  => false
+          },
         )
       },
       test("the tokens it reported, which carry no cost on this API") {
         for response <- ask(answering(answered))
-        yield assertTrue(response.usage.map(_.inputTokens) == Some(11))
+        yield assertTrue(response.usage.map(_.inputTokens).contains(11))
       },
     ),
     suite("what it sends")(

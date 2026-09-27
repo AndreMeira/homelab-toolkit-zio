@@ -133,9 +133,9 @@ object QueueSource {
       destination.poll.flatMap:
         case Some(a) => ZIO.succeed(Some(a))
         case None    =>
-          pollSources.flatMap { chunk =>
-            if chunk.isEmpty then ZIO.succeed(None)
-            else destination.offerAll(chunk.tail) *> ZIO.succeed(Some(chunk.head))
+          pollSources.flatMap {
+            case first +: rest => destination.offerAll(rest) *> ZIO.succeed(Some(first))
+            case _             => ZIO.succeed(None)
           }
 
     /**

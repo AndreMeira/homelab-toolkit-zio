@@ -37,11 +37,13 @@ object JwksTokenVerifierSpec extends ZIOSpecDefault:
     if pub.getPoint.isXOdd then be(0) = (be(0) | 0x80).toByte
     Base64.getUrlEncoder.withoutPadding.encodeToString(be.reverse)
 
-  private val edJwk = JsonWebKey.OKP(edKid, "sig", "Ed25519", "EdDSA", jwkX(edPair.getPublic.asInstanceOf[EdECPublicKey]))
+  private val edJwk = edPair.getPublic match
+    case key: EdECPublicKey => JsonWebKey.OKP(edKid, "sig", "Ed25519", "EdDSA", jwkX(key))
+    case other              => JsonWebKey.OKP(edKid, "sig", "Ed25519", "EdDSA", s"not an Ed25519 key: $other")
 
-  private val rsaJwk =
-    val p = rsaPair.getPublic.asInstanceOf[RSAPublicKey]
-    JsonWebKey.RSA(rsaKid, "sig", "RS256", b64url(p.getModulus), b64url(p.getPublicExponent))
+  private val rsaJwk = rsaPair.getPublic match
+    case key: RSAPublicKey => JsonWebKey.RSA(rsaKid, "sig", "RS256", b64url(key.getModulus), b64url(key.getPublicExponent))
+    case other             => JsonWebKey.RSA(rsaKid, "sig", "RS256", s"not an RSA key: $other", "")
 
   private val jwks = JsonWebKey.Set(Chunk(edJwk, rsaJwk))
 

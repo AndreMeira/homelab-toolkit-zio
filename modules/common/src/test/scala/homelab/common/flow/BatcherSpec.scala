@@ -176,7 +176,7 @@ object BatcherSpec extends ZIOSpecDefault:
             batches.forall(_.size == 1), // each carrying a single value, not a hundred
             first == 10,                 // the leader gets its own
             rest.distinct.size == 1,     // the hundred share one result…
-            rest.head != first,          // …computed after they asked, not the leader's
+            !rest.headOption.contains(first), // …computed after they asked, not the leader's
           )
       },
       test("dedup is per in-flight window, not a cache") {

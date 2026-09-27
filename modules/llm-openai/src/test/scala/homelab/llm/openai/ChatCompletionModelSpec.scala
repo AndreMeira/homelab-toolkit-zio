@@ -14,8 +14,8 @@ import zio.{ Chunk, IO, Ref, Scope, ZIO }
 /** What the port narrows, and what it leaves to whoever holds the client. */
 object ChatCompletionModelSpec extends ZIOSpecDefault:
 
-  private def decoded(body: String): CompletionResponse =
-    body.fromJson[CompletionResponse].getOrElse(throw new IllegalArgumentException(s"unreadable fixture: $body"))
+  private def decoded(body: String): IO[String, CompletionResponse] =
+    ZIO.fromEither(body.fromJson[CompletionResponse]).mapError(reason => s"unreadable fixture: $reason, in $body")
 
   /** A client that answers from a fixture, and records what it was asked for. */
   final private class Scripted(answer: CompletionResponse, seen: Ref[Option[(CompletionRequest, Json.Obj)]]) extends ChatCompletionClient:
@@ -28,8 +28,9 @@ object ChatCompletionModelSpec extends ZIOSpecDefault:
 
   private def asking(body: String, config: ChatCompletionModel.Config = ChatCompletionModel.Config()) =
     for
-      seen <- Ref.make(Option.empty[(CompletionRequest, Json.Obj)])
-      model = ChatCompletionModel(Scripted(decoded(body), seen), config)
+      seen     <- Ref.make(Option.empty[(CompletionRequest, Json.Obj)])
+      response <- decoded(body)
+      model     = ChatCompletionModel(Scripted(response, seen), config)
     yield (model, seen)
 
   private def text(value: String): Chunk[Message.Content] = Chunk(Message.Content.Text(value))
