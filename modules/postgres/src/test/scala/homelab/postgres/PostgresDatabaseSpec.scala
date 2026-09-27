@@ -25,7 +25,7 @@ object PostgresDatabaseSpec extends ZIOSpecDefault:
 
   /** Count widgets with `id` within the ambient transaction. */
   private def countById(id: String): ZIO[PostgresTransaction, PostgresTransaction.Error, Int] =
-    Transactional(sql"select count(*) from widget where id = $id".query[Int].run().head)
+    Transactional(sql"select count(*) from widget where id = $id".query[Int].run().headOption.getOrElse(0))
 
   def spec = suite("PostgresDatabase (integration)")(
     test("migrations build the schema and a committed insert is visible to a later transaction") {

@@ -25,14 +25,14 @@ final private[v4] class CoreBatchedConsumer[A](
 )(using serde: Serde[A]
 ) extends Consumer.Batched[NatsError, A]:
 
-  override def consume[E2 >: NatsError](logic: List[A] => IO[E2, Unit]): IO[E2, Unit] =
+  override def consume[E2 >: NatsError](logic: Chunk[A] => IO[E2, Unit]): IO[E2, Unit] =
     queue
       .takeBetween(1, batchSize)
       .flatMap: messages =>
         val (reasons, values) = messages.toList.partitionMap(message => serde.decode(message.getData))
         onDecodeFailure match
           case DecodeFailurePolicy.Surface if reasons.nonEmpty => ZIO.fail(NatsError.Decode(reasons.mkString(", ")))
-          case _                                               => ZIO.when(values.nonEmpty)(logic(values)).unit
+          case _                                               => ZIO.when(values.nonEmpty)(logic(Chunk.fromIterable(values))).unit
 
 
 object CoreBatchedConsumer:

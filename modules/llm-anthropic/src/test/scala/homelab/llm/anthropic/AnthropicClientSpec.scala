@@ -1,15 +1,18 @@
 package homelab.llm.anthropic
 
 
+import homelab.common.error.ApplicationError
 import homelab.common.monitor.Monitor
 import homelab.llm.Model
 import homelab.llm.anthropic.error.AnthropicError
 import homelab.llm.anthropic.request.{ CompletionRequest, MessageRequest, Thinking, ToolChoice }
 import homelab.llm.anthropic.response.CompletionResponse
+import sttp.client4.GenericRequest
 import sttp.client4.impl.zio.RIOMonadAsyncError
-import sttp.client4.testing.BackendStub
+import sttp.client4.testing.{ BackendStub, ResponseStub }
 import sttp.model.StatusCode
 import zio.test.*
+import zio.json.ast.Json
 import zio.{ Chunk, Ref, Scope, Task, ZIO }
 
 
@@ -29,9 +32,9 @@ object AnthropicClientSpec extends ZIOSpecDefault:
     AnthropicClient.make(backend, "test-key", Monitor.Noop)
 
   /** A stub that answers nothing, and records the one request it was handed. */
-  private def recording(seen: Ref[Option[sttp.client4.GenericRequest[?, ?]]]) =
+  private def recording(seen: Ref[Option[GenericRequest[?, ?]]]) =
     BackendStub[Task](RIOMonadAsyncError[Any]).whenAnyRequest.thenRespondF { request =>
-      seen.set(Some(request)).as(sttp.client4.testing.ResponseStub.adjust("""{"content":[]}"""))
+      seen.set(Some(request)).as(ResponseStub.adjust("""{"content":[]}"""))
     }
 
   /** A monitor that records what it was asked to measure, and runs the work untouched. */
@@ -47,9 +50,9 @@ object AnthropicClientSpec extends ZIOSpecDefault:
   private def ask(client: AnthropicClient) = client.complete(asked)
 
   /** The body one request renders to, as the API would receive it. */
-  private def posted(request: CompletionRequest, extra: zio.json.ast.Json.Obj = zio.json.ast.Json.Obj()) =
+  private def posted(request: CompletionRequest, extra: Json.Obj = Json.Obj()) =
     for
-      seen <- Ref.make(Option.empty[sttp.client4.GenericRequest[?, ?]])
+      seen <- Ref.make(Option.empty[GenericRequest[?, ?]])
       _    <- AnthropicClient.make(recording(seen), "k", Monitor.Noop).complete(request, extra).ignore
       body <- seen.get.map(_.map(_.body.show))
     yield body
@@ -64,7 +67,7 @@ object AnthropicClientSpec extends ZIOSpecDefault:
           recorded <- seen.get
         yield assertTrue(
           recorded.map(_._1) == Chunk("AnthropicClient.complete"),
-          recorded.head._2 == Map("resource" -> "llm", "model" -> "claude-3-5-sonnet-latest"),
+          recorded.headOption.map(_._2).contains(Map("resource" -> "llm", "model" -> "claude-3-5-sonnet-latest")),
         )
       },
       test("a refused call is measured too, since a failure is what a dashboard is for") {
@@ -82,27 +85,28 @@ object AnthropicClientSpec extends ZIOSpecDefault:
         for response <- ask(answering(answered))
         yield assertTrue(
           response.content == Chunk(CompletionResponse.Block.Decoded(CompletionResponse.Block.Kind.Text("12 degrees"))),
-          response.stopReason == Some("end_turn"),
+          response.stopReason.contains("end_turn"),
         )
       },
       test("a block it does not model, kept whole so the next turn can carry it back") {
         for response <- ask(answering(reasoned))
         yield assertTrue(
           response.content.size == 2,
-          response.content.head match
+          response.content.headOption.exists {
             case CompletionResponse.Block.Raw(json) => json.toString.contains("weighing it up")
-            case _                                  => false,
+            case _                                  => false
+          },
         )
       },
       test("the tokens it reported, which carry no cost on this API") {
         for response <- ask(answering(answered))
-        yield assertTrue(response.usage.map(_.inputTokens) == Some(11))
+        yield assertTrue(response.usage.map(_.inputTokens).contains(11))
       },
     ),
     suite("what it sends")(
       test("the credential and the version in the headers this API reads them from") {
         for
-          seen    <- Ref.make(Option.empty[sttp.client4.GenericRequest[?, ?]])
+          seen    <- Ref.make(Option.empty[GenericRequest[?, ?]])
           _       <- AnthropicClient.make(recording(seen), "k", Monitor.Noop).complete(asked).ignore
           request <- seen.get
         yield assertTrue(
@@ -127,7 +131,7 @@ object AnthropicClientSpec extends ZIOSpecDefault:
         yield assertTrue(body.exists(_.contains(""""thinking":{"type":"enabled","budget_tokens":1024}""")))
       },
       test("what a caller adds is merged over the request, for an API that has moved") {
-        for body <- posted(asked, zio.json.ast.Json.Obj("service_tier" -> zio.json.ast.Json.Str("auto")))
+        for body <- posted(asked, Json.Obj("service_tier" -> Json.Str("auto")))
         yield assertTrue(body.exists(_.contains(""""service_tier":"auto"""")))
       },
     ),
@@ -142,13 +146,13 @@ object AnthropicClientSpec extends ZIOSpecDefault:
         for failure <- ask(answering(body, StatusCode.Unauthorized)).flip
         yield assertTrue(
           failure == AnthropicError.Refused("invalid x-api-key"),
-          !failure.isInstanceOf[homelab.common.error.ApplicationError.TransientError],
+          !failure.isInstanceOf[ApplicationError.TransientError],
         )
       },
       test("an overloaded API is") {
         val body = """{"error":{"message":"Overloaded"}}"""
         for failure <- ask(answering(body, StatusCode.TooManyRequests)).flip
-        yield assertTrue(failure.isInstanceOf[homelab.common.error.ApplicationError.TransientError])
+        yield assertTrue(failure.isInstanceOf[ApplicationError.TransientError])
       },
       test("a request it will not take says what it called the problem") {
         val body = """{"error":{"message":"max_tokens: field required"}}"""

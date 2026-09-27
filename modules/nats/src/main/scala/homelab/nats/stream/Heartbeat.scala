@@ -24,7 +24,7 @@ private[nats] object Heartbeat:
    * @tparam R  the effect's result
    * @return the effect's result; ping failures are ignored (redelivery covers a missed keepalive)
    */
-  def wrap[E2, R](interval: Option[Duration], messages: List[Message])(effect: IO[E2, R]): IO[E2, R] =
+  def wrap[E2, R](interval: Option[Duration], messages: Chunk[Message])(effect: IO[E2, R]): IO[E2, R] =
     interval.fold(effect): interval =>
       ZIO.scoped:
         // first ping after `every`, not at t=0 — the freshly-delivered message's ackWait timer is new
@@ -36,5 +36,5 @@ private[nats] object Heartbeat:
    * @param messages the messages to signal progress on
    * @return noop; individual ping failures are ignored
    */
-  private def ping(messages: List[Message]): UIO[Unit] =
+  private def ping(messages: Chunk[Message]): UIO[Unit] =
     ZIO.foreachDiscard(messages)(message => ZIO.attemptBlocking(message.inProgress()).ignore)

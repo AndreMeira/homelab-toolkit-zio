@@ -31,10 +31,10 @@ final private[v4] class JetStreamPollingBatchedConsumer[A: Serde](
   heartbeat: Option[Duration],
 ) extends JetStreamBatchedConsumer[A](onDecodeFailure, onHandlerFailure, heartbeat):
 
-  override def consume[E2 >: NatsError](logic: List[A] => IO[E2, Unit]): IO[E2, Unit] =
+  override def consume[E2 >: NatsError](logic: Chunk[A] => IO[E2, Unit]): IO[E2, Unit] =
     fetch.flatMap {
       case Nil   => consume(logic) // empty fetch (nothing within maxWait) — retry
-      case batch => settleBatch(batch, logic)
+      case batch => settleBatch(batch, values => logic(Chunk.fromIterable(values)))
     }
 
   /**

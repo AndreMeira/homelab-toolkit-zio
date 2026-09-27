@@ -61,7 +61,7 @@ object Distributer {
     queue: KeyedQueue[K, A],
   ) extends Pipe.Batched[Nothing, A] {
 
-    override def consume[E2 >: Nothing](logic: List[A] => IO[E2, Unit]): IO[E2, Unit] =
+    override def consume[E2 >: Nothing](logic: Chunk[A] => IO[E2, Unit]): IO[E2, Unit] =
       queue.takeAllWith((_, values) => logic(values))
 
     override def emit(value: A): IO[Nothing, Unit] =

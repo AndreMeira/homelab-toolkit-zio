@@ -40,7 +40,7 @@ object ClusterStreamTailSpec extends ZIOSpecDefault:
         _      <- RedisSpecLayers.publish(writer, alpha, "from-alpha")
         _      <- RedisSpecLayers.publish(writer, beta, "from-beta")
         seen   <- Ref.make(Set.empty[String])
-        record  = (batch: List[io.lettuce.core.StreamMessage[String, Array[Byte]]]) => seen.update(_ ++ batch.map(RedisSpecLayers.valueOf).toSet)
+        record  = (batch: Chunk[io.lettuce.core.StreamMessage[String, Array[Byte]]]) => seen.update(_ ++ batch.map(RedisSpecLayers.valueOf).toSet)
         _      <- tail.consume(record)
         _      <- tail.consume(record)
         got    <- seen.get

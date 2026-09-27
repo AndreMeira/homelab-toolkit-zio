@@ -68,7 +68,7 @@ class SerialDeduplicated[R, E, BE, Key, In, Out](
   // Total by construction: every key's shared promise is completed on any outcome — a per-item `BE`, a
   // whole-batch `E`, a lineage mismatch, a defect, or interruption — waking all of that key's awaiters.
   private def runBatch(taken: List[(In, Promise[Error, Out])]): URIO[R, Unit] = {
-    val inputs   = Batch.make(taken.map((in, _) => in))
+    val inputs   = Batch.make(Chunk.fromIterable(taken.map((in, _) => in)))
     val promises = taken.map((_, promise) => promise)
     logic
       .run(inputs)

@@ -59,7 +59,7 @@ object BatcherBenchSpec extends ZIOSpecDefault:
     ZIO.scoped:
       for
         batcher <- Batcher.serial(1, logic)
-        rawOp    = logic.run(Batch.single(7)).map(_.values.head)
+        rawOp    = logic.run(Batch.single(7)).map(_.values.headOption)
         batOp    = batcher.run(7)
         _       <- rawOp.repeatN(warmup - 1) *> batOp.repeatN(warmup - 1) // JIT + alloc warmup
         raw     <- measure(n)(rawOp)

@@ -50,7 +50,7 @@ class Serial[R, E, BE, In, Out](
           batch.toList -> State.InFlight(rest)
       .flatMap:
         case Nil  => ZIO.unit
-        case list => runBatch(Batch.make(list)) *> runDrain
+        case list => runBatch(Batch.make(Chunk.fromIterable(list))) *> runDrain
 
   // Total by construction: whatever happens to the bulk call — a per-item `BE`, a whole-batch `E`, a lineage
   // mismatch, a defect, or interruption — is routed to the waiting promises, so a drained batch can never

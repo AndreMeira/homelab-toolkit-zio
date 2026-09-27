@@ -56,11 +56,11 @@ object PollConsumerConcurrencySpec extends ZIOSpecDefault:
     val settled: Ref[List[Int]],
   ) extends PollConsumer.Source[Nothing, Int]:
 
-    override def claim(upTo: Int): IO[Nothing, List[Int]] = asks.update(_ :+ upTo) *> take(upTo)
+    override def claim(upTo: Int): IO[Nothing, Chunk[Int]] = asks.update(_ :+ upTo) *> take(upTo)
 
-    override def ack(elements: List[Int]): IO[Nothing, Unit] = retire(elements)
+    override def ack(elements: Chunk[Int]): IO[Nothing, Unit] = retire(elements)
 
-    override def nack(elements: List[Int], wait: Duration): IO[Nothing, Unit] = retire(elements)
+    override def nack(elements: Chunk[Int], wait: Duration): IO[Nothing, Unit] = retire(elements)
 
     /**
      * Take up to `upTo` elements and count them out, as one indivisible step.
@@ -71,10 +71,9 @@ object PollConsumerConcurrencySpec extends ZIOSpecDefault:
      * @param upTo the ceiling the fetcher asked for
      * @return the claimed elements; never fails
      */
-    private def take(upTo: Int): UIO[List[Int]] =
+    private def take(upTo: Int): UIO[Chunk[Int]] =
       available
         .takeUpTo(upTo)
-        .map(_.toList)
         .tap(claims => leases.update(_.claim(claims.size)))
         .uninterruptible
 
@@ -84,7 +83,7 @@ object PollConsumerConcurrencySpec extends ZIOSpecDefault:
      * @param elements the settled elements
      * @return noop once counted
      */
-    private def retire(elements: List[Int]): UIO[Unit] =
+    private def retire(elements: Chunk[Int]): UIO[Unit] =
       leases.update(_.settle(elements.size)) *> settled.update(_ ++ elements)
 
     /**

@@ -9,6 +9,7 @@ import zio.*
 
 import java.sql.Connection
 import java.time.Instant
+import java.sql.SQLException
 
 
 /**
@@ -84,8 +85,8 @@ object PostgresTransaction:
      */
     @annotation.tailrec
     private def sqlState(cause: Throwable): Option[String] = cause match
-      case sql: java.sql.SQLException if sql.getSQLState != null => Some(sql.getSQLState)
-      case _                                                     =>
+      case sql: SQLException if sql.getSQLState != null => Some(sql.getSQLState)
+      case _                                            =>
         cause.getCause match
           case null                  => None
           case next if next eq cause => None

@@ -19,20 +19,20 @@ object PollConsumerSpec extends ZIOSpecDefault:
     available: Queue[Int],
     val asks: Ref[List[Int]],
     val handed: Ref[List[Int]],
-    val ackCalls: Ref[List[List[Int]]],
-    val nackCalls: Ref[List[List[Int]]],
+    val ackCalls: Ref[List[Chunk[Int]]],
+    val nackCalls: Ref[List[Chunk[Int]]],
     val nackWaits: Ref[List[Duration]],
     settleDelay: Duration,
   ) extends PollConsumer.Source[Nothing, Int]:
-    override def claim(upTo: Int): IO[Nothing, List[Int]]                     =
+    override def claim(upTo: Int): IO[Nothing, Chunk[Int]]                     =
       for
         _      <- asks.update(_ :+ upTo)
-        claims <- available.takeUpTo(upTo).map(_.toList)
+        claims <- available.takeUpTo(upTo)
         _      <- handed.update(_ ++ claims)
       yield claims
-    override def ack(elements: List[Int]): IO[Nothing, Unit]                  =
+    override def ack(elements: Chunk[Int]): IO[Nothing, Unit]                  =
       ZIO.sleep(settleDelay) *> ackCalls.update(_ :+ elements)
-    override def nack(elements: List[Int], wait: Duration): IO[Nothing, Unit] =
+    override def nack(elements: Chunk[Int], wait: Duration): IO[Nothing, Unit] =
       ZIO.sleep(settleDelay) *> nackCalls.update(_ :+ elements) *> nackWaits.update(_ :+ wait)
 
     /** Park until `count` elements have actually been claimed — a load-proof stand-in for sleeping. */
@@ -47,12 +47,12 @@ object PollConsumerSpec extends ZIOSpecDefault:
       _         <- available.offerAll(elements)
       asks      <- Ref.make(List.empty[Int])
       handed    <- Ref.make(List.empty[Int])
-      acks      <- Ref.make(List.empty[List[Int]])
-      nacks     <- Ref.make(List.empty[List[Int]])
+      acks      <- Ref.make(List.empty[Chunk[Int]])
+      nacks     <- Ref.make(List.empty[Chunk[Int]])
       waits     <- Ref.make(List.empty[Duration])
     yield Recording(available, asks, handed, acks, nacks, waits, settleDelay)
 
-  extension (calls: List[List[Int]]) private def flat: List[Int] = calls.flatten.sorted
+  extension (calls: List[Chunk[Int]]) private def flat: List[Int] = calls.flatten.sorted
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("PollConsumer")(
     test("a consumer torn down mid-flight still records the verdict it was holding") {
@@ -208,9 +208,9 @@ object PollConsumerSpec extends ZIOSpecDefault:
       // The failure mode that matters most: a silent settler would let work be processed forever and never
       // recorded, redelivering everything on every lease expiry. It must take the consumer down instead.
       val broken = new PollConsumer.Source[String, Int]:
-        override def claim(upTo: Int): IO[String, List[Int]]                     = ZIO.succeed(List(1))
-        override def ack(elements: List[Int]): IO[String, Unit]                  = ZIO.fail("store is gone")
-        override def nack(elements: List[Int], wait: Duration): IO[String, Unit] = ZIO.unit
+        override def claim(upTo: Int): IO[String, Chunk[Int]]                     = ZIO.succeed(Chunk(1))
+        override def ack(elements: Chunk[Int]): IO[String, Unit]                  = ZIO.fail("store is gone")
+        override def nack(elements: Chunk[Int], wait: Duration): IO[String, Unit] = ZIO.unit
       for outcome <- ZIO.scoped {
                        PollConsumer
                          .make(broken, pollSize = 4, writeSize = 2, nackDelay = 1.second)

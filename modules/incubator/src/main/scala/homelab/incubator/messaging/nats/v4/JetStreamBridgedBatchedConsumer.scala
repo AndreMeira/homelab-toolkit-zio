@@ -27,8 +27,8 @@ final private[v4] class JetStreamBridgedBatchedConsumer[A: Serde](
   heartbeat: Option[Duration],
 ) extends JetStreamBatchedConsumer[A](onDecodeFailure, onHandlerFailure, heartbeat):
 
-  override def consume[E2 >: NatsError](logic: List[A] => IO[E2, Unit]): IO[E2, Unit] =
-    queue.takeBetween(1, batchSize).flatMap(messages => settleBatch(messages.toList, logic))
+  override def consume[E2 >: NatsError](logic: Chunk[A] => IO[E2, Unit]): IO[E2, Unit] =
+    queue.takeBetween(1, batchSize).flatMap(messages => settleBatch(messages.toList, values => logic(Chunk.fromIterable(values))))
 
 
 object JetStreamBridgedBatchedConsumer:

@@ -8,6 +8,7 @@ import zio.*
 import zio.test.*
 
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.atomic.AtomicInteger
 
 
 /**
@@ -186,7 +187,7 @@ object NatsSpec extends ZIOSpecDefault:
           yield assertTrue(outcome match { case Left(NatsError.Decode(_)) => true; case _ => false })
       },
       test("with Discard a poison message is termed once and the consumer continues") {
-        val decodeCount                         = new java.util.concurrent.atomic.AtomicInteger(0)
+        val decodeCount                         = new AtomicInteger(0)
         val countingDecoder: Codec.Decoder[Int] = message => {
           val _ = decodeCount.incrementAndGet()
           new String(message.getData, StandardCharsets.UTF_8).toIntOption.toRight("not an int")

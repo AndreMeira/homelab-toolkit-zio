@@ -6,6 +6,7 @@ import homelab.postgres.configuration.{ DatabaseSourceConfig, MigrationConfig }
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.utility.DockerImageName
 import zio.*
+import java.lang.System as JavaSystem
 
 
 /**
@@ -29,7 +30,7 @@ object PostgresSpecLayers:
   /** Flyway config pointing at the test migrations; clean enabled so local re-runs against a reused daemon
     * start from a known state. */
   private val migrationConfig =
-    MigrationConfig(initSql = "", locations = List("classpath:migrations/schema"), allowClean = true)
+    MigrationConfig(initSql = "", locations = Chunk("classpath:migrations/schema"), allowClean = true)
 
   /**
    * A migrated [[PostgresDatabase]] over a throwaway Testcontainers Postgres.
@@ -65,7 +66,7 @@ object PostgresSpecLayers:
    * floor — honoured from Engine 19.03 through current — so a single pin works across daemons.
    */
   private def pinDockerApiVersion(): Unit =
-    val _ = java.lang.System.setProperty("api.version", "1.40")
+    val _ = JavaSystem.setProperty("api.version", "1.40")
 
   /** Can not start the container */
   case object ContainerStartError extends ApplicationError:

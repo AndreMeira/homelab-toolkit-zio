@@ -8,28 +8,33 @@ import homelab.llm.{ Message, Model }
 import zio.json.*
 import zio.json.ast.Json
 import zio.test.*
-import zio.{ Chunk, IO, Ref, Scope }
+import zio.{ Chunk, IO, Ref, Scope, ZIO }
 
 
 /** What the port narrows, and what it leaves to whoever holds the client. */
 object AnthropicModelSpec extends ZIOSpecDefault:
 
-  private def decoded(body: String): CompletionResponse =
-    body.fromJson[CompletionResponse].getOrElse(throw new IllegalArgumentException(s"unreadable fixture: $body"))
+  private def decoded(body: String): IO[String, CompletionResponse] =
+    ZIO.fromEither(body.fromJson[CompletionResponse]).mapError(reason => s"unreadable fixture: $reason, in $body")
 
   /** A client that answers from a fixture, and records what it was asked for. */
-  final private class Scripted(answer: CompletionResponse, seen: Ref[Option[(CompletionRequest, Json.Obj)]]) extends AnthropicClient:
+  final private class Scripted(
+    answer: CompletionResponse,
+    seen: Ref[Option[(CompletionRequest, Json.Obj)]],
+  ) extends AnthropicClient {
 
     override def complete(
       request: CompletionRequest,
       extra: Json.Obj = Json.Obj(),
     ): IO[AnthropicError, CompletionResponse] =
       seen.set(Some(request -> extra)).as(answer)
+  }
 
   private def asking(body: String, config: AnthropicModel.Config = AnthropicModel.Config()) =
     for
-      seen <- Ref.make(Option.empty[(CompletionRequest, Json.Obj)])
-      model = AnthropicModel(Scripted(decoded(body), seen), config)
+      seen     <- Ref.make(Option.empty[(CompletionRequest, Json.Obj)])
+      response <- decoded(body)
+      model     = AnthropicModel(Scripted(response, seen), config)
     yield (model, seen)
 
   private def text(value: String): Chunk[Message.Content] = Chunk(Message.Content.Text(value))

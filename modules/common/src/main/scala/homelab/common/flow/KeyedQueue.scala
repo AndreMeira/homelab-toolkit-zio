@@ -79,7 +79,7 @@ final class KeyedQueue[K, A](
    * @tparam E the error `logic` aborts with
    * @return noop once all values are processed and the key freed; aborts with `E` when `logic` fails
    */
-  def takeAllWith[R, E, A1](logic: (K, List[A]) => ZIO[R, E, A1]): ZIO[R, E, A1] =
+  def takeAllWith[R, E, A1](logic: (K, Chunk[A]) => ZIO[R, E, A1]): ZIO[R, E, A1] =
     ZIO.uninterruptibleMask { restore =>
       restore(ready.take).flatMap: key =>
         // From here to the `ensuring` attachment we are uninterruptible: the claimed key cannot leak.
@@ -174,9 +174,9 @@ object KeyedQueue {
      * @param key the key to claim
      * @return the key's backlog and the state with it removed and the key marked running
      */
-    def claimAll(key: K): (List[A], KeyedState[K, A]) = pending.get(key) match
-      case None         => List.empty    -> this
-      case Some(values) => values.toList -> KeyedState(pending - key, running + key)
+    def claimAll(key: K): (Chunk[A], KeyedState[K, A]) = pending.get(key) match
+      case None         => Chunk.empty                -> this
+      case Some(values) => Chunk.fromIterable(values) -> KeyedState(pending - key, running + key)
 
     /**
      * Clear a finished key's running mark. The returned flag signals the re-ready transition: `true`

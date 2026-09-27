@@ -28,7 +28,7 @@ trait Producer[+E, -A] { self =>
    * @param values the values to emit, in order
    * @return noop once all are emitted; aborts with `E` on the first failure
    */
-  def emitMany(values: List[A]): IO[E, Unit] =
+  def emitMany(values: Chunk[A]): IO[E, Unit] =
     ZIO.foreachDiscard(values)(emit)
 
   /**

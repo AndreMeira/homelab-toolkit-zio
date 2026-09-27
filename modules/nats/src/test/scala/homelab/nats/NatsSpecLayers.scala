@@ -7,6 +7,7 @@ import org.testcontainers.containers.GenericContainer
 import org.testcontainers.containers.wait.strategy.Wait
 import org.testcontainers.utility.DockerImageName
 import zio.*
+import java.lang.System as JavaSystem
 
 
 /**
@@ -77,4 +78,4 @@ object NatsSpecLayers:
    * versions with HTTP 400). 1.40 is the widest floor across daemons.
    */
   private def pinDockerApiVersion(): Unit =
-    val _ = java.lang.System.setProperty("api.version", "1.40")
+    val _ = JavaSystem.setProperty("api.version", "1.40")

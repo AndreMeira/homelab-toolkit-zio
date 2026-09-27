@@ -2,6 +2,7 @@ package homelab.llm
 
 
 import homelab.common.error.ApplicationError
+import zio.schema.annotation.discriminatorName
 import zio.schema.{ Schema, derived }
 import zio.test.*
 import zio.{ IO, Ref, Scope, ZIO }
@@ -107,7 +108,7 @@ object ToolSpec extends ZIOSpecDefault:
         )
       },
       test("refuses a sum type, which renders as a union rather than an object") {
-        @zio.schema.annotation.discriminatorName("kind")
+        @discriminatorName("kind")
         enum Ending derives Schema:
           case Done(summary: String)
           case GiveUp(reason: String)

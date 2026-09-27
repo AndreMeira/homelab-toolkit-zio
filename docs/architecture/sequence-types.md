@@ -77,9 +77,20 @@ Prefer this over a `Chunk` the caller has to check.
 both use it so that what is rendered is stable and reproducible. A plain `Map` would be a different
 promise.
 
-**`List` when the name says so.** `Batch.toList: List[Either[E, A]]` stays a `List`, because a method called
-`toList` that returns something else is a lie. This is the only place `List` survives in a public
-signature without further argument.
+**`List` when the name says so** — but derive it, do not build on it. `Batch.toList` stays a `List`, because
+a method called `toList` that returns something else is a lie. What matters is which one is primary:
+`toChunk` is the abstract member every implementation provides, and `toList` is one line of convenience
+on top of it.
+
+```scala
+def toChunk: Chunk[Either[E, A]]
+def toList: List[Either[E, A]] = toChunk.toList
+```
+
+Written the other way round — `toList` abstract, everything else converting from it — the default type is
+whatever the conversion happens to produce, and `values` and `errors` each pay a `Chunk.fromIterable` to
+get back. This is the only place `List` survives in a public signature, and it survives as an output, never
+as a source.
 
 **A type a third party demands.** An API that takes `java.util.List` or a `Seq` decides for you.
 
@@ -95,6 +106,54 @@ the standard library's are the obvious default. The 37 `Map` uses in `common` ar
 It applies to **public signatures** — what a caller names. A private local can be whatever reads best; a
 `foldLeft` accumulating with `::` and reversing once is fine inside a method body, though
 [building in the order you return](../sessions/2026-09-26-cutting-v0-0-5.md) is usually better anyway.
+
+## The hazard when migrating an existing signature
+
+Changing a `List` to a `Chunk` can silently kill a branch, and the compiler says so only as a warning.
+
+```scala
+source.claim(upTo = tokens.size).flatMap {
+  case Nil    => channel.demand.offerAll(tokens) *> channel.signal.take.unit
+  case claims => channel.supply.offerAll(claims) *> channel.demand.offerAll(tokens.drop(claims.size)).unit
+}
+```
+
+Once `claim` answers a `Chunk`, `case Nil` matches nothing. The empty case does not fail — it falls through
+to the second branch, which re-offers every token and polls again at once. A back-pressured wait became a
+spin loop, and the only signal was `[E030] Match case Unreachable Warning`, which this build does not
+escalate to an error.
+
+Three of these appeared in one migration — in `PollConsumer`, and in both `nats` batch consumers. **After
+changing any sequence type, compile clean and grep the output for `Unreachable` and `may not be
+exhaustive`.** A dead `case Nil` is the shape to look for: it means an empty collection now takes the branch
+written for a full one.
+
+The fix keeps the match; only the empty pattern changes. `Chunk()` against a total catch-all is exhaustive,
+so this compiles without the warning the `+:` form attracts:
+
+```scala
+source.claim(upTo = tokens.size).flatMap {
+  case Chunk() => …
+  case claims  => …
+}
+```
+
+`Chunk()` is a pattern, so it carries the same shape of risk as the `Nil` it replaces: change the type again
+and it stops matching rather than failing. That is what the grep above is for.
+
+Where the non-empty branch needs its own head and tail, put the structural case first and let a bare `case
+_` carry the empty one — only that order is exhaustive:
+
+```scala
+ZIO.foreach(…)(_.run.forkScoped).flatMap {
+  case first +: rest => ZIO.raceAll(first.join, rest.map(_.join))
+  case _             => ZIO.unit
+}
+```
+
+`Chunk()` before `first +: rest` warns, and so does `first +: rest` before `Chunk()`: two structural
+patterns and no total one. This order needs no `.head` and no `NonEmptyChunk.fromChunk` ceremony to stay
+total.
 
 ## Migration
 

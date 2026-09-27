@@ -5,7 +5,7 @@ import zio.*
 import homelab.common.error.{ ApplicationError, ValidationError }
 import zio.prelude.Validation
 
-import scala.util.Try
+import scala.util.{ Failure, Success, Try }
 
 
 extension [R, E1, A](zio: ZIO[R, E1, Option[A]]) {
@@ -70,8 +70,8 @@ extension [A](trying: Try[A])
    * @return the success value in an effect, or a failure built from the `Throwable`
    */
   def successOrFail[Err <: ApplicationError](fn: Throwable => Err): IO[Err, A] = trying match
-    case scala.util.Success(value) => ZIO.succeed(value)
-    case scala.util.Failure(err)   => ZIO.fail(fn(err))
+    case Success(value) => ZIO.succeed(value)
+    case Failure(err)   => ZIO.fail(fn(err))
 
 
 /**

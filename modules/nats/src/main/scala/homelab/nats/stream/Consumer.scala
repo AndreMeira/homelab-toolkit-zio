@@ -43,7 +43,7 @@ final class Consumer(
   override def consume[E2 >: NatsError](logic: Message => IO[E2, Unit]): IO[E2, Unit] =
     for
       message <- next
-      result  <- Heartbeat.wrap(heartbeat, message :: Nil)(logic(message).either)
+      result  <- Heartbeat.wrap(heartbeat, Chunk(message))(logic(message).either)
       _       <- handleResult(message, result)
     yield ()
 

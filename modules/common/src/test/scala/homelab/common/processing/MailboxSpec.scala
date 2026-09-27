@@ -10,6 +10,7 @@ import zio.*
 import zio.test.*
 
 import java.time.Instant
+import java.util.concurrent.atomic.AtomicInteger
 
 
 // Correctness spec for the v2 mailbox: an expectation is a serialisable promise, so what matters is that
@@ -148,7 +149,7 @@ object MailboxSpec extends ZIOSpecDefault:
     test("hands one outcome to every fiber awaiting the receipt, decoding it once") {
       // Two holders of the same receipt must both see the reply — and the memo means the wait, and the decode
       // it ends with, happen once however many fibers are queued on it.
-      val decodes                   = new java.util.concurrent.atomic.AtomicInteger(0)
+      val decodes                   = new AtomicInteger(0)
       val counting: Decoder[String] = value => {
         val _ = decodes.incrementAndGet()
         Right(new String(value))

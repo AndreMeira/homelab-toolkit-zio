@@ -73,14 +73,14 @@ object Consumer {
 
   /**
    * A consumer that delivers messages in batches — one `consume` call processes up to a whole
-   * [[List]] of `A`. The batch size is fixed where the adapter constructs it, not at the call site;
+   * `Chunk` of `A`. The batch size is fixed where the adapter constructs it, not at the call site;
    * the batching shape is carried by the type, not by a parameter.
    *
    * @tparam E the error consuming aborts with
    * @tparam A the element type of each delivered batch
    */
-  trait Batched[+E, +A] extends Consumer[E, List[A]]:
-    def aggregate[B](fn: List[A] => B): Consumer[E, B] = map(fn)
+  trait Batched[+E, +A] extends Consumer[E, Chunk[A]]:
+    def aggregate[B](fn: Chunk[A] => B): Consumer[E, B] = map(fn)
 
   /**
    * A consumer that runs its logic once with `()` and never fails — a no-op intake.

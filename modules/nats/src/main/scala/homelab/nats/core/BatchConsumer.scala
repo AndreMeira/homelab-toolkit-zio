@@ -29,9 +29,9 @@ final class BatchConsumer(batchSize: Int, poll: CorePoll) extends ConsumerContra
    * @tparam E2 the widened error, admitting `logic`'s failures
    * @return noop once the batch is processed; aborts with `E2` if `logic` fails
    */
-  override def consume[E2 >: NatsError](logic: List[Message] => IO[E2, Unit]): IO[E2, Unit] =
+  override def consume[E2 >: NatsError](logic: Chunk[Message] => IO[E2, Unit]): IO[E2, Unit] =
     poll.many(batchSize).flatMap {
-      case Nil      => ZIO.unit
+      case Chunk()  => ZIO.unit
       case messages => logic(messages)
     }
 
@@ -125,7 +125,7 @@ object BatchConsumer:
   ): ConsumerContract.Batched[NatsError, A] =
     val values = consumer.mapZIO(decode[A])
     new ConsumerContract.Batched[NatsError, A]:
-      override def consume[E2 >: NatsError](logic: List[A] => IO[E2, Unit]): IO[E2, Unit] = values.consume(logic)
+      override def consume[E2 >: NatsError](logic: Chunk[A] => IO[E2, Unit]): IO[E2, Unit] = values.consume(logic)
 
   /**
    * Decode a batch, lifting the first malformed payload into the error channel.
@@ -134,5 +134,5 @@ object BatchConsumer:
    * @tparam A the value decoded, with a [[Decoder]] in scope
    * @return the decoded values; aborts with [[NatsError.Decode]] on the first malformed payload
    */
-  private def decode[A: Decoder](messages: List[Message]): IO[NatsError, List[A]] =
+  private def decode[A: Decoder](messages: Chunk[Message]): IO[NatsError, Chunk[A]] =
     ZIO.foreach(messages)(message => ZIO.fromEither(Decoder[A].decode(message)).mapError(NatsError.Decode(_)))

@@ -3,6 +3,7 @@ package homelab.common.messaging
 
 import homelab.common.flow.KeyedQueue
 import zio.{ IO, Queue }
+import zio.Chunk
 
 
 /**
@@ -33,7 +34,7 @@ trait Pipe[+E, A] extends Consumer[E, A] with Producer[E, A]:
    * @param messages the values to emit, in order
    * @return noop once all are emitted; aborts with `E` on the first failure
    */
-  def send(messages: List[A]): IO[E, Unit] = emitMany(messages)
+  def send(messages: Chunk[A]): IO[E, Unit] = emitMany(messages)
 
 
 object Pipe:
@@ -84,7 +85,7 @@ object Pipe:
 
   /**
    * A [[Pipe]] whose intake delivers batches: a [[Consumer.Batched]] of `A` on the read side, a single-`A`
-   * [[Producer]] on the write side. Values are emitted one or many at a time and consumed a `List[A]` at a
+   * [[Producer]] on the write side. Values are emitted one or many at a time and consumed a `Chunk[A]` at a
    * time.
    *
    * @tparam E the error emission or consumption aborts with
@@ -107,4 +108,4 @@ object Pipe:
      * @param messages the values to emit, in order
      * @return noop once all are emitted; aborts with `E` on the first failure
      */
-    def send(messages: List[A]): IO[E, Unit] = emitMany(messages)
+    def send(messages: Chunk[A]): IO[E, Unit] = emitMany(messages)

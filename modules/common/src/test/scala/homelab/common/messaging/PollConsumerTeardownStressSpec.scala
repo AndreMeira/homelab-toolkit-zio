@@ -20,18 +20,18 @@ object PollConsumerTeardownStressSpec extends ZIOSpecDefault:
     for
       remaining <- Ref.make(1)
       claimed   <- Ref.make(List.empty[Int])
-      acked     <- Ref.make(List.empty[List[Int]])
-      nacked    <- Ref.make(List.empty[List[Int]])
+      acked     <- Ref.make(List.empty[Chunk[Int]])
+      nacked    <- Ref.make(List.empty[Chunk[Int]])
       running   <- Promise.make[Nothing, Unit] // the handler has the element
       gate      <- Promise.make[Nothing, Unit] // never completed: it is interrupted, not finished
       source     = new PollConsumer.Source[Nothing, Int]:
-                     override def claim(upTo: Int): IO[Nothing, List[Int]]                     =
+                     override def claim(upTo: Int): IO[Nothing, Chunk[Int]]                     =
                        remaining
                          .getAndSet(0)
-                         .map(left => if left > 0 then List(1) else Nil)
+                         .map(left => if left > 0 then Chunk(1) else Chunk.empty)
                          .tap(got => claimed.update(_ ++ got))
-                     override def ack(elements: List[Int]): IO[Nothing, Unit]                  = acked.update(_ :+ elements)
-                     override def nack(elements: List[Int], wait: Duration): IO[Nothing, Unit] =
+                     override def ack(elements: Chunk[Int]): IO[Nothing, Unit]                  = acked.update(_ :+ elements)
+                     override def nack(elements: Chunk[Int], wait: Duration): IO[Nothing, Unit] =
                        nacked.update(_ :+ elements)
       _         <- ZIO.scoped {
                      PollConsumer
@@ -50,7 +50,7 @@ object PollConsumerTeardownStressSpec extends ZIOSpecDefault:
       // back. A dropped verdict shows up as `nack=List()` — the element left claimed, invisible until its
       // lease expires. Failures print every run, so a partial loss is legible rather than a bare count.
       ZIO.foreach(1 to 12)(torndownMidFlight).map { runs =>
-        assertTrue(runs.filterNot(_.endsWith("ack=List() nack=List(List(1))")) == Chunk.empty)
+        assertTrue(runs.filterNot(_.endsWith("ack=List() nack=List(Chunk(1))")) == Chunk.empty)
       }
     }
   ) @@ TestAspect.withLiveClock @@ TestAspect.timeout(60.seconds)
