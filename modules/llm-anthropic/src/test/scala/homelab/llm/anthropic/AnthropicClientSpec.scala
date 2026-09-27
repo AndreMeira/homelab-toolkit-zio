@@ -87,12 +87,17 @@ object AnthropicClientSpec extends ZIOSpecDefault:
         )
       },
       test("a request's own fields reach the body, each under the name the API uses") {
-        val rich = asked.copy(temperature = Some(0.2), topK = Some(40), toolChoice = Some(ToolChoice.Named("weather")))
+        val rich = asked.copy(
+          temperature = Some(0.2),
+          topK = Some(40),
+          toolChoice = Some(ToolChoice.Named("weather")),
+        )
+
         for
           recorder <- Recorder.make
           backend   = recorder.httpClient(response = empty)
           _        <- AnthropicClient.make(backend, "api-key", Monitor.Noop).complete(rich).ignore
-          body     <- recorder.body
+          body     <- recorder.requestBody
         yield assertTrue(
           body.exists(_.contains(""""max_tokens":64""")),
           body.exists(_.contains(""""temperature":0.2""")),
@@ -108,7 +113,7 @@ object AnthropicClientSpec extends ZIOSpecDefault:
                         .make(backend, "api-key", Monitor.Noop)
                         .complete(asked.copy(thinking = Some(Thinking.Enabled(1024))))
                         .ignore
-          body     <- recorder.body
+          body     <- recorder.requestBody
         yield assertTrue(body.exists(_.contains(""""thinking":{"type":"enabled","budget_tokens":1024}""")))
       },
       test("what a caller adds is merged over the request, for an API that has moved") {
@@ -119,7 +124,7 @@ object AnthropicClientSpec extends ZIOSpecDefault:
                         .make(backend, "api-key", Monitor.Noop)
                         .complete(asked, Json.Obj("service_tier" -> Json.Str("auto")))
                         .ignore
-          body     <- recorder.body
+          body     <- recorder.requestBody
         yield assertTrue(body.exists(_.contains(""""service_tier":"auto"""")))
       },
     ),
@@ -179,7 +184,7 @@ object AnthropicClientSpec extends ZIOSpecDefault:
     /** Holds the last request a backend of its making was given, and reads it back. */
     case class Recorder(recorded: Ref[Option[GenericRequest[?, ?]]]):
       def seen: UIO[Option[GenericRequest[?, ?]]] = recorded.get
-      def body: UIO[Option[String]]               = seen.map(_.map(_.body.show))
+      def requestBody: UIO[Option[String]]        = seen.map(_.map(_.body.show))
 
       def httpClient(response: String, status: StatusCode = StatusCode.Ok): BackendStub[Task] =
         HttpClient.stubWith(response, status)(request => recorded.set(Some(request)))
