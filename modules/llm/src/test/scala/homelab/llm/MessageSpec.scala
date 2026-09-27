@@ -9,17 +9,7 @@ import zio.{ Chunk, Scope }
 
 /** What an adapter may join before sending, and what it may not. */
 object MessageSpec extends ZIOSpecDefault:
-
-  private def text(value: String): Chunk[Content] = Chunk(Content.Text(value))
-
-  private def id(value: String): Tool.Call.Id = Tool.Call.Id(value)
-
-  private def call(value: String): Tool.Call.Raw = Tool.Call.Raw(id(value), "search", "{}")
-
-  final private case class Reading(degrees: Double) derives Schema
-
-  private def answering(result: Tool.Result[Reading]): Message.ToolResult =
-    Message.fromOutcome(Outcome(call("c1"), result))
+  import Support.*
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("Message")(
     test("adjacent user messages become one, keeping their parts in order") {
@@ -49,14 +39,16 @@ object MessageSpec extends ZIOSpecDefault:
     },
     test("a tool that could not answer says so apart from the words, as well as in them") {
       // The words carry it for a provider with no flag; the flag is for one that has it.
-      val failed = answering(Tool.Result.failure[Reading]("no such city"))
+      val outcome = Outcome(call("c1"), Tool.Result.failure[Reading]("no such city"))
+      val failed  = Message.fromOutcome(outcome)
       assertTrue(
         failed.failed,
         failed.content == text("""{"isError":true,"reason":"no such city"}"""),
       )
     },
     test("a tool that answered is not marked") {
-      assertTrue(!answering(Tool.Result.success(Reading(12.0))).failed)
+      val outcome = Outcome(call("c1"), Tool.Result.success(Reading(12.0)))
+      assertTrue(!Message.fromOutcome(outcome).failed)
     },
     test("a conversation that already alternates is left alone") {
       val messages = Chunk(
@@ -68,3 +60,15 @@ object MessageSpec extends ZIOSpecDefault:
       assertTrue(Message.merged(messages) == messages)
     },
   )
+
+  /** The parts a conversation is built from, and the tool whose answers it carries. */
+  private object Support {
+
+    def text(value: String): Chunk[Content] = Chunk(Content.Text(value))
+
+    def id(value: String): Tool.Call.Id = Tool.Call.Id(value)
+
+    def call(value: String): Tool.Call.Raw = Tool.Call.Raw(id(value), "search", "{}")
+
+    final case class Reading(degrees: Double) derives Schema
+  }

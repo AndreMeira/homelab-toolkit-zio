@@ -11,8 +11,7 @@ import zio.Chunk
 
 /** What the ADT renders to, and the one invariant its types cannot carry. */
 object JsonSchemaSpec extends ZIOSpecDefault:
-
-  private def json(schema: JsonSchema): String = schema.json.toJson
+  import Support.*
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("JsonSchema")(
     suite("objects")(
@@ -109,3 +108,9 @@ object JsonSchemaSpec extends ZIOSpecDefault:
       },
     ),
   )
+
+  /** What a schema renders to. */
+  private object Support {
+
+    def json(schema: JsonSchema): String = schema.json.toJson
+  }

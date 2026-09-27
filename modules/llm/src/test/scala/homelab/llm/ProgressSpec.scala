@@ -8,19 +8,7 @@ import zio.test.*
 
 /** What a conversation is waiting for is read from its messages, and from nothing else. */
 object ProgressSpec extends ZIOSpecDefault:
-
-  private def text(value: String): Chunk[Content] = Chunk(Content.Text(value))
-
-  private def id(value: String): Tool.Call.Id = Tool.Call.Id(value)
-
-  private def call(value: String): Tool.Call.Raw = Tool.Call.Raw(id(value), "search", """{"text":"x"}""")
-
-  private val asked  = Message.user(text("what do I eat tonight"))
-  private val said   = Message.assistant(text("pasta"))
-  private val called = Message.assistant(Chunk.empty, Chunk(call("c1"), call("c2")))
-
-  private def answering(callId: String): Message.ToolResult =
-    Message.ToolResult(id(callId), text("done"))
+  import Support.*
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("Progress")(
     test("nothing said is nothing to send") {
@@ -71,3 +59,20 @@ object ProgressSpec extends ZIOSpecDefault:
       assertTrue(Progress.from(messages) == Progress.Finished(said))
     },
   )
+
+  /** The turns these tests arrange, and the parts they are built from. */
+  private object Support {
+
+    def text(value: String): Chunk[Content] = Chunk(Content.Text(value))
+
+    def id(value: String): Tool.Call.Id = Tool.Call.Id(value)
+
+    def call(value: String): Tool.Call.Raw = Tool.Call.Raw(id(value), "search", """{"text":"x"}""")
+
+    val asked  = Message.user(text("what do I eat tonight"))
+    val said   = Message.assistant(text("pasta"))
+    val called = Message.assistant(Chunk.empty, Chunk(call("c1"), call("c2")))
+
+    def answering(callId: String): Message.ToolResult =
+      Message.ToolResult(id(callId), text("done"))
+  }
