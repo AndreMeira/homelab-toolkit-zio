@@ -10,23 +10,7 @@ import zio.{ IO, Ref, Scope, ZIO }
 
 /** What a tool is on its own: what it answers with, what it reads, and what it refuses to be described as. */
 object ToolSpec extends ZIOSpecDefault:
-
-  final private case class Where(city: String) derives Schema
-
-  final private case class Reading(degrees: Double) derives Schema
-
-  final private case class Rig(arm: String, tenant: String)
-
-  final private case class Refused(message: String) extends ApplicationError.AdapterError
-
-  private val weather: Tool[String, Where, Reading] =
-    Tool.Definition("weather", "Report the temperature.") { (_: String) => (input: Where) =>
-      ZIO.succeed(Tool.Result.success(Reading(if input.city == "Hamburg" then 12.0 else 20.0)))
-    }
-
-  private def id(value: String): Tool.Call.Id = Tool.Call.Id(value)
-
-  private def call(arguments: String): Tool.Call.Raw = Tool.Call.Raw(id("c1"), "weather", arguments)
+  import Support.*
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("Tool")(
     suite("result")(
@@ -132,3 +116,24 @@ object ToolSpec extends ZIOSpecDefault:
       },
     ),
   )
+
+  /** The tool these tests run, the types it takes, and the calls it is given. */
+  private object Support {
+
+    final case class Where(city: String) derives Schema
+
+    final case class Reading(degrees: Double) derives Schema
+
+    final case class Rig(arm: String, tenant: String)
+
+    final case class Refused(message: String) extends ApplicationError.AdapterError
+
+    val weather: Tool[String, Where, Reading] =
+      Tool.Definition("weather", "Report the temperature.") { (_: String) => (input: Where) =>
+        ZIO.succeed(Tool.Result.success(Reading(if input.city == "Hamburg" then 12.0 else 20.0)))
+      }
+
+    def id(value: String): Tool.Call.Id = Tool.Call.Id(value)
+
+    def call(arguments: String): Tool.Call.Raw = Tool.Call.Raw(id("c1"), "weather", arguments)
+  }

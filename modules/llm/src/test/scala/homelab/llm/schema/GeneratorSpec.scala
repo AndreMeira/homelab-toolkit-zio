@@ -10,55 +10,7 @@ import zio.test.*
 
 /** What comes out of a `zio.schema.Schema`, including the recursive case that is the reason `$defs` exists. */
 object GeneratorSpec extends ZIOSpecDefault:
-
-  @description("Search the knowledge base")
-  final private case class Query(
-    @description("the natural-language question") text: String,
-    limit: Option[Int],
-  ) derives Schema
-
-  // The motivating recursion: a type reachable from itself, whose instances are almost always shallow.
-  // Deliberately not a scaladoc — see the test that a doc comment ships to the model.
-  final private case class Person(name: String, partner: Option[Person]) derives Schema
-
-  /** Chosen by whoever is asking. */
-  final private case class Documented(value: String) derives Schema
-
-  final private case class Boxed(values: List[Option[String]]) derives Schema
-
-  final private case class Empty() derives Schema
-
-  final private case class Wrapped(inner: Query) derives Schema
-
-  private enum Direction derives Schema:
-    case Ascending, Descending
-
-  private enum Renamed derives Schema:
-    @caseName("asc") case Ascending
-    @caseName("desc") case Descending
-
-  @discriminatorName("kind")
-  private enum Ending derives Schema:
-    case Done(summary: String)
-    case GiveUp(reason: String)
-
-  private enum Undiscriminated derives Schema:
-    case Done(summary: String)
-    case GiveUp(reason: String)
-
-  @discriminatorName("kind")
-  private enum Colliding derives Schema:
-    case Done(kind: String)
-
-  final private case class Mapped(lookup: Map[String, Int]) derives Schema
-
-  final private case class Tupled(pair: (String, Int)) derives Schema
-
-  private def rendered[A: Schema]: Either[String, String] =
-    Generator.generate[A].left.map(_.message).map(_.json.toJson)
-
-  private def refused[A: Schema]: String =
-    Generator.generate[A].fold(_.message, schema => s"unexpectedly described as ${schema.json.toJson}")
+  import Support.*
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("Generator")(
     suite("records")(
@@ -153,3 +105,56 @@ object GeneratorSpec extends ZIOSpecDefault:
       }
     ),
   )
+
+  /** The types these tests describe, and what a description renders to. */
+  private object Support {
+
+    @description("Search the knowledge base")
+    final case class Query(
+      @description("the natural-language question") text: String,
+      limit: Option[Int],
+    ) derives Schema
+
+    // The motivating recursion: a type reachable from itself, whose instances are almost always shallow.
+    // Deliberately not a scaladoc — see the test that a doc comment ships to the model.
+    final case class Person(name: String, partner: Option[Person]) derives Schema
+
+    /** Chosen by whoever is asking. */
+    final case class Documented(value: String) derives Schema
+
+    final case class Boxed(values: List[Option[String]]) derives Schema
+
+    final case class Empty() derives Schema
+
+    final case class Wrapped(inner: Query) derives Schema
+
+    enum Direction derives Schema:
+      case Ascending, Descending
+
+    enum Renamed derives Schema:
+      @caseName("asc") case Ascending
+      @caseName("desc") case Descending
+
+    @discriminatorName("kind")
+    enum Ending derives Schema:
+      case Done(summary: String)
+      case GiveUp(reason: String)
+
+    enum Undiscriminated derives Schema:
+      case Done(summary: String)
+      case GiveUp(reason: String)
+
+    @discriminatorName("kind")
+    enum Colliding derives Schema:
+      case Done(kind: String)
+
+    final case class Mapped(lookup: Map[String, Int]) derives Schema
+
+    final case class Tupled(pair: (String, Int)) derives Schema
+
+    def rendered[A: Schema]: Either[String, String] =
+      Generator.generate[A].left.map(_.message).map(_.json.toJson)
+
+    def refused[A: Schema]: String =
+      Generator.generate[A].fold(_.message, schema => s"unexpectedly described as ${schema.json.toJson}")
+  }

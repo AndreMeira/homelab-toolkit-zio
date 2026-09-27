@@ -27,8 +27,8 @@ object AnthropicClientSpec extends ZIOSpecDefault:
           backend   = HttpClient.stub(response = temperatureAnswer)
           monitor  <- Monitoring.make
           _        <- AnthropicClient.make(backend, "api-key", monitor).complete(asked)
-          recorded <- monitor.names.map(_.headOption)
-          tags     <- monitor.tags.map(_.headOption)
+          recorded <- monitor.callNames.map(_.headOption)
+          tags     <- monitor.callTags.map(_.headOption)
         yield assertTrue(
           recorded.contains("AnthropicClient.complete"),
           tags.contains(Map("resource" -> "llm", "model" -> "claude-3-5-sonnet-latest")),
@@ -205,8 +205,8 @@ object AnthropicClientSpec extends ZIOSpecDefault:
     /** A monitor that records what it was asked to measure, and runs the work untouched. */
     class Monitoring(recorded: Ref[Chunk[(String, Map[String, String])]]) extends Monitor:
       def seen: UIO[Chunk[(String, Map[String, String])]] = recorded.get
-      def names: UIO[Chunk[String]]                       = seen.map(_.map((name, _) => name))
-      def tags: UIO[Chunk[Map[String, String]]]           = seen.map(_.map((_, tags) => tags))
+      def callNames: UIO[Chunk[String]]                   = seen.map(_.map((name, _) => name))
+      def callTags: UIO[Chunk[Map[String, String]]]       = seen.map(_.map((_, tags) => tags))
 
       def trace[R, E, A](name: String, tags: (String, String)*)(effect: => ZIO[R, E, A]): ZIO[R, E, A] =
         effect

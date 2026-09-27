@@ -11,28 +11,7 @@ import zio.{ Chunk, Scope }
 
 /** What a request looks like on the wire, and what a conversation becomes on the way there. */
 object CompletionRequestSpec extends ZIOSpecDefault:
-
-  private val model = Model.Name("anthropic/claude-3.5-sonnet")
-
-  private def text(value: String): Chunk[Message.Content] = Chunk(Message.Content.Text(value))
-
-  private def id(value: String): Tool.Call.Id = Tool.Call.Id(value)
-
-  private val weather = Advertised(
-    "weather",
-    "Report it.",
-    JsonSchema(Node.obj(Shape.Obj.Field("city", Node.text))),
-  )
-
-  private def sent(messages: Message*): String =
-    body(CompletionRequest(model, Chunk.fromIterable(messages).map(MessageRequest.from)))
-
-  private def body(tools: Chunk[Advertised] = Chunk.empty, extra: Json.Obj = Json.Obj()): String =
-    CompletionRequest
-      .body(CompletionRequest(model, Chunk.empty, tools = Option.when(tools.nonEmpty)(tools.map(ToolRequest.from))), extra)
-      .toJson
-
-  private def body(request: CompletionRequest): String = CompletionRequest.body(request).toJson
+  import Support.*
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("CompletionRequest")(
     suite("roles")(
@@ -71,11 +50,14 @@ object CompletionRequestSpec extends ZIOSpecDefault:
         assertTrue(!sent(Message.assistant(text("hi"))).contains("tool_calls"))
       },
       test("tools are offered only when there are any") {
-        assertTrue(body(tools = Chunk(weather)).contains(""""tools":["""), !body().contains("tools"))
+        assertTrue(
+          body(CompletionRequest(model, Chunk.empty, tools = Some(Chunk(ToolRequest.from(weather))))).contains(""""tools":["""),
+          !body(CompletionRequest(model, Chunk.empty)).contains("tools"),
+        )
       },
       test("a tool is wrapped in a function object, with its schema under parameters") {
         assertTrue(
-          body(tools = Chunk(weather)).contains(
+          body(CompletionRequest(model, Chunk.empty, tools = Some(Chunk(ToolRequest.from(weather))))).contains(
             """"tools":[{"type":"function","function":{"name":"weather","description":"Report it.",""" +
               """"parameters":{"type":"object","properties":{"city":{"type":"string"}},""" +
               """"required":["city"],"additionalProperties":false}}}]"""
@@ -91,11 +73,40 @@ object CompletionRequestSpec extends ZIOSpecDefault:
     ),
     suite("extra")(
       test("a caller's own fields are merged into the body") {
-        assertTrue(body(extra = Json.Obj("temperature" -> Json.Num(0.2))).contains(""""temperature":0.2"""))
+        val merged = body(CompletionRequest(model, Chunk.empty), Json.Obj("temperature" -> Json.Num(0.2)))
+        assertTrue(merged.contains(""""temperature":0.2"""))
       },
       test("a field a caller sets wins, so the escape hatch is not fenced off from what matters") {
-        val overridden = body(extra = Json.Obj("model" -> Json.Str("other/model")))
+        val overridden = body(CompletionRequest(model, Chunk.empty), Json.Obj("model" -> Json.Str("other/model")))
         assertTrue(overridden.contains(""""model":"other/model""""), !overridden.contains("claude-3.5-sonnet"))
       },
     ),
   )
+
+  /** The model, the tool and the conversations these tests send, and what a request renders to. */
+  private object Support {
+
+    /** The model every request names. */
+    val model = Model.Name("anthropic/claude-3.5-sonnet")
+
+    /** One tool, with an object schema the generator accepts. */
+    val weather = Advertised(
+      "weather",
+      "Report it.",
+      JsonSchema(Node.obj(Shape.Obj.Field("city", Node.text))),
+    )
+
+    /** One text part, the shape a turn's content takes. */
+    def text(value: String): Chunk[Message.Content] = Chunk(Message.Content.Text(value))
+
+    /** A call id, for a turn that answers one. */
+    def id(value: String): Tool.Call.Id = Tool.Call.Id(value)
+
+    /** The body a conversation renders to, as the provider would receive it. */
+    def sent(messages: Message*): String =
+      body(CompletionRequest(model, Chunk.fromIterable(messages).map(MessageRequest.from)))
+
+    /** The body one request renders to, with anything a caller merged over it. */
+    def body(request: CompletionRequest, extra: Json.Obj = Json.Obj()): String =
+      CompletionRequest.body(request, extra).toJson
+  }

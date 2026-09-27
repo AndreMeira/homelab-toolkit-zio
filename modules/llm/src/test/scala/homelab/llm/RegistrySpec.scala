@@ -10,46 +10,7 @@ import zio.{ Scope, ZIO }
 
 /** A registry is a value: what a holder added is what its sessions offer. */
 object RegistrySpec extends ZIOSpecDefault:
-
-  final case class Where(city: String) derives Schema
-
-  final case class Reading(degrees: Double) derives Schema
-
-  /** Arguments no model can be asked to fill, so the tool taking them cannot be registered. */
-  final case class Readings(byHour: Map[String, Int]) derives Schema
-
-  private val weather: Tool[Unit, Where, Reading] =
-    Tool.Definition("weather", "Report the temperature.") { (_: Unit) => (_: Where) =>
-      ZIO.succeed(Tool.Result.success(Reading(12.0)))
-    }
-
-  private val forecast: Tool[Unit, Where, Reading] =
-    Tool.Definition("forecast", "Report tomorrow's temperature.") { (_: Unit) => (_: Where) =>
-      ZIO.succeed(Tool.Result.success(Reading(9.0)))
-    }
-
-  private val undescribable: Tool[Unit, Readings, Reading] =
-    Tool.Definition("readings", "Report a whole day.") { (_: Unit) => (_: Readings) =>
-      ZIO.succeed(Tool.Result.success(Reading(0.0)))
-    }
-
-  private val alsoUndescribable: Tool[Unit, Readings, Reading] =
-    Tool.Definition("more_readings", "Report another whole day.") { (_: Unit) => (_: Readings) =>
-      ZIO.succeed(Tool.Result.success(Reading(0.0)))
-    }
-
-  private val bareString: Tool[Unit, String, Reading] =
-    Tool.Definition("echo", "Echo a city name.") { (_: Unit) => (_: String) =>
-      ZIO.succeed(Tool.Result.success(Reading(0.0)))
-    }
-
-  /** The registry as a plain value — no effect, no builder, no build step. */
-  private val registry: Registry[Unit] = Registry.empty[Unit].add(weather)
-
-  private def rendered(session: Session[Unit]): String = session.advertised.map(asString).mkString(",")
-
-  private def asString(advertised: Advertised): String =
-    s"${advertised.name}:${advertised.description}:${advertised.arguments.json.toJson}"
+  import Support.*
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("Registry")(
     test("adding a tool leaves the registry it was added to alone") {
@@ -112,3 +73,47 @@ object RegistrySpec extends ZIOSpecDefault:
       )
     },
   )
+
+  /** The tools these tests register, and how an offered tool is read back. */
+  private object Support {
+
+    final case class Where(city: String) derives Schema
+
+    final case class Reading(degrees: Double) derives Schema
+
+    /** Arguments no model can be asked to fill, so the tool taking them cannot be registered. */
+    final case class Readings(byHour: Map[String, Int]) derives Schema
+
+    val weather: Tool[Unit, Where, Reading] =
+      Tool.Definition("weather", "Report the temperature.") { (_: Unit) => (_: Where) =>
+        ZIO.succeed(Tool.Result.success(Reading(12.0)))
+      }
+
+    val forecast: Tool[Unit, Where, Reading] =
+      Tool.Definition("forecast", "Report tomorrow's temperature.") { (_: Unit) => (_: Where) =>
+        ZIO.succeed(Tool.Result.success(Reading(9.0)))
+      }
+
+    val undescribable: Tool[Unit, Readings, Reading] =
+      Tool.Definition("readings", "Report a whole day.") { (_: Unit) => (_: Readings) =>
+        ZIO.succeed(Tool.Result.success(Reading(0.0)))
+      }
+
+    val alsoUndescribable: Tool[Unit, Readings, Reading] =
+      Tool.Definition("more_readings", "Report another whole day.") { (_: Unit) => (_: Readings) =>
+        ZIO.succeed(Tool.Result.success(Reading(0.0)))
+      }
+
+    val bareString: Tool[Unit, String, Reading] =
+      Tool.Definition("echo", "Echo a city name.") { (_: Unit) => (_: String) =>
+        ZIO.succeed(Tool.Result.success(Reading(0.0)))
+      }
+
+    /** The registry as a plain value — no effect, no builder, no build step. */
+    val registry: Registry[Unit] = Registry.empty[Unit].add(weather)
+
+    def rendered(session: Session[Unit]): String = session.advertised.map(asString).mkString(",")
+
+    def asString(advertised: Advertised): String =
+      s"${advertised.name}:${advertised.description}:${advertised.arguments.json.toJson}"
+  }

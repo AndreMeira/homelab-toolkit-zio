@@ -9,75 +9,38 @@ import homelab.llm.openai.request.{ CompletionRequest, MessageRequest, ResponseF
 import homelab.llm.schema.{ JsonSchema, Node, Shape }
 import sttp.client4.impl.zio.RIOMonadAsyncError
 import sttp.client4.testing.{ BackendStub, ResponseStub }
-import sttp.client4.{ Backend, GenericRequest, UriContext }
+import sttp.client4.{ GenericRequest, UriContext }
 import sttp.model.StatusCode
 import zio.test.*
 import zio.json.ast.Json
-import zio.{ Chunk, Ref, Scope, Task, ZIO }
+import zio.{ Chunk, Ref, Scope, Task, UIO, ZIO }
 
 
 /** The call itself: what goes out, and everything a provider's answer carries back — without a network. */
 object ChatCompletionClientSpec extends ZIOSpecDefault:
-
-  private val answered =
-    """{"choices":[{"message":{"content":"12 degrees"},"finish_reason":"stop"},
-      |{"message":{"content":"about twelve"},"finish_reason":"stop"}],
-      |"usage":{"prompt_tokens":11,"completion_tokens":3,"cost":0.00021}}""".stripMargin
-
-  private def answering(body: String, status: StatusCode = StatusCode.Ok): ChatCompletionClient =
-    val backend = BackendStub[Task](RIOMonadAsyncError[Any]).whenAnyRequest.thenRespondAdjust(body, status)
-    ChatCompletionClient.openRouter(backend, "test-key", None, Monitor.Noop)
-
-  /** A stub that answers nothing, and records the one request it was handed. */
-  private def recording(seen: Ref[Option[GenericRequest[?, ?]]]) =
-    BackendStub[Task](RIOMonadAsyncError[Any]).whenAnyRequest.thenRespondF { request =>
-      seen.set(Some(request)).as(ResponseStub.adjust("""{"choices":[]}"""))
-    }
-
-  /** A monitor that records what it was asked to measure, and runs the work untouched. */
-  private class Watching(seen: Ref[Chunk[(String, Map[String, String])]]) extends Monitor:
-    def trace[R, E, A](name: String, tags: (String, String)*)(effect: => ZIO[R, E, A]): ZIO[R, E, A] = effect
-
-    def measure[R, E, A](name: String, tags: (String, String)*)(effect: => ZIO[R, E, A]): ZIO[R, E, A] =
-      seen.update(_ :+ (name -> tags.toMap)) *> effect
-
-  private val asked = CompletionRequest(Model.Name("anthropic/claude-3.5-sonnet"), Chunk(MessageRequest.User(Chunk.empty)))
-
-  private def ask(client: ChatCompletionClient) = client.complete(asked)
-
-  /** The body one request renders to, as the provider would receive it. */
-  private def posted(request: CompletionRequest, extra: Json.Obj = Json.Obj()) =
-    for
-      seen <- Ref.make(Option.empty[GenericRequest[?, ?]])
-      _    <- ChatCompletionClient.openRouter(recording(seen), "k", None, Monitor.Noop).complete(request, extra).ignore
-      body <- seen.get.map(_.map(_.body.show))
-    yield body
-
-  private def sent(build: Backend[Task] => ChatCompletionClient) =
-    for
-      seen <- Ref.make(Option.empty[GenericRequest[?, ?]])
-      _    <- ask(build(recording(seen))).ignore
-      sent <- seen.get
-    yield sent
+  import Support.*
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("ChatCompletionClient")(
     suite("what it answers with")(
       test("every choice, not only the one a port would take") {
-        for response <- ask(answering(answered))
+        for
+          backend   = HttpClient.stub(response = answered)
+          response <- ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop).complete(asked)
         yield assertTrue(
           response.choices.size == 2,
           response.choices.map(_.message.content) == Chunk(Some("12 degrees"), Some("about twelve")),
         )
       },
       test("the usage as the provider reported it, cost included") {
-        for response <- ask(answering(answered))
+        for
+          backend   = HttpClient.stub(response = answered)
+          response <- ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop).complete(asked)
         yield assertTrue(response.usage.map(_.cost) == Some(Some(BigDecimal("0.00021"))))
       },
       test("a call's arguments, still the string the model wrote") {
-        val body = """{"choices":[{"message":{"tool_calls":[{"id":"c1","type":"function",
-                     |"function":{"name":"weather","arguments":"{\"city\":\"Hamburg\"}"}}]},
-                     |"finish_reason":"tool_calls"}]}""".stripMargin
-        for response <- ask(answering(body))
+        for
+          backend   = HttpClient.stub(response = called)
+          response <- ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop).complete(asked)
         yield assertTrue(
           response.choices.headOption.flatMap(_.message.toolCalls).map(_.map(_.function.arguments)) ==
             Some(Chunk("""{"city":"Hamburg"}"""))
@@ -92,7 +55,11 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
           toolChoice = Some(ToolChoice.Named("weather")),
           parallelToolCalls = Some(false),
         )
-        for body <- posted(rich)
+        for
+          recorder <- Recorder.make
+          backend   = recorder.httpClient(response = empty)
+          _        <- ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop).complete(rich).ignore
+          body     <- recorder.body
         yield assertTrue(
           body.exists(_.contains(""""n":3""")),
           body.exists(_.contains(""""max_tokens":64""")),
@@ -101,59 +68,89 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
         )
       },
       test("a tool choice that is a bare word is sent as one, not as an object") {
-        for body <- posted(asked.copy(toolChoice = Some(ToolChoice.Required)))
+        for
+          recorder <- Recorder.make
+          backend   = recorder.httpClient(response = empty)
+          request   = asked.copy(toolChoice = Some(ToolChoice.Required))
+          _        <- ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop).complete(request).ignore
+          body     <- recorder.body
         yield assertTrue(body.exists(_.contains(""""tool_choice":"required"""")))
       },
       test("a response format carries the schema the answer must conform to") {
         val schema = JsonSchema(Node.obj(Shape.Obj.Field("city", Node.text)))
-        for body <- posted(asked.copy(responseFormat = Some(ResponseFormat.conforming("place", schema))))
+        for
+          recorder <- Recorder.make
+          backend   = recorder.httpClient(response = empty)
+          request   = asked.copy(responseFormat = Some(ResponseFormat.conforming("place", schema)))
+          _        <- ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop).complete(request).ignore
+          body     <- recorder.body
         yield assertTrue(
           body.exists(_.contains(""""response_format":{"type":"json_schema","json_schema":{"name":"place"""")),
           body.exists(_.contains(""""strict":true""")),
         )
       },
       test("what a caller adds is merged over the request, for a protocol that has moved") {
-        for body <- posted(asked, Json.Obj("service_tier" -> Json.Str("flex")))
+        for
+          recorder <- Recorder.make
+          backend   = recorder.httpClient(response = empty)
+          _        <- ChatCompletionClient
+                        .openRouter(backend, "api-key", None, Monitor.Noop)
+                        .complete(asked, Json.Obj("service_tier" -> Json.Str("flex")))
+                        .ignore
+          body     <- recorder.body
         yield assertTrue(body.exists(_.contains(""""service_tier":"flex"""")))
       },
     ),
     suite("what it reports")(
       test("one measured call, named for the client and tagged with the model it asked for") {
-        val backend = BackendStub[Task](RIOMonadAsyncError[Any]).whenAnyRequest.thenRespondAdjust(answered)
         for
-          seen     <- Ref.make(Chunk.empty[(String, Map[String, String])])
-          _        <- ChatCompletionClient.openRouter(backend, "k", None, Watching(seen)).complete(asked)
-          recorded <- seen.get
+          backend  = HttpClient.stub(response = answered)
+          monitor <- Monitoring.make
+          _       <- ChatCompletionClient.openRouter(backend, "api-key", None, monitor).complete(asked)
+          names   <- monitor.callNames
+          tags    <- monitor.callTags.map(_.headOption)
         yield assertTrue(
-          recorded.map(_._1) == Chunk("ChatCompletionClient.complete"),
-          recorded.headOption.map(_._2).contains(Map("resource" -> "llm", "model" -> "anthropic/claude-3.5-sonnet")),
+          names == Chunk("ChatCompletionClient.complete"),
+          tags.contains(Map("resource" -> "llm", "model" -> "anthropic/claude-3.5-sonnet")),
         )
       },
       test("a refused call is measured too, since a failure is what a dashboard is for") {
-        val backend =
-          BackendStub[Task](RIOMonadAsyncError[Any]).whenAnyRequest.thenRespondAdjust("""{"error":{"message":"nope"}}""", StatusCode.Unauthorized)
         for
-          seen     <- Ref.make(Chunk.empty[(String, Map[String, String])])
-          _        <- ChatCompletionClient.openRouter(backend, "k", None, Watching(seen)).complete(asked).flip
-          recorded <- seen.get
-        yield assertTrue(recorded.size == 1)
+          backend  = HttpClient.stub(response = """{"error":{"message":"nope"}}""", StatusCode.Unauthorized)
+          monitor <- Monitoring.make
+          _       <- ChatCompletionClient.openRouter(backend, "api-key", None, monitor).complete(asked).flip
+          seen    <- monitor.seen
+        yield assertTrue(seen.size == 1)
       },
     ),
     suite("presets")(
       test("openRouter posts to openrouter with a bearer token, and attributes when asked") {
-        for request <- sent(ChatCompletionClient.openRouter(_, "k", Some("https://example.test"), Monitor.Noop))
+        for
+          recorder <- Recorder.make
+          backend   = recorder.httpClient(response = empty)
+          client    = ChatCompletionClient.openRouter(backend, "api-key", Some("https://example.test"), Monitor.Noop)
+          _        <- client.complete(asked).ignore
+          request  <- recorder.seen
         yield assertTrue(
           request.exists(_.uri == ChatCompletionClient.OpenRouter),
-          request.exists(_.headers.exists(header => header.name == "Authorization" && header.value == "Bearer k")),
+          request.exists(_.headers.exists(header => header.name == "Authorization" && header.value == "Bearer api-key")),
           request.exists(_.headers.exists(_.name == "HTTP-Referer")),
         )
       },
       test("openRouter sends no attribution when none was asked for") {
-        for request <- sent(ChatCompletionClient.openRouter(_, "k", None, Monitor.Noop))
+        for
+          recorder <- Recorder.make
+          backend   = recorder.httpClient(response = empty)
+          _        <- ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop).complete(asked).ignore
+          request  <- recorder.seen
         yield assertTrue(request.exists(sent => !sent.headers.exists(_.name == "HTTP-Referer")))
       },
       test("openAi posts to openai, and names an organisation when given one") {
-        for request <- sent(ChatCompletionClient.openAi(_, "k", Some("org-1"), Monitor.Noop))
+        for
+          recorder <- Recorder.make
+          backend   = recorder.httpClient(response = empty)
+          _        <- ChatCompletionClient.openAi(backend, "api-key", Some("org-1"), Monitor.Noop).complete(asked).ignore
+          request  <- recorder.seen
         yield assertTrue(
           request.exists(_.uri == ChatCompletionClient.OpenAi),
           request.exists(_.headers.exists(header => header.name == "OpenAI-Organization" && header.value == "org-1")),
@@ -161,7 +158,11 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
       },
       test("a compatible server needs no credential at all") {
         val local = uri"http://localhost:11434/v1/chat/completions"
-        for request <- sent(ChatCompletionClient.compatible(_, local, None, Monitor.Noop))
+        for
+          recorder <- Recorder.make
+          backend   = recorder.httpClient(response = empty)
+          _        <- ChatCompletionClient.compatible(backend, local, None, Monitor.Noop).complete(asked).ignore
+          request  <- recorder.seen
         yield assertTrue(
           request.exists(_.uri == local),
           request.exists(sent => !sent.headers.exists(_.name == "Authorization")),
@@ -170,17 +171,20 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
     ),
     suite("a transport of its own")(
       test("a caller with no opinion gets one, and it is closed with the scope") {
-        ZIO.scoped(ChatCompletionClient.openAi("k")).map(client => assertTrue(client.isInstanceOf[ChatCompletionClient]))
+        ZIO.scoped(ChatCompletionClient.openAi("api-key")).map(client => assertTrue(client.isInstanceOf[ChatCompletionClient]))
       }
     ),
     suite("what it refuses")(
       test("a body that is not a completion says what could not be read, and out of what") {
-        for failure <- ask(answering("""{"unexpected":true}""")).flip
+        for
+          backend  = HttpClient.stub(response = """{"unexpected":true}""")
+          failure <- ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop).complete(asked).flip
         yield assertTrue(failure.isInstanceOf[ChatCompletionError.Malformed], failure.message.contains("unexpected"))
       },
       test("a refused credential is not worth retrying") {
-        val body = """{"error":{"message":"No auth credentials found"}}"""
-        for failure <- ask(answering(body, StatusCode.Unauthorized)).flip
+        for
+          backend  = HttpClient.stub(response = """{"error":{"message":"No auth credentials found"}}""", StatusCode.Unauthorized)
+          failure <- ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop).complete(asked).flip
         yield assertTrue(
           failure == ChatCompletionError.Refused("No auth credentials found"),
           !failure.isInstanceOf[ApplicationError.TransientError],
@@ -188,21 +192,90 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
       },
       test("a rate limit and a server error are") {
         for
-          limited <- ask(answering("""{"error":{"message":"rate limited"}}""", StatusCode.TooManyRequests)).flip
-          broken  <- ask(answering("""{"error":{"message":"upstream"}}""", StatusCode.BadGateway)).flip
+          limiting = HttpClient.stub(response = """{"error":{"message":"rate limited"}}""", StatusCode.TooManyRequests)
+          failing  = HttpClient.stub(response = """{"error":{"message":"upstream"}}""", StatusCode.BadGateway)
+          limited <- ChatCompletionClient.openRouter(limiting, "api-key", None, Monitor.Noop).complete(asked).flip
+          broken  <- ChatCompletionClient.openRouter(failing, "api-key", None, Monitor.Noop).complete(asked).flip
         yield assertTrue(
           limited.isInstanceOf[ApplicationError.TransientError],
           broken.isInstanceOf[ApplicationError.TransientError],
         )
       },
       test("anything else is the request itself, and says what the provider called it") {
-        val body = """{"error":{"message":"model not found"}}"""
-        for failure <- ask(answering(body, StatusCode.NotFound)).flip
+        for
+          backend  = HttpClient.stub(response = """{"error":{"message":"model not found"}}""", StatusCode.NotFound)
+          failure <- ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop).complete(asked).flip
         yield assertTrue(failure == ChatCompletionError.Rejected(404, "model not found"))
       },
       test("a refusal that is not an error object keeps what it said anyway") {
-        for failure <- ask(answering("upstream timeout", StatusCode.BadRequest)).flip
+        for
+          backend  = HttpClient.stub(response = "upstream timeout", StatusCode.BadRequest)
+          failure <- ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop).complete(asked).flip
         yield assertTrue(failure == ChatCompletionError.Rejected(400, "upstream timeout"))
       },
     ),
   )
+
+  /** What these tests send, what they get back, and the stubs that carry it. */
+  private object Support {
+
+    /** The smallest request this protocol takes, naming the model the tag assertions expect. */
+    val asked = CompletionRequest(Model.Name("anthropic/claude-3.5-sonnet"), Chunk(MessageRequest.User(Chunk.empty)))
+
+    /** A complete answer: two choices, a stop reason each, and a usage block that reports cost. */
+    val answered: String =
+      """{"choices":[{"message":{"content":"12 degrees"},"finish_reason":"stop"},
+        |{"message":{"content":"about twelve"},"finish_reason":"stop"}],
+        |"usage":{"prompt_tokens":11,"completion_tokens":3,"cost":0.00021}}""".stripMargin
+
+    /** An answer that asks for a tool rather than saying anything. */
+    val called: String =
+      """{"choices":[{"message":{"tool_calls":[{"id":"c1","type":"function",
+        |"function":{"name":"weather","arguments":"{\"city\":\"Hamburg\"}"}}]},
+        |"finish_reason":"tool_calls"}]}""".stripMargin
+
+    /** An answer with nothing in it, for a test that only cares what went out. */
+    val empty: String = """{"choices":[]}"""
+
+    /** Holds the last request a backend of its making was given, and reads it back. */
+    case class Recorder(recorded: Ref[Option[GenericRequest[?, ?]]]):
+      def seen: UIO[Option[GenericRequest[?, ?]]] = recorded.get
+      def body: UIO[Option[String]]               = seen.map(_.map(_.body.show))
+
+      def httpClient(response: String, status: StatusCode = StatusCode.Ok): BackendStub[Task] =
+        HttpClient.stubWith(response, status)(request => recorded.set(Some(request)))
+
+    /** Builds a recorder that has seen nothing yet. */
+    object Recorder:
+      def make: UIO[Recorder] = Ref.make(Option.empty[GenericRequest[?, ?]]).map(Recorder(_))
+
+    /** Backends that answer every request with the same response, one of them recording what it was given. */
+    object HttpClient:
+      def stub(response: String, status: StatusCode = StatusCode.Ok): BackendStub[Task] =
+        BackendStub[Task](RIOMonadAsyncError[Any]).whenAnyRequest.thenRespondAdjust(response, status)
+
+      def stubWith(
+        response: String,
+        status: StatusCode = StatusCode.Ok,
+      )(
+        effect: GenericRequest[?, ?] => Task[Unit]
+      ): BackendStub[Task] =
+        BackendStub[Task](RIOMonadAsyncError[Any]).whenAnyRequest
+          .thenRespondF(request => effect(request).as(ResponseStub.adjust(response, status)))
+
+    /** A monitor that records what it was asked to measure, and runs the work untouched. */
+    class Monitoring(recorded: Ref[Chunk[(String, Map[String, String])]]) extends Monitor:
+      def seen: UIO[Chunk[(String, Map[String, String])]] = recorded.get
+      def callNames: UIO[Chunk[String]]                   = seen.map(_.map((name, _) => name))
+      def callTags: UIO[Chunk[Map[String, String]]]       = seen.map(_.map((_, tags) => tags))
+
+      def trace[R, E, A](name: String, tags: (String, String)*)(effect: => ZIO[R, E, A]): ZIO[R, E, A] =
+        effect
+
+      def measure[R, E, A](name: String, tags: (String, String)*)(effect: => ZIO[R, E, A]): ZIO[R, E, A] =
+        recorded.update(_ :+ (name -> tags.toMap)) *> effect
+
+    /** Builds a monitor that has recorded nothing yet. */
+    object Monitoring:
+      def make: UIO[Monitoring] = Ref.make(Chunk.empty[(String, Map[String, String])]).map(new Monitoring(_))
+  }
