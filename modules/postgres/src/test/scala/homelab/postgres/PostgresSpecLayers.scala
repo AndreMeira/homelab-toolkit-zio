@@ -6,6 +6,7 @@ import homelab.postgres.configuration.{ DatabaseSourceConfig, MigrationConfig }
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.utility.DockerImageName
 import zio.*
+import java.lang.System as JavaSystem
 
 
 /**
@@ -65,7 +66,7 @@ object PostgresSpecLayers:
    * floor — honoured from Engine 19.03 through current — so a single pin works across daemons.
    */
   private def pinDockerApiVersion(): Unit =
-    val _ = java.lang.System.setProperty("api.version", "1.40")
+    val _ = JavaSystem.setProperty("api.version", "1.40")
 
   /** Can not start the container */
   case object ContainerStartError extends ApplicationError:

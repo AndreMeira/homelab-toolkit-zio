@@ -1,16 +1,18 @@
 package homelab.llm.openai
 
 
+import homelab.common.error.ApplicationError
 import homelab.common.monitor.Monitor
 import homelab.llm.Model
 import homelab.llm.openai.error.ChatCompletionError
 import homelab.llm.openai.request.{ CompletionRequest, MessageRequest, ResponseFormat, ToolChoice }
 import homelab.llm.schema.{ JsonSchema, Node, Shape }
-import sttp.client4.UriContext
 import sttp.client4.impl.zio.RIOMonadAsyncError
-import sttp.client4.testing.BackendStub
+import sttp.client4.testing.{ BackendStub, ResponseStub }
+import sttp.client4.{ Backend, GenericRequest, UriContext }
 import sttp.model.StatusCode
 import zio.test.*
+import zio.json.ast.Json
 import zio.{ Chunk, Ref, Scope, Task, ZIO }
 
 
@@ -27,9 +29,9 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
     ChatCompletionClient.openRouter(backend, "test-key", None, Monitor.Noop)
 
   /** A stub that answers nothing, and records the one request it was handed. */
-  private def recording(seen: Ref[Option[sttp.client4.GenericRequest[?, ?]]]) =
+  private def recording(seen: Ref[Option[GenericRequest[?, ?]]]) =
     BackendStub[Task](RIOMonadAsyncError[Any]).whenAnyRequest.thenRespondF { request =>
-      seen.set(Some(request)).as(sttp.client4.testing.ResponseStub.adjust("""{"choices":[]}"""))
+      seen.set(Some(request)).as(ResponseStub.adjust("""{"choices":[]}"""))
     }
 
   /** A monitor that records what it was asked to measure, and runs the work untouched. */
@@ -44,16 +46,16 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
   private def ask(client: ChatCompletionClient) = client.complete(asked)
 
   /** The body one request renders to, as the provider would receive it. */
-  private def posted(request: CompletionRequest, extra: zio.json.ast.Json.Obj = zio.json.ast.Json.Obj()) =
+  private def posted(request: CompletionRequest, extra: Json.Obj = Json.Obj()) =
     for
-      seen <- Ref.make(Option.empty[sttp.client4.GenericRequest[?, ?]])
+      seen <- Ref.make(Option.empty[GenericRequest[?, ?]])
       _    <- ChatCompletionClient.openRouter(recording(seen), "k", None, Monitor.Noop).complete(request, extra).ignore
       body <- seen.get.map(_.map(_.body.show))
     yield body
 
-  private def sent(build: sttp.client4.Backend[Task] => ChatCompletionClient) =
+  private def sent(build: Backend[Task] => ChatCompletionClient) =
     for
-      seen <- Ref.make(Option.empty[sttp.client4.GenericRequest[?, ?]])
+      seen <- Ref.make(Option.empty[GenericRequest[?, ?]])
       _    <- ask(build(recording(seen))).ignore
       sent <- seen.get
     yield sent
@@ -111,7 +113,7 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
         )
       },
       test("what a caller adds is merged over the request, for a protocol that has moved") {
-        for body <- posted(asked, zio.json.ast.Json.Obj("service_tier" -> zio.json.ast.Json.Str("flex")))
+        for body <- posted(asked, Json.Obj("service_tier" -> Json.Str("flex")))
         yield assertTrue(body.exists(_.contains(""""service_tier":"flex"""")))
       },
     ),
@@ -181,7 +183,7 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
         for failure <- ask(answering(body, StatusCode.Unauthorized)).flip
         yield assertTrue(
           failure == ChatCompletionError.Refused("No auth credentials found"),
-          !failure.isInstanceOf[homelab.common.error.ApplicationError.TransientError],
+          !failure.isInstanceOf[ApplicationError.TransientError],
         )
       },
       test("a rate limit and a server error are") {
@@ -189,8 +191,8 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
           limited <- ask(answering("""{"error":{"message":"rate limited"}}""", StatusCode.TooManyRequests)).flip
           broken  <- ask(answering("""{"error":{"message":"upstream"}}""", StatusCode.BadGateway)).flip
         yield assertTrue(
-          limited.isInstanceOf[homelab.common.error.ApplicationError.TransientError],
-          broken.isInstanceOf[homelab.common.error.ApplicationError.TransientError],
+          limited.isInstanceOf[ApplicationError.TransientError],
+          broken.isInstanceOf[ApplicationError.TransientError],
         )
       },
       test("anything else is the request itself, and says what the provider called it") {

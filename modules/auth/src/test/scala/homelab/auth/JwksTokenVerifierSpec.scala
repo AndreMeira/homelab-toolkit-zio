@@ -12,6 +12,7 @@ import java.security.interfaces.{ EdECPublicKey, RSAPublicKey }
 import java.security.{ KeyPairGenerator, PrivateKey }
 import java.time.Instant
 import java.util.Base64
+import java.lang.System as JavaSystem
 
 
 object JwksTokenVerifierSpec extends ZIOSpecDefault:
@@ -32,7 +33,7 @@ object JwksTokenVerifierSpec extends ZIOSpecDefault:
   private def jwkX(pub: EdECPublicKey): String =
     val be  = Array.fill[Byte](32)(0)
     val src = pub.getPoint.getY.toByteArray.dropWhile(_ == 0.toByte)
-    java.lang.System.arraycopy(src, 0, be, 32 - src.length, src.length)
+    JavaSystem.arraycopy(src, 0, be, 32 - src.length, src.length)
     if pub.getPoint.isXOdd then be(0) = (be(0) | 0x80).toByte
     Base64.getUrlEncoder.withoutPadding.encodeToString(be.reverse)
 
