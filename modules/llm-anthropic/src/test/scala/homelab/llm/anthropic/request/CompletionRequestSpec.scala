@@ -1,32 +1,17 @@
 package homelab.llm.anthropic.request
 
 
-import homelab.llm.schema.{ JsonSchema, Node, Shape }
-import homelab.llm.{ Advertised, Message, Model, Tool }
+import homelab.llm.schema.{JsonSchema, Node, Shape}
+import homelab.llm.{Advertised, Message, Model, Tool}
 import zio.json.*
 import zio.json.ast.Json
 import zio.test.*
-import zio.{ Chunk, Scope }
+import zio.{Chunk, Scope}
 
 
 /** A conversation reshaped for an API that has two roles where the toolkit has four. */
 object CompletionRequestSpec extends ZIOSpecDefault:
-
-  private val model = Model.Name("claude-3-5-sonnet-latest")
-
-  private def text(value: String): Chunk[Message.Content] = Chunk(Message.Content.Text(value))
-
-  private def id(value: String): Tool.Call.Id = Tool.Call.Id(value)
-
-  private val weather = Advertised("weather", "Report it.", JsonSchema(Node.obj(Shape.Obj.Field("city", Node.text))))
-
-  private val ceiling = 4096
-
-  private def sent(messages: Message*): String =
-    val (system, turns) = MessageRequest.conversation(Chunk.fromIterable(messages))
-    body(CompletionRequest(model, ceiling, turns, system = system))
-
-  private def body(request: CompletionRequest): String = CompletionRequest.body(request).toJson
+  import Support.*
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("CompletionRequest")(
     suite("the instructions")(
@@ -110,3 +95,28 @@ object CompletionRequestSpec extends ZIOSpecDefault:
       },
     ),
   )
+
+  private object Support {
+    val model = Model.Name("claude-3-5-sonnet-latest")
+
+    val weather = Advertised(
+      "weather",
+      "Report it.",
+      JsonSchema(Node.obj(Shape.Obj.Field("city", Node.text))),
+    )
+
+    def text(value: String): Chunk[Message.Content] =
+      Chunk(Message.Content.Text(value))
+
+    def id(value: String): Tool.Call.Id =
+      Tool.Call.Id(value)
+
+    val ceiling = 4096
+
+    def sent(messages: Message*): String =
+      val (system, turns) = MessageRequest.conversation(Chunk.fromIterable(messages))
+      body(CompletionRequest(model, ceiling, turns, system = system))
+
+    def body(request: CompletionRequest): String = 
+      CompletionRequest.body(request).toJson
+  }

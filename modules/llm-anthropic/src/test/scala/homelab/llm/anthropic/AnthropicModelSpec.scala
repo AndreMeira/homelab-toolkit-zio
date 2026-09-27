@@ -53,14 +53,14 @@ object AnthropicModelSpec extends ZIOSpecDefault:
           (model, seen) <- asking(said)
           _             <- ask(model)
           asked         <- seen.get.map(_.map(_._1))
-        yield assertTrue(asked.map(_.maxTokens) == Some(AnthropicModel.DefaultMaxTokens))
+        yield assertTrue(asked.map(_.maxTokens).contains(AnthropicModel.DefaultMaxTokens))
       },
       test("the one an instance was built with instead") {
         for
           (model, seen) <- asking(said, AnthropicModel.Config(maxTokens = 64))
           _             <- ask(model)
           asked         <- seen.get.map(_.map(_._1))
-        yield assertTrue(asked.map(_.maxTokens) == Some(64))
+        yield assertTrue(asked.map(_.maxTokens).contains(64))
       },
       test("asks for nothing else the conversation did not imply") {
         for
@@ -78,7 +78,7 @@ object AnthropicModelSpec extends ZIOSpecDefault:
           (model, seen) <- asking(said, warm)
           _             <- ask(model)
           asked         <- seen.get.map(_.map(_._1))
-        yield assertTrue(asked.flatMap(_.temperature) == Some(0.9), asked.exists(_.thinking.isDefined))
+        yield assertTrue(asked.flatMap(_.temperature).contains(0.9), asked.exists(_.thinking.isDefined))
       },
       test("what the instance asks for beyond the API this adapter models") {
         val configured = AnthropicModel.Config(extra = Json.Obj("service_tier" -> Json.Str("standard")))
@@ -86,7 +86,7 @@ object AnthropicModelSpec extends ZIOSpecDefault:
           (model, seen) <- asking(said, configured)
           _             <- ask(model)
           carried       <- seen.get.map(_.map(_._2))
-        yield assertTrue(carried == Some(Json.Obj("service_tier" -> Json.Str("standard"))))
+        yield assertTrue(carried.contains(Json.Obj("service_tier" -> Json.Str("standard"))))
       },
     ),
     suite("what it reshapes")(
@@ -97,7 +97,7 @@ object AnthropicModelSpec extends ZIOSpecDefault:
           _             <- ask(model, told)
           asked         <- seen.get.map(_.map(_._1))
         yield assertTrue(
-          asked.flatMap(_.system) == Some("be brief"),
+          asked.flatMap(_.system).contains("be brief"),
           asked.exists(_.messages.map(_.role) == Chunk("user")),
         )
       }
