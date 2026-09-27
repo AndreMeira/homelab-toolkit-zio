@@ -13,28 +13,7 @@ import zio.test.*
 // torn down rather than left parked. Driven with promises rather than sleeps; a per-suite timeout turns a
 // stranded caller into a failure instead of a hang.
 object WorkerSpec extends ZIOSpecDefault:
-
-  private val boom: AdapterError = new AdapterError:
-    override def message: String = "boom"
-
-  private type Payload = (String, Promise[AdapterError, Int])
-
-  /** A serial worker over a fresh queue, handling messages with `handler`. */
-  private def build(handler: String => IO[AdapterError, Int]): UIO[Worker[AdapterError, String, Int]] =
-    Queue.unbounded[Payload].map(Pipe.fromQueue).map { pipe =>
-      new Worker[AdapterError, String, Int]:
-        override val input: Pipe[AdapterError, Payload]       = pipe
-        override val receive: String => IO[AdapterError, Int] = handler
-    }
-
-  /** The same, handling up to `limit` messages at once. */
-  private def buildParallel(limit: Int)(handler: String => IO[AdapterError, Int]): UIO[Worker[AdapterError, String, Int]] =
-    Queue.unbounded[Payload].map(Pipe.fromQueue).map { pipe =>
-      new Worker.Parallel[AdapterError, String, Int]:
-        override val input: Pipe[AdapterError, Payload]       = pipe
-        override val receive: String => IO[AdapterError, Int] = handler
-        override val parallelism: Int                         = limit
-    }
+  import Support.*
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("Worker")(
     test("ask returns what the handler produced") {
@@ -139,3 +118,29 @@ object WorkerSpec extends ZIOSpecDefault:
       }
     },
   ) @@ TestAspect.withLiveClock @@ TestAspect.timeout(60.seconds)
+
+  /** Workers over a fresh queue, serial and parallel. */
+  private object Support {
+
+    val boom: AdapterError = new AdapterError:
+      override def message: String = "boom"
+
+    type Payload = (String, Promise[AdapterError, Int])
+
+    /** A serial worker over a fresh queue, handling messages with `handler`. */
+    def build(handler: String => IO[AdapterError, Int]): UIO[Worker[AdapterError, String, Int]] =
+      Queue.unbounded[Payload].map(Pipe.fromQueue).map { pipe =>
+        new Worker[AdapterError, String, Int]:
+          override val input: Pipe[AdapterError, Payload]       = pipe
+          override val receive: String => IO[AdapterError, Int] = handler
+      }
+
+    /** The same, handling up to `limit` messages at once. */
+    def buildParallel(limit: Int)(handler: String => IO[AdapterError, Int]): UIO[Worker[AdapterError, String, Int]] =
+      Queue.unbounded[Payload].map(Pipe.fromQueue).map { pipe =>
+        new Worker.Parallel[AdapterError, String, Int]:
+          override val input: Pipe[AdapterError, Payload]       = pipe
+          override val receive: String => IO[AdapterError, Int] = handler
+          override val parallelism: Int                         = limit
+      }
+  }

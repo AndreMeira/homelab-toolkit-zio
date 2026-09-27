@@ -10,44 +10,51 @@ import zio.test.*
 
 
 object JwtServiceAuthenticatorSpec extends ZIOSpecDefault:
-
-  private val audience     = "homelab"
-  private val issuer       = "https://kubernetes.default.svc"
-  private val subject      = "system:serviceaccount:inmemory:demo"
-  private val expectations = JwtServiceAuthenticator.Expectations(audience, issuer)
-  private val token        = SignedToken("x") // ignored by the stub verifier
-
-  private def claim(aud: Set[String], iss: String, sub: Option[String] = Some(subject)): JwtClaim =
-    JwtClaim(subject = sub, audience = Some(aud), issuer = Some(iss))
-
-  private def verifierReturning(c: JwtClaim): TokenVerifier = new TokenVerifier:
-    def verify(token: SignedToken): IO[AdapterError | UnauthorisedError, JwtClaim] = ZIO.succeed(c)
-
-  private def authenticate(c: JwtClaim) =
-    JwtServiceAuthenticator(verifierReturning(c), expectations).authenticate(token)
+  import Support.*
 
   def spec = suite("JwtServiceAuthenticator")(
     test("a matching audience and issuer → the calling Service") {
-      for who <- authenticate(claim(Set(audience), issuer))
+      val verifier = verifierReturning(claim(Set(audience), issuer))
+      for who <- JwtServiceAuthenticator(verifier, expectations).authenticate(token)
       yield assertTrue(who == Service(ServiceName(subject)))
     },
     test("an audience that doesn't include ours → InvalidServiceToken") {
-      for exit <- authenticate(claim(Set("someone-else"), issuer)).either
+      val verifier = verifierReturning(claim(Set("someone-else"), issuer))
+      for exit <- JwtServiceAuthenticator(verifier, expectations).authenticate(token).either
       yield assertTrue(exit.swap.exists(_.isInstanceOf[JwtServiceAuthenticator.InvalidServiceToken]))
     },
     test("the wrong issuer → InvalidServiceToken") {
-      for exit <- authenticate(claim(Set(audience), "https://evil.example")).either
+      val verifier = verifierReturning(claim(Set(audience), "https://evil.example"))
+      for exit <- JwtServiceAuthenticator(verifier, expectations).authenticate(token).either
       yield assertTrue(exit.swap.exists(_.isInstanceOf[JwtServiceAuthenticator.InvalidServiceToken]))
     },
     test("no subject → InvalidServiceToken") {
-      for exit <- authenticate(claim(Set(audience), issuer, sub = None)).either
+      val verifier = verifierReturning(claim(Set(audience), issuer, sub = None))
+      for exit <- JwtServiceAuthenticator(verifier, expectations).authenticate(token).either
       yield assertTrue(exit.swap.exists(_.isInstanceOf[JwtServiceAuthenticator.InvalidServiceToken]))
     },
     test("a verifier failure passes through unchanged") {
-      val failing = new TokenVerifier:
-        def verify(t: SignedToken): IO[AdapterError | UnauthorisedError, JwtClaim] =
-          ZIO.fail(JwksTokenVerifier.UntrustedToken("bad signature"))
-      for exit <- JwtServiceAuthenticator(failing, expectations).authenticate(token).either
+      val verifier = verifierFailing(JwksTokenVerifier.UntrustedToken("bad signature"))
+      for exit <- JwtServiceAuthenticator(verifier, expectations).authenticate(token).either
       yield assertTrue(exit.swap.exists(_.isInstanceOf[JwksTokenVerifier.UntrustedToken]))
     },
   )
+
+  /** What these tests expect of a token, the claims they hand it, and verifiers that return or refuse them. */
+  private object Support {
+
+    val audience     = "homelab"
+    val issuer       = "https://kubernetes.default.svc"
+    val subject      = "system:serviceaccount:inmemory:demo"
+    val expectations = JwtServiceAuthenticator.Expectations(audience, issuer)
+    val token        = SignedToken("x") // ignored by the stub verifier
+
+    def claim(aud: Set[String], iss: String, sub: Option[String] = Some(subject)): JwtClaim =
+      JwtClaim(subject = sub, audience = Some(aud), issuer = Some(iss))
+
+    def verifierReturning(claim: JwtClaim): TokenVerifier = new TokenVerifier:
+      def verify(token: SignedToken): IO[AdapterError | UnauthorisedError, JwtClaim] = ZIO.succeed(claim)
+
+    def verifierFailing(error: AdapterError | UnauthorisedError): TokenVerifier = new TokenVerifier:
+      def verify(token: SignedToken): IO[AdapterError | UnauthorisedError, JwtClaim] = ZIO.fail(error)
+  }

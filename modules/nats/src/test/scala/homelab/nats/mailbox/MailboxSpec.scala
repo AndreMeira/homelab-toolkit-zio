@@ -21,13 +21,7 @@ import zio.test.*
  * Requires a running Docker daemon.
  */
 object MailboxSpec extends ZIOSpecDefault:
-
-  private given Encoder[String] with
-    override def encode(value: String): Array[Byte] = value.getBytes
-
-  private given Decoder[String] with
-    override def decode(value: Array[Byte]): Either[ApplicationError.DecodingError, String] =
-      Right(new String(value))
+  import Support.{ *, given }
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("NATS Mailbox (integration)")(
     test("resolves an expectation published to its droppoff subject") {
@@ -59,3 +53,14 @@ object MailboxSpec extends ZIOSpecDefault:
         yield assertTrue(message.address == address, new String(message.payload) == "hello")
     },
   ).provideShared(NatsSpecLayers.connection) @@ TestAspect.withLiveClock @@ TestAspect.timeout(60.seconds)
+
+  /** How text crosses the wire. */
+  private object Support {
+
+    given Encoder[String] with
+      override def encode(value: String): Array[Byte] = value.getBytes
+
+    given Decoder[String] with
+      override def decode(value: Array[Byte]): Either[ApplicationError.DecodingError, String] =
+        Right(new String(value))
+  }

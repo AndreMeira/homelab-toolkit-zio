@@ -14,35 +14,7 @@ import zio.test.*
  * is what made it reproducible; anything less reports success on a broken settler.
  */
 object PollConsumerTeardownStressSpec extends ZIOSpecDefault:
-
-  /** One consumer, one element, torn down while the handler holds it. Reports what the store was told. */
-  private def torndownMidFlight(run: Int): UIO[String] =
-    for
-      remaining <- Ref.make(1)
-      claimed   <- Ref.make(List.empty[Int])
-      acked     <- Ref.make(List.empty[Chunk[Int]])
-      nacked    <- Ref.make(List.empty[Chunk[Int]])
-      running   <- Promise.make[Nothing, Unit] // the handler has the element
-      gate      <- Promise.make[Nothing, Unit] // never completed: it is interrupted, not finished
-      source     = new PollConsumer.Source[Nothing, Int]:
-                     override def claim(upTo: Int): IO[Nothing, Chunk[Int]]                     =
-                       remaining
-                         .getAndSet(0)
-                         .map(left => if left > 0 then Chunk(1) else Chunk.empty)
-                         .tap(got => claimed.update(_ ++ got))
-                     override def ack(elements: Chunk[Int]): IO[Nothing, Unit]                  = acked.update(_ :+ elements)
-                     override def nack(elements: Chunk[Int], wait: Duration): IO[Nothing, Unit] =
-                       nacked.update(_ :+ elements)
-      _         <- ZIO.scoped {
-                     PollConsumer
-                       .make(source, pollSize = 4, writeSize = 2, nackDelay = 1.second)
-                       .flatMap(_.consume(_ => running.succeed(()) *> gate.await).forkScoped)
-                       *> running.await
-                   }
-      got       <- claimed.get
-      a         <- acked.get
-      n         <- nacked.get
-    yield s"run $run: claimed=$got ack=$a nack=$n"
+  import Support.*
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("teardown stress")(
     test("every torn-down consumer records the verdict of the element it was holding") {
@@ -54,3 +26,36 @@ object PollConsumerTeardownStressSpec extends ZIOSpecDefault:
       }
     }
   ) @@ TestAspect.withLiveClock @@ TestAspect.timeout(60.seconds)
+
+  /** One consumer torn down while it holds an element, and what the store was told. */
+  private object Support {
+
+    /** One consumer, one element, torn down while the handler holds it. Reports what the store was told. */
+    def torndownMidFlight(run: Int): UIO[String] =
+      for
+        remaining <- Ref.make(1)
+        claimed   <- Ref.make(List.empty[Int])
+        acked     <- Ref.make(List.empty[Chunk[Int]])
+        nacked    <- Ref.make(List.empty[Chunk[Int]])
+        running   <- Promise.make[Nothing, Unit] // the handler has the element
+        gate      <- Promise.make[Nothing, Unit] // never completed: it is interrupted, not finished
+        source     = new PollConsumer.Source[Nothing, Int]:
+                       override def claim(upTo: Int): IO[Nothing, Chunk[Int]]                     =
+                         remaining
+                           .getAndSet(0)
+                           .map(left => if left > 0 then Chunk(1) else Chunk.empty)
+                           .tap(got => claimed.update(_ ++ got))
+                       override def ack(elements: Chunk[Int]): IO[Nothing, Unit]                  = acked.update(_ :+ elements)
+                       override def nack(elements: Chunk[Int], wait: Duration): IO[Nothing, Unit] =
+                         nacked.update(_ :+ elements)
+        _         <- ZIO.scoped {
+                       PollConsumer
+                         .make(source, pollSize = 4, writeSize = 2, nackDelay = 1.second)
+                         .flatMap(_.consume(_ => running.succeed(()) *> gate.await).forkScoped)
+                         *> running.await
+                     }
+        got       <- claimed.get
+        a         <- acked.get
+        n         <- nacked.get
+      yield s"run $run: claimed=$got ack=$a nack=$n"
+  }

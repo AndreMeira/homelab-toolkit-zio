@@ -15,10 +15,7 @@ import zio.test.*
  * installed its `onInterrupt`, so it records nothing and the assertion fails under load.
  */
 object ScopeOrderingSpec extends ZIOSpecDefault:
-
-  /** Forks `ZIO.never`, recording `label` when interrupted, and completes once it is genuinely parked. */
-  private def parked(order: Ref[List[String]], label: String, started: Promise[Nothing, Unit]) =
-    (started.succeed(()) *> ZIO.never).onInterrupt(order.update(_ :+ label))
+  import Support.*
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("scope ordering")(
     test("a fiber forked inside an uninterruptible region inherits that status") {
@@ -76,3 +73,11 @@ object ScopeOrderingSpec extends ZIOSpecDefault:
       yield assertTrue(seen == List("fetcher stopped", "drain ran"))
     },
   ) @@ TestAspect.withLiveClock @@ TestAspect.timeout(20.seconds)
+
+  /** A fiber that parks, and says so when it is interrupted. */
+  private object Support {
+
+    /** Forks `ZIO.never`, recording `label` when interrupted, and completes once it is genuinely parked. */
+    def parked(order: Ref[List[String]], label: String, started: Promise[Nothing, Unit]) =
+      (started.succeed(()) *> ZIO.never).onInterrupt(order.update(_ :+ label))
+  }

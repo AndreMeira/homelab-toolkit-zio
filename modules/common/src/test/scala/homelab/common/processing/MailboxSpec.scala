@@ -19,58 +19,7 @@ import java.util.concurrent.atomic.AtomicInteger
 // else the inbox sees is handed on rather than swallowed. Driven with promises, yields, and short live
 // durations where time itself is under test; a suite timeout turns a wedged expectation into a failure.
 object MailboxSpec extends ZIOSpecDefault:
-
-  final private case class Broken(reason: String) extends ApplicationError.DecodingError:
-    override def message: String = reason
-
-  private given Encoder[String] with
-    override def encode(value: String): Array[Byte] = value.getBytes
-
-  private given Decoder[String] with
-    override def decode(value: Array[Byte]): Either[ApplicationError.DecodingError, String] =
-      Right(new String(value))
-
-  private given Decoder[Int] with
-    override def decode(value: Array[Byte]): Either[ApplicationError.DecodingError, Int] =
-      new String(value).toIntOption.toRight(Broken(s"not a number: ${new String(value)}"))
-
-  /** Everything a test needs: the inbox, the pipe feeding it, and whatever it could not match. */
-  final private case class Fixture(
-    inbox: Incoming[AdapterError],
-    pipe: Pipe[Nothing, Message],
-    forwarded: Ref[List[Message]],
-  )
-
-  /** Addresses are minted in order, so a test can tell two expectations apart by name. */
-  private def location(counter: Ref[Int]): Location[AdapterError] = new Location[AdapterError]:
-    override def get: IO[AdapterError, Address]         = ZIO.succeed(Address("inbox"))
-    override def droppoff[A]: IO[AdapterError, Address] = counter.updateAndGet(_ + 1).map(n => Address(s"drop-$n"))
-
-  /** A producer that keeps what it is given, in arrival order. */
-  private def recorder(seen: Ref[List[Message]]): Producer[Nothing, Message] =
-    message => seen.update(_ :+ message)
-
-  private def fixture(sweepInterval: Duration = Incoming.defaultSweepInterval): UIO[Fixture] =
-    for
-      counter   <- Ref.make(0)
-      forwarded <- Ref.make(List.empty[Message])
-      queue     <- Queue.unbounded[Message]
-      pipe       = Pipe.fromQueue(queue)
-      inbox     <- Incoming.make[AdapterError](location(counter), pipe, Some(recorder(forwarded)), sweepInterval)
-    yield Fixture(inbox, pipe, forwarded)
-
-  /**
-   * Wait until `fiber` has actually parked. `yieldNow` only offers it the chance to run; a test that turns
-   * on whether the wait has begun needs to know that it has, or it silently stops discriminating.
-   */
-  private def parked(fiber: Fiber.Runtime[?, ?]): UIO[Unit] =
-    (ZIO.yieldNow *> fiber.status).repeatUntil {
-      case _: Fiber.Status.Suspended => true
-      case _                         => false
-    }.unit
-
-  /** The payloads that reached a recorder, decoded as text, in arrival order. */
-  private def texts(messages: List[Message]): List[String] = messages.map(message => new String(message.payload))
+  import Support.{ *, given }
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("Mailbox")(
     test("resolves an expectation with the reply sent to its address") {
@@ -237,3 +186,59 @@ object MailboxSpec extends ZIOSpecDefault:
       }
     },
   ) @@ TestAspect.withLiveClock @@ TestAspect.timeout(60.seconds)
+
+  /** The inbox these tests read, the pipe feeding it, and the codecs it needs. */
+  private object Support {
+
+    final case class Broken(reason: String) extends ApplicationError.DecodingError:
+      override def message: String = reason
+
+    given Encoder[String] with
+      override def encode(value: String): Array[Byte] = value.getBytes
+
+    given Decoder[String] with
+      override def decode(value: Array[Byte]): Either[ApplicationError.DecodingError, String] =
+        Right(new String(value))
+
+    given Decoder[Int] with
+      override def decode(value: Array[Byte]): Either[ApplicationError.DecodingError, Int] =
+        new String(value).toIntOption.toRight(Broken(s"not a number: ${new String(value)}"))
+
+    /** Everything a test needs: the inbox, the pipe feeding it, and whatever it could not match. */
+    final case class Fixture(
+      inbox: Incoming[AdapterError],
+      pipe: Pipe[Nothing, Message],
+      forwarded: Ref[List[Message]],
+    )
+
+    /** Addresses are minted in order, so a test can tell two expectations apart by name. */
+    def location(counter: Ref[Int]): Location[AdapterError] = new Location[AdapterError]:
+      override def get: IO[AdapterError, Address]         = ZIO.succeed(Address("inbox"))
+      override def droppoff[A]: IO[AdapterError, Address] = counter.updateAndGet(_ + 1).map(n => Address(s"drop-$n"))
+
+    /** A producer that keeps what it is given, in arrival order. */
+    def recorder(seen: Ref[List[Message]]): Producer[Nothing, Message] =
+      message => seen.update(_ :+ message)
+
+    def fixture(sweepInterval: Duration = Incoming.defaultSweepInterval): UIO[Fixture] =
+      for
+        counter   <- Ref.make(0)
+        forwarded <- Ref.make(List.empty[Message])
+        queue     <- Queue.unbounded[Message]
+        pipe       = Pipe.fromQueue(queue)
+        inbox     <- Incoming.make[AdapterError](location(counter), pipe, Some(recorder(forwarded)), sweepInterval)
+      yield Fixture(inbox, pipe, forwarded)
+
+    /**
+     * Wait until `fiber` has actually parked. `yieldNow` only offers it the chance to run; a test that turns
+     * on whether the wait has begun needs to know that it has, or it silently stops discriminating.
+     */
+    def parked(fiber: Fiber.Runtime[?, ?]): UIO[Unit] =
+      (ZIO.yieldNow *> fiber.status).repeatUntil {
+        case _: Fiber.Status.Suspended => true
+        case _                         => false
+      }.unit
+
+    /** The payloads that reached a recorder, decoded as text, in arrival order. */
+    def texts(messages: List[Message]): List[String] = messages.map(message => new String(message.payload))
+  }

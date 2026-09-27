@@ -9,15 +9,7 @@ import java.nio.file.{ Files, Path }
 
 
 object ProjectedTokenProviderSpec extends ZIOSpecDefault:
-
-  private def tempTokenFile(contents: String): ZIO[Scope, Throwable, Path] =
-    ZIO.acquireRelease(
-      ZIO.attempt {
-        val path = Files.createTempFile("sa-token", ".jwt")
-        Files.writeString(path, contents)
-        path
-      }
-    )(path => ZIO.attempt(Files.deleteIfExists(path)).ignore)
+  import Support.*
 
   def spec = suite("ProjectedTokenProvider")(
     test("reads the token, trimming the trailing newline") {
@@ -44,3 +36,16 @@ object ProjectedTokenProviderSpec extends ZIOSpecDefault:
       yield assertTrue(exit.swap.exists(_.isInstanceOf[ProjectedTokenProvider.TokenUnavailable]))
     },
   )
+
+  /** A token file that lives as long as the scope around it. */
+  private object Support {
+
+    def tempTokenFile(contents: String): ZIO[Scope, Throwable, Path] =
+      ZIO.acquireRelease(
+        ZIO.attempt {
+          val path = Files.createTempFile("sa-token", ".jwt")
+          Files.writeString(path, contents)
+          path
+        }
+      )(path => ZIO.attempt(Files.deleteIfExists(path)).ignore)
+  }

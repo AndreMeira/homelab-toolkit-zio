@@ -13,46 +13,7 @@ import zio.test.*
  * order in `PollConsumer.make` exists for them, and nothing else would catch it being wrong.
  */
 object PollConsumerSpec extends ZIOSpecDefault:
-
-  /** A store recording every claim and every settlement '''call''', so batching is observable, not inferred. */
-  final private class Recording(
-    available: Queue[Int],
-    val asks: Ref[List[Int]],
-    val handed: Ref[List[Int]],
-    val ackCalls: Ref[List[Chunk[Int]]],
-    val nackCalls: Ref[List[Chunk[Int]]],
-    val nackWaits: Ref[List[Duration]],
-    settleDelay: Duration,
-  ) extends PollConsumer.Source[Nothing, Int]:
-    override def claim(upTo: Int): IO[Nothing, Chunk[Int]]                     =
-      for
-        _      <- asks.update(_ :+ upTo)
-        claims <- available.takeUpTo(upTo)
-        _      <- handed.update(_ ++ claims)
-      yield claims
-    override def ack(elements: Chunk[Int]): IO[Nothing, Unit]                  =
-      ZIO.sleep(settleDelay) *> ackCalls.update(_ :+ elements)
-    override def nack(elements: Chunk[Int], wait: Duration): IO[Nothing, Unit] =
-      ZIO.sleep(settleDelay) *> nackCalls.update(_ :+ elements) *> nackWaits.update(_ :+ wait)
-
-    /** Park until `count` elements have actually been claimed — a load-proof stand-in for sleeping. */
-    def awaitHandedOut(count: Int): UIO[Unit] = handed.get.map(_.size).repeatUntil(_ == count).unit
-
-    /** Make one more element available, as something outside the consumer would. */
-    def add(element: Int): UIO[Unit] = available.offer(element).unit
-
-  private def recording(elements: List[Int], settleDelay: Duration = Duration.Zero): UIO[Recording] =
-    for
-      available <- Queue.unbounded[Int]
-      _         <- available.offerAll(elements)
-      asks      <- Ref.make(List.empty[Int])
-      handed    <- Ref.make(List.empty[Int])
-      acks      <- Ref.make(List.empty[Chunk[Int]])
-      nacks     <- Ref.make(List.empty[Chunk[Int]])
-      waits     <- Ref.make(List.empty[Duration])
-    yield Recording(available, asks, handed, acks, nacks, waits, settleDelay)
-
-  extension (calls: List[Chunk[Int]]) private def flat: List[Int] = calls.flatten.sorted
+  import Support.*
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("PollConsumer")(
     test("a consumer torn down mid-flight still records the verdict it was holding") {
@@ -322,3 +283,47 @@ object PollConsumerSpec extends ZIOSpecDefault:
       yield assertTrue(offered == List(1))
     },
   ) @@ TestAspect.withLiveClock @@ TestAspect.timeout(30.seconds)
+
+  /** A store recording every claim and every settlement call. */
+  private object Support {
+
+    /** A store recording every claim and every settlement call, so batching is observable, not inferred. */
+    final class Recording(
+      available: Queue[Int],
+      val asks: Ref[List[Int]],
+      val handed: Ref[List[Int]],
+      val ackCalls: Ref[List[Chunk[Int]]],
+      val nackCalls: Ref[List[Chunk[Int]]],
+      val nackWaits: Ref[List[Duration]],
+      settleDelay: Duration,
+    ) extends PollConsumer.Source[Nothing, Int]:
+      override def claim(upTo: Int): IO[Nothing, Chunk[Int]]                     =
+        for
+          _      <- asks.update(_ :+ upTo)
+          claims <- available.takeUpTo(upTo)
+          _      <- handed.update(_ ++ claims)
+        yield claims
+      override def ack(elements: Chunk[Int]): IO[Nothing, Unit]                  =
+        ZIO.sleep(settleDelay) *> ackCalls.update(_ :+ elements)
+      override def nack(elements: Chunk[Int], wait: Duration): IO[Nothing, Unit] =
+        ZIO.sleep(settleDelay) *> nackCalls.update(_ :+ elements) *> nackWaits.update(_ :+ wait)
+
+      /** Park until `count` elements have actually been claimed — a load-proof stand-in for sleeping. */
+      def awaitHandedOut(count: Int): UIO[Unit] = handed.get.map(_.size).repeatUntil(_ == count).unit
+
+      /** Make one more element available, as something outside the consumer would. */
+      def add(element: Int): UIO[Unit] = available.offer(element).unit
+
+    def recording(elements: List[Int], settleDelay: Duration = Duration.Zero): UIO[Recording] =
+      for
+        available <- Queue.unbounded[Int]
+        _         <- available.offerAll(elements)
+        asks      <- Ref.make(List.empty[Int])
+        handed    <- Ref.make(List.empty[Int])
+        acks      <- Ref.make(List.empty[Chunk[Int]])
+        nacks     <- Ref.make(List.empty[Chunk[Int]])
+        waits     <- Ref.make(List.empty[Duration])
+      yield Recording(available, asks, handed, acks, nacks, waits, settleDelay)
+
+    extension (calls: List[Chunk[Int]]) def flat: List[Int] = calls.flatten.sorted
+  }

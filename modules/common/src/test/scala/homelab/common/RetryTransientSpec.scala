@@ -8,12 +8,7 @@ import zio.test.*
 
 
 object RetryTransientSpec extends ZIOSpecDefault:
-
-  private case object Blip extends TransientError:
-    override def message: String = "transient blip"
-
-  private case object Fatal extends ApplicationError:
-    override def message: String = "not transient"
+  import Support.*
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("retryTransient")(
     test("retries a transient failure and eventually succeeds") {
@@ -55,3 +50,13 @@ object RetryTransientSpec extends ZIOSpecDefault:
       yield assertTrue(afterOne == 2, exit == Left(Blip), total == 4)
     },
   )
+
+  /** One failure worth retrying, and one that is not. */
+  private object Support {
+
+    case object Blip extends TransientError:
+      override def message: String = "transient blip"
+
+    case object Fatal extends ApplicationError:
+      override def message: String = "not transient"
+  }

@@ -15,8 +15,7 @@ import zio.test.*
  * parallelism because the semaphore hides it.
  */
 object ProcessorParallelSpec extends ZIOSpecDefault:
-
-  private val parallelism = 8
+  import Support.*
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("Processor.parallel")(
     test("handles run concurrently, up to the parallelism") {
@@ -72,3 +71,9 @@ object ProcessorParallelSpec extends ZIOSpecDefault:
       live.updateAndGet(_ + 1).flatMap(running => peak.update(_ max running))
         *> ZIO.sleep(50.millis)
         *> live.update(_ - 1)
+
+  /** How many at once. */
+  private object Support {
+
+    val parallelism = 8
+  }

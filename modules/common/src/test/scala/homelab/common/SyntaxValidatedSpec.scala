@@ -8,12 +8,7 @@ import zio.test.*
 
 
 object SyntaxValidatedSpec extends ZIOSpecDefault:
-
-  private case class TooShort(field: String) extends ValidationError.InvalidInput:
-    def message: String = s"$field is too short"
-
-  private case class Refused(problems: NonEmptyChunk[ValidationError.InvalidInput]) extends ApplicationError.DomainError:
-    def message: String = problems.map(_.message).mkString("; ")
+  import Support.*
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("Validated")(
     test("a success passes the value through") {
@@ -37,3 +32,13 @@ object SyntaxValidatedSpec extends ZIOSpecDefault:
       yield assertTrue(failure.isInstanceOf[Refused], failure.message == "name is too short")
     },
   )
+
+  /** A problem a field can have, and the refusal that collects them. */
+  private object Support {
+
+    case class TooShort(field: String) extends ValidationError.InvalidInput:
+      def message: String = s"$field is too short"
+
+    case class Refused(problems: NonEmptyChunk[ValidationError.InvalidInput]) extends ApplicationError.DomainError:
+      def message: String = problems.map(_.message).mkString("; ")
+  }

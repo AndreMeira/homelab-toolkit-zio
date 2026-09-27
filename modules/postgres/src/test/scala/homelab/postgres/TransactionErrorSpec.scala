@@ -9,8 +9,7 @@ import java.sql.SQLException
 
 
 object TransactionErrorSpec extends ZIOSpecDefault:
-
-  private def sqlError(state: String): SQLException = new SQLException("boom", state)
+  import Support.*
 
   def spec = suite("TransactionError.from")(
     test("serialization failure (40001) → a transient TransactionConflict") {
@@ -32,3 +31,9 @@ object TransactionErrorSpec extends ZIOSpecDefault:
       assertTrue(TransactionError.from(wrapped).isInstanceOf[TransactionConflict])
     },
   )
+
+  /** A driver error carrying a chosen SQL state. */
+  private object Support {
+
+    def sqlError(state: String): SQLException = new SQLException("boom", state)
+  }

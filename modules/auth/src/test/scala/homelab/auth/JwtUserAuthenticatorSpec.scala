@@ -12,23 +12,7 @@ import java.util.UUID
 
 
 object JwtUserAuthenticatorSpec extends ZIOSpecDefault:
-
-  private val userId = UUID.fromString("00000000-0000-0000-0000-00000000000a")
-  private val token  = SignedToken("x") // ignored by the stub verifier
-
-  private case object BackendDown extends AdapterError:
-    override def message: String = "backend down"
-
-  private def claim(content: String = """{"name":"alice"}""", sub: Option[String] = Some(userId.toString)): JwtClaim =
-    JwtClaim(content = content, subject = sub)
-
-  private def verifierReturning(c: JwtClaim): TokenVerifier = new TokenVerifier:
-    def verify(token: SignedToken): IO[AdapterError | UnauthorisedError, JwtClaim] = ZIO.succeed(c)
-
-  private def verifierFailing(error: AdapterError | UnauthorisedError): TokenVerifier = new TokenVerifier:
-    def verify(token: SignedToken): IO[AdapterError | UnauthorisedError, JwtClaim] = ZIO.fail(error)
-
-  private def authenticator(c: JwtClaim) = JwtUserAuthenticator(verifierReturning(c))
+  import Support.*
 
   def spec = suite("JwtUserAuthenticator")(
     test("authenticate a valid token → Authenticated") {
@@ -61,3 +45,24 @@ object JwtUserAuthenticatorSpec extends ZIOSpecDefault:
       yield assertTrue(exit.swap.exists(_ == BackendDown))
     },
   )
+
+  /** The claims these tests authenticate, and verifiers that return or refuse them. */
+  private object Support {
+
+    val userId = UUID.fromString("00000000-0000-0000-0000-00000000000a")
+    val token  = SignedToken("x") // ignored by the stub verifier
+
+    case object BackendDown extends AdapterError:
+      override def message: String = "backend down"
+
+    def claim(content: String = """{"name":"alice"}""", sub: Option[String] = Some(userId.toString)): JwtClaim =
+      JwtClaim(content = content, subject = sub)
+
+    def verifierReturning(c: JwtClaim): TokenVerifier = new TokenVerifier:
+      def verify(token: SignedToken): IO[AdapterError | UnauthorisedError, JwtClaim] = ZIO.succeed(c)
+
+    def verifierFailing(error: AdapterError | UnauthorisedError): TokenVerifier = new TokenVerifier:
+      def verify(token: SignedToken): IO[AdapterError | UnauthorisedError, JwtClaim] = ZIO.fail(error)
+
+    def authenticator(c: JwtClaim) = JwtUserAuthenticator(verifierReturning(c))
+  }

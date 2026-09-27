@@ -12,60 +12,7 @@ import zio.test.*
 // (i.e. CI) skips it entirely. Ported from the incubator's `flow/v2/SerialBenchSpec` onto the shipped
 // `homelab.common.flow.batching` classes via the public `Batcher.serial` / `Batcher.deduplicated` facade.
 object BatcherBenchSpec extends ZIOSpecDefault:
-
-  // BE = Nothing: `input.map` preserves lineage, so the batcher's verifyLineage always passes.
-  private val fastLogic: Batcher.Logic[Nothing, Nothing, Int, Int] =
-    input => ZIO.succeed(input.map(i => i))
-
-  private val slowLogic: Batcher.Logic[Nothing, Nothing, Int, Int] =
-    input => ZIO.sleep(1.millis).as(input.map(i => i))
-
-  // A downstream that handles one call at a time (rate-limited API / single inmemory): each `logic.run`
-  // takes ~1ms under the gate, and `calls` counts how many physical downstream calls actually happen.
-  private def serialisedLogic(gate: Semaphore, calls: Ref[Int]): Batcher.Logic[Nothing, Nothing, Int, Int] =
-    input =>
-      for
-        _ <- calls.update(_ + 1)
-        _ <- gate.withPermit(ZIO.sleep(1.millis))
-      yield input.map(i => i)
-
-  // Counts total items handed to the downstream (summed batch sizes) and returns each item's key (`_ % keys`),
-  // so a caller of key k always gets k — dedup is result-preserving here.
-  private def countingLogic(items: Ref[Int], keys: Int): Batcher.Logic[Nothing, Nothing, Int, Int] =
-    input => items.update(_ + input.values.size) *> ZIO.sleep(1.millis).as(input.map(_ % keys))
-
-  // A downstream whose cost scales with batch size: `perItemMicros` of work per item. This is where dedup
-  // (fewer items) turns into wall-clock, unlike a fixed per-call cost.
-  private def perItemLogic(items: Ref[Int], keys: Int, perItemMicros: Long): Batcher.Logic[Nothing, Nothing, Int, Int] =
-    input =>
-      val size = input.values.size
-      items.update(_ + size) *> ZIO.sleep((perItemMicros * size).micros).as(input.map(_ % keys))
-
-  // Tracks peak single batch (≈ peak live state) and total items handed downstream (≈ promises allocated).
-  private def hotKeyLogic(maxBatch: Ref[Int], items: Ref[Int]): Batcher.Logic[Nothing, Nothing, Int, Int] =
-    input =>
-      val size = input.values.size
-      maxBatch.update(_ max size) *> items.update(_ + size) *> ZIO.sleep(1.millis).as(input.map(_ => 0))
-
-  /** Average wall-clock cost of `op`, in microseconds per call, over `n` runs. */
-  private def measure[E](n: Int)(op: ZIO[Any, E, Any]): ZIO[Any, E, Double] =
-    for
-      start <- Clock.nanoTime
-      _     <- op.repeatN(n - 1)
-      end   <- Clock.nanoTime
-    yield (end - start).toDouble / n / 1000.0
-
-  private def bench(label: String, logic: Batcher.Logic[Nothing, Nothing, Int, Int], warmup: Int, n: Int) =
-    ZIO.scoped:
-      for
-        batcher <- Batcher.serial(1, logic)
-        rawOp    = logic.run(Batch.single(7)).map(_.values.headOption)
-        batOp    = batcher.run(7)
-        _       <- rawOp.repeatN(warmup - 1) *> batOp.repeatN(warmup - 1) // JIT + alloc warmup
-        raw     <- measure(n)(rawOp)
-        bat     <- measure(n)(batOp)
-        _       <- ZIO.debug(f"[$label] raw=$raw%8.3f µs/call   batcher=$bat%8.3f µs/call   overhead=${bat - raw}%8.3f µs")
-      yield ()
+  import Support.*
 
   def spec = suite("Batcher rough microbenchmark")(
     test("prints raw vs batcher per-call cost for ~0ms and 1ms logic; batcher stays correct") {
@@ -178,3 +125,61 @@ object BatcherBenchSpec extends ZIOSpecDefault:
         yield assertTrue(serRes.forall(_ == 0), dedRes.forall(_ == 0), dedM < serM, dedI < serI)
     } @@ TestAspect.withLiveClock,
   ) @@ TestAspect.ifPropSet("benchmarks") // opt-in: `sbt -Dbenchmarks=true …`; skipped in CI (no prop set)
+
+  /** The downstreams these benchmarks run against, and how a call's cost is measured. */
+  private object Support {
+
+    // BE = Nothing: `input.map` preserves lineage, so the batcher's verifyLineage always passes.
+    val fastLogic: Batcher.Logic[Nothing, Nothing, Int, Int] =
+      input => ZIO.succeed(input.map(i => i))
+
+    val slowLogic: Batcher.Logic[Nothing, Nothing, Int, Int] =
+      input => ZIO.sleep(1.millis).as(input.map(i => i))
+
+    // A downstream that handles one call at a time (rate-limited API / single inmemory): each `logic.run`
+    // takes ~1ms under the gate, and `calls` counts how many physical downstream calls actually happen.
+    def serialisedLogic(gate: Semaphore, calls: Ref[Int]): Batcher.Logic[Nothing, Nothing, Int, Int] =
+      input =>
+        for
+          _ <- calls.update(_ + 1)
+          _ <- gate.withPermit(ZIO.sleep(1.millis))
+        yield input.map(i => i)
+
+    // Counts total items handed to the downstream (summed batch sizes) and returns each item's key (`_ % keys`),
+    // so a caller of key k always gets k — dedup is result-preserving here.
+    def countingLogic(items: Ref[Int], keys: Int): Batcher.Logic[Nothing, Nothing, Int, Int] =
+      input => items.update(_ + input.values.size) *> ZIO.sleep(1.millis).as(input.map(_ % keys))
+
+    // A downstream whose cost scales with batch size: `perItemMicros` of work per item. This is where dedup
+    // (fewer items) turns into wall-clock, unlike a fixed per-call cost.
+    def perItemLogic(items: Ref[Int], keys: Int, perItemMicros: Long): Batcher.Logic[Nothing, Nothing, Int, Int] =
+      input =>
+        val size = input.values.size
+        items.update(_ + size) *> ZIO.sleep((perItemMicros * size).micros).as(input.map(_ % keys))
+
+    // Tracks peak single batch (≈ peak live state) and total items handed downstream (≈ promises allocated).
+    def hotKeyLogic(maxBatch: Ref[Int], items: Ref[Int]): Batcher.Logic[Nothing, Nothing, Int, Int] =
+      input =>
+        val size = input.values.size
+        maxBatch.update(_ max size) *> items.update(_ + size) *> ZIO.sleep(1.millis).as(input.map(_ => 0))
+
+    /** Average wall-clock cost of `op`, in microseconds per call, over `n` runs. */
+    def measure[E](n: Int)(op: ZIO[Any, E, Any]): ZIO[Any, E, Double] =
+      for
+        start <- Clock.nanoTime
+        _     <- op.repeatN(n - 1)
+        end   <- Clock.nanoTime
+      yield (end - start).toDouble / n / 1000.0
+
+    def bench(label: String, logic: Batcher.Logic[Nothing, Nothing, Int, Int], warmup: Int, n: Int) =
+      ZIO.scoped:
+        for
+          batcher <- Batcher.serial(1, logic)
+          rawOp    = logic.run(Batch.single(7)).map(_.values.headOption)
+          batOp    = batcher.run(7)
+          _       <- rawOp.repeatN(warmup - 1) *> batOp.repeatN(warmup - 1) // JIT + alloc warmup
+          raw     <- measure(n)(rawOp)
+          bat     <- measure(n)(batOp)
+          _       <- ZIO.debug(f"[$label] raw=$raw%8.3f µs/call   batcher=$bat%8.3f µs/call   overhead=${bat - raw}%8.3f µs")
+        yield ()
+  }
