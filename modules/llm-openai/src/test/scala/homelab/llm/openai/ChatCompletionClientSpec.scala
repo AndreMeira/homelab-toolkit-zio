@@ -59,7 +59,7 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
           recorder <- Recorder.make
           backend   = recorder.httpClient(response = empty)
           _        <- ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop).complete(rich).ignore
-          body     <- recorder.body
+          body     <- recorder.requestBody
         yield assertTrue(
           body.exists(_.contains(""""n":3""")),
           body.exists(_.contains(""""max_tokens":64""")),
@@ -73,7 +73,7 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
           backend   = recorder.httpClient(response = empty)
           request   = asked.copy(toolChoice = Some(ToolChoice.Required))
           _        <- ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop).complete(request).ignore
-          body     <- recorder.body
+          body     <- recorder.requestBody
         yield assertTrue(body.exists(_.contains(""""tool_choice":"required"""")))
       },
       test("a response format carries the schema the answer must conform to") {
@@ -83,7 +83,7 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
           backend   = recorder.httpClient(response = empty)
           request   = asked.copy(responseFormat = Some(ResponseFormat.conforming("place", schema)))
           _        <- ChatCompletionClient.openRouter(backend, "api-key", None, Monitor.Noop).complete(request).ignore
-          body     <- recorder.body
+          body     <- recorder.requestBody
         yield assertTrue(
           body.exists(_.contains(""""response_format":{"type":"json_schema","json_schema":{"name":"place"""")),
           body.exists(_.contains(""""strict":true""")),
@@ -97,7 +97,7 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
                         .openRouter(backend, "api-key", None, Monitor.Noop)
                         .complete(asked, Json.Obj("service_tier" -> Json.Str("flex")))
                         .ignore
-          body     <- recorder.body
+          body     <- recorder.requestBody
         yield assertTrue(body.exists(_.contains(""""service_tier":"flex"""")))
       },
     ),
@@ -240,7 +240,7 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
     /** Holds the last request a backend of its making was given, and reads it back. */
     case class Recorder(recorded: Ref[Option[GenericRequest[?, ?]]]):
       def seen: UIO[Option[GenericRequest[?, ?]]] = recorded.get
-      def body: UIO[Option[String]]               = seen.map(_.map(_.body.show))
+      def requestBody: UIO[Option[String]]        = seen.map(_.map(_.body.show))
 
       def httpClient(response: String, status: StatusCode = StatusCode.Ok): BackendStub[Task] =
         HttpClient.stubWith(response, status)(request => recorded.set(Some(request)))
