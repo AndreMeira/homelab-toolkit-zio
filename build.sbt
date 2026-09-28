@@ -24,7 +24,7 @@ val zioOtelVersion        = "3.1.19"
 val otelVersion           = "1.66.0"
 val fabric8Version        = "7.9.0"
 val testcontainersVersion = "1.20.6"
-val sttpVersion           = "4.0.26"
+val sttpVersion           = "4.0.27"
 
 ThisBuild / scalaVersion := scala3Version
 ThisBuild / organization := "com.andremeira.homelab"
