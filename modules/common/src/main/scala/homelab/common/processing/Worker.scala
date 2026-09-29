@@ -9,7 +9,7 @@ import zio.{ IO, Promise, ZIO }
 /**
  * A [[Processor]] that answers: each message carries the promise its reply is routed to, so a caller can
  * [[ask]] and wait, or [[send]] and not. Request/reply on top of an ordinary pipe — the queue is the mailbox,
- * and the [[Graph]] is what starts it.
+ * and whoever owns the worker runs it.
  *
  * A failing `receive` fails *its own caller* and nothing else: the error goes to that message's promise and
  * the loop carries on. Only a defect stops the worker, which is the usual bargain — a defect is a bug, not an
@@ -47,8 +47,8 @@ trait Worker[E <: ApplicationError, A, B] extends Processor[E, (A, Promise[E, B]
   /**
    * Queue `message` and wait for its reply.
    *
-   * Waits indefinitely: nothing here times out, and a worker that was never started — never registered with a
-   * [[Graph]], or registered after it ran — leaves its callers waiting forever rather than failing them.
+   * Waits indefinitely: nothing here times out, and a worker whose `run` was never started leaves its callers
+   * waiting forever rather than failing them.
    *
    * @param message the message to queue
    * @return the reply; aborts with `E` if handling it fails

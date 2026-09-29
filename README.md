@@ -85,8 +85,7 @@ Git-source and JitPack alternatives are in
   family (`Wire`, `QueueProducer`/`QueueConsumer`, `Distributer`) usable in production, not just in tests;
   and `PollConsumer` for stores that never call you.
   → [`docs/architecture/messaging.md`](docs/architecture/messaging.md)
-- **`processing`** — `Processor`, `Worker`, `Stateful`, `Workflow`, and the `Graph` / `Node` that start and
-  supervise them; `Mailbox` for request-reply.
+- **`processing`** — `Processor`, `Worker`, `Stateful`, `Workflow`; `Mailbox` for request-reply.
   → [`docs/architecture/processing.md`](docs/architecture/processing.md),
   [`docs/architecture/mailbox.md`](docs/architecture/mailbox.md)
 - **`flow`** — `Batcher` (serial, deduplicated, distributed, adaptive), `KeyedQueue`, `KeyLock`, `Permit`,

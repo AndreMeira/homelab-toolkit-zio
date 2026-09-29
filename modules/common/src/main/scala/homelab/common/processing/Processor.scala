@@ -7,28 +7,20 @@ import zio.*
 
 
 /**
- * A [[Node]] with an input: it consumes `A` and emits however it likes — to zero, one, or many
- * [[Producer]]s held as its own fields. Emission is intentionally unspecified here: what a processor does
+ * Something that runs continuously over an input: it consumes `A` and emits however it likes — to zero,
+ * one, or many [[Producer]]s held as its own fields. Emission is intentionally unspecified here: what a processor does
  * with a value is its own business, and the shapes worth naming are named ([[Worker]] replies to its caller,
  * [[Stateful]] advances a keyed state). One that fans out to several outputs — success plus dead-letter,
  * say — holds those producers itself, and overrides `run` only if the standard loop does not suit.
  *
- * Its failures are [[ApplicationError]]s: a processor is something a [[Graph]] runs, and a graph has one
- * error channel for everything in it. Wrap whatever a library throws at the adapter edge, as everything else
- * here does, rather than widening this.
+ * Its failures are [[ApplicationError]]s: processors are started together and raced under one scope, which
+ * has one error channel for everything in it. Wrap whatever a library throws at the adapter edge, as
+ * everything else here does, rather than widening this.
  *
  * @tparam E the error processing aborts with
  * @tparam A the value consumed
  */
 trait Processor[+E <: ApplicationError, A] {
-
-  /**
-   * This processor's identity to a [[Graph]]. A `val`, so one instance has one key for its whole life: a
-   * graph that meets the same processor twice — registered directly and reached again as someone's child —
-   * starts it once. Reference identity is the right notion here; two structurally equal processors over
-   * different pipes are two processors.
-   */
-  private[processing] val key: Processor.Key = new Processor.Key
 
   /**
    * The intake this processor consumes from.
@@ -56,9 +48,6 @@ trait Processor[+E <: ApplicationError, A] {
 
 
 object Processor {
-
-  /** A processor's identity, compared by reference — see [[Processor.key]]. */
-  private[processing] class Key
 
   /**
    * A [[Processor]] that handles values concurrently up to a configured `parallelism` limit.

@@ -18,9 +18,9 @@ import zio.*
  * `consume`, and would make the pipe depend on its consumer settling the promise before returning — a
  * contract pipes do not otherwise impose.
  *
- * As a processor it composes with everything already there: a [[homelab.common.processing.Graph]] starts it,
- * a `Node` can own it as a child of the worker it fronts, and `Processor.Parallel`'s limit *is* the bound on
- * concurrent in-flight remote requests. The worker itself is untouched and stays purely local.
+ * As a processor it composes with everything already there: it is started like any other, and
+ * `Processor.Parallel`'s limit *is* the bound on concurrent in-flight remote requests. The worker itself is
+ * untouched and stays purely local.
  */
 object MailboxBridge {
 

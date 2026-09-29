@@ -193,4 +193,4 @@ it needs neither the thread nor rebuilding.
 - **No ack/offset surface.** Settlement is the adapter's, driven by whether `logic` succeeded.
 - **No key parameter on `emit`.** See *Keying*.
 - **No topology description.** There is no graph of channels here — wiring is ordinary code, and what *runs*
-  the endpoints is [`processing.md`](./processing.md)'s `Graph`.
+  an endpoint is a [`processing.md`](./processing.md) `Processor`, started by whoever owns it.
