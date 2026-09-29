@@ -8,6 +8,11 @@ tags: [messaging, pubsub, mailbox, nats, zio, hexagonal, partitioning]
 
 # Messaging for the ZIO toolkit — Pub/Sub and Mailbox
 
+> **Stamped 2026-09-29.** Kept as written. Two things have moved since: batches are `Chunk[A]`, not `List[A]`
+> (`architecture/sequence-types.md`), and the `Batched` names are type aliases rather than traits — the
+> "traits earn their keep" principle below, applied to its own example. See
+> `batched-is-a-type-not-a-trait.md`.
+
 Design rationale for adding a **messaging** capability to `homelab-toolkit-zio`. It is inspired by a
 prior standalone experiment, `~/Dev/projects/zio-processor`, which explored a substrate-agnostic
 distributed-computation framework over ZIO. This note records *what we take from that work*, *how it is

@@ -123,9 +123,7 @@ object BatchConsumer:
   private def decoded[A: Decoder](
     consumer: ConsumerContract.Batched[NatsError, Message]
   ): ConsumerContract.Batched[NatsError, A] =
-    val values = consumer.mapZIO(decode[A])
-    new ConsumerContract.Batched[NatsError, A]:
-      override def consume[E2 >: NatsError](logic: Chunk[A] => IO[E2, Unit]): IO[E2, Unit] = values.consume(logic)
+    consumer.mapZIO(decode[A])
 
   /**
    * Decode a batch, lifting the first malformed payload into the error channel.

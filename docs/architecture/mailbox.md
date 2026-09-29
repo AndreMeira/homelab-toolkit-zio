@@ -2,7 +2,7 @@
 title: Mailbox — a serialisable promise
 type: architecture
 status: current
-updated: 2026-08-16
+updated: 2026-09-29
 tags: [mailbox, messaging, request-reply, processing, address, codec, zio]
 ---
 
@@ -10,8 +10,8 @@ tags: [mailbox, messaging, request-reply, processing, address, codec, zio]
 
 `homelab.common.processing.Mailbox` — point-to-point delivery to a minted address, and the request-reply
 idiom built on it. One file, one object, seven nested types. Part of the family in
-[`processing.md`](./processing.md): `Incoming` is a `Processor`, so a `Graph` runs it like anything else, and
-it is the remote counterpart to `Worker`'s local request/reply.
+[`processing.md`](./processing.md): `Incoming` is a `Processor`, started like anything else, and it is the
+remote counterpart to `Worker`'s local request/reply.
 
 Supersedes [`docs/research/mailbox-design.md`](../research/mailbox-design.md),
 whose §1–8 describe a different shape (a `Pipe` adapter presenting remote requests to `Worker`, correlation
@@ -73,8 +73,8 @@ through `forward` rather than through a consumer; the handler itself is unchange
 
 `Incoming` is not an adapter, which is why it is not named after one. It holds the expectation table,
 resolves what arrives, sweeps what expired, and leaves an adapter to supply only a `Location` and a
-`Consumer`. `Incoming.make(location, consumer, forward, sweepInterval)` builds one; being a `Processor`, a
-`Graph` drives its intake.
+`Consumer`. `Incoming.make(location, consumer, forward, sweepInterval)` builds one; being a `Processor`, its
+`run` drives the intake.
 
 ## Semantics that are load-bearing
 
@@ -97,7 +97,7 @@ resolves what arrives, sweeps what expired, and leaves an adapter to supply only
 - **Unclaimed messages go to `forward`** — a reply whose holder has gone, a second reply to a resolved
   address, or something that was never a reply at all. Dropped by default (`Producer.noop`), so a process
   that only expects wires nothing. `forwardTo(producer)` derives an inbox that forwards instead; it shares
-  the table and the intake, so it is a *replacement* — give a `Graph` the copy, not both.
+  the table and the intake, so it is a *replacement* — run the copy, not both.
 
 ## What a `Location` implementor owes
 
@@ -168,7 +168,7 @@ expectation is an ordinary publish, and nothing re-implements request-reply.
   existing seam rather than needing anything new.
 
 **Start the inbox before minting anything.** Core NATS subscribes lazily (on the first `consume`) and drops
-messages with no live subscriber, so a `Graph` must be running the `Incoming` before an expectation exists;
+messages with no live subscriber, so the `Incoming` must be running before an expectation exists;
 a reply published earlier is gone, not buffered.
 
 `MessageCodec` is a separate object on purpose: a `given` resolved from inside the object defining it can put

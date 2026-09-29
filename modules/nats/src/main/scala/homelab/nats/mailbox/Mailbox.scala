@@ -94,7 +94,7 @@ object Mailbox {
    * Both halves of a mailbox over one connection, sharing a subject root.
    *
    * @param outgoing where to send
-   * @param incoming where replies land — hand this to a `Graph`, it is a `Processor`
+   * @param incoming where replies land — a `Processor`, run by whoever holds it
    * @param location the naming this mailbox uses, exposed for the Directory case
    */
   final case class Endpoints(
@@ -110,7 +110,7 @@ object Mailbox {
    * [[homelab.common.processing.Processor]], and its subscription is established on the first `consume` —
    * Core NATS subscribes lazily, having no server-side backpressure. Core delivery is fire-and-forget, so a
    * reply published to a droppoff before that first `consume` is dropped by the broker rather than buffered.
-   * A `Graph` must therefore be running this `Incoming` before an expectation is minted; this is the same
+   * This `Incoming` must therefore be running before an expectation is minted; this is the same
    * hazard the Core tests in `NatsSpec` work around by forking the consumer first.
    *
    * @param connection the live connection

@@ -1,15 +1,14 @@
 ---
-title: Processing — Processor, Worker, Stateful, Workflow, Graph
+title: Processing — Processor, Worker, Stateful, Workflow
 type: architecture
 status: current
-updated: 2026-08-16
-tags: [processing, processor, worker, stateful, workflow, graph, node, actor]
+updated: 2026-09-29
+tags: [processing, processor, worker, stateful, workflow, actor]
 ---
 
 # Processing
 
-`homelab.common.processing` — what runs continuously in a service, and the one thing that starts it.
-Everything here derives from `Processor`; the pieces that would be an actor framework elsewhere are assembled
+`homelab.common.processing` — what runs continuously in a service. Everything here derives from `Processor`; the pieces that would be an actor framework elsewhere are assembled
 from parts that already existed.
 
 Code: `modules/common/src/main/scala/homelab/common/processing/`
@@ -19,8 +18,7 @@ Specs: `WorkerSpec`, `WorkflowSpec`, `MailboxSpec`
 Processor ──┬── Worker ──── Stateful          (request/reply, then keyed state)
             ├── Mailbox.Incoming              (see mailbox.md)
             └── Parallel / Batched variants
-Node ──────── children, expanded by Graph
-Workflow ──── a stepper, not a Processor: run by whoever owns it
+Workflow ──── a stepper, not a Processor: no intake to drain
 ```
 
 ## Processor
@@ -32,18 +30,16 @@ trait Processor[+E <: ApplicationError, A]:
   def run: ZIO[Scope, E, Nothing] = Processor.serial(input)(process)
 ```
 
-Three properties do most of the work:
+Two properties do most of the work:
 
-- **`run` never completes successfully.** Its result type is `Nothing`, so a `Graph` racing its processors is
+- **`run` never completes successfully.** Its result type is `Nothing`, so racing several processors is
   fail-fast by construction — the only way a race resolves is a failure.
-- **Errors are `ApplicationError`.** A graph has one error channel for everything in it, so an adapter wraps
-  whatever a library throws at its edge rather than widening this.
-- **Identity is a `val`.** `private[processing] val key` is fresh per instance and compared by reference, so a
-  graph meeting the same processor twice — registered directly, then reached again as someone's child —
-  starts it once. Two structurally equal processors over different pipes are two processors.
+- **Errors are `ApplicationError`.** Whoever runs several processors has one error channel for all of them,
+  so an adapter wraps whatever a library throws at its edge rather than widening this.
 
-`Processor.Parallel` adds a `parallelism` cap with on-demand listener spawning; `Processor.Batched` consumes
-`Consumer.Batched`. Emission is deliberately unspecified: a processor holds whatever producers it needs.
+`Processor.Parallel` adds a `parallelism` cap with on-demand listener spawning. `Processor.Batched[E, A]` is
+`Processor[E, Chunk[A]]` — a name, not a subtype — and a batched parallel processor is
+`Processor.Parallel[E, Chunk[A]]`. Emission is deliberately unspecified: a processor holds whatever producers it needs.
 
 ## Worker — request/reply
 
@@ -102,22 +98,10 @@ so a decorated workflow is still a workflow:
 
 This is the shape that replaced a `Runner` abstraction: composition rather than a second type.
 
-## Graph and Node — the only thing that starts anything
-
-`Graph.run(roots)` expands each root through `Node.children` (children first), deduplicates by processor
-identity, forks each, and races them — so the first failure takes the graph down and the scope tears the rest
-down with it.
-
-`Node(val children: List[Processor[…]])` declares ownership **at construction**, which is what makes cycles
-impossible: you cannot pass children you have not built yet.
-
-The point is that a processor need not be started by whoever built it. `run` is called once, at the top, and
-nothing else in the application has to remember to fork anything.
-
 ## Mailbox
 
 The remote counterpart to `Worker`'s local request/reply: an address you can put in a message, resolved by
-whoever ends up holding it. `Mailbox.Incoming` is a `Processor`, so a `Graph` runs it like everything else.
+whoever ends up holding it. `Mailbox.Incoming` is a `Processor`, started like any other.
 Its own page: [`mailbox.md`](./mailbox.md).
 
 ## Deliberately absent
@@ -127,3 +111,7 @@ Its own page: [`mailbox.md`](./mailbox.md).
 - **No scheduler or dispatcher.** ZIO's runtime is the scheduler; `Processor.Parallel` is the only knob.
 - **No lifecycle callbacks.** A `Scope` closing is the lifecycle; `Stateful.Next.Done` is the ending.
 - **No runner type for `Workflow`.** Combinators return workflows instead.
+- **No `Graph`.** Nothing in the package starts a processor: whoever owns one forks its `run` in the scope of
+  their choosing, and several forked under one scope race to the first failure. A `Graph` / `Node` pair that
+  expanded owned children and started the set was removed on 2026-09-29 as premature; the idea is kept in
+  [`research/processor-graph.md`](../research/processor-graph.md).

@@ -140,7 +140,7 @@ object Mailbox {
    * expectation table, resolves what arrives, and sweeps what expired, leaving an adapter to supply only
    * its [[Location]] and its intake. It is not itself an adapter, which is why it is not named after one.
    *
-   * As a [[Processor]] it belongs to a [[Graph]], which drives its intake.
+   * As a [[Processor]], its `run` is what drives the intake; whoever owns it starts it.
    *
    * Invariant in `E`, alone among the types here: the expectation table is a `Ref` (invariant), and
    * [[forwardTo]] takes a `Producer[E, Message]` as a *parameter* (contravariant). Neither is worth
@@ -200,9 +200,9 @@ object Mailbox {
     /**
      * This inbox again, handing what it cannot match to `producer` instead of dropping it.
      *
-     * The copy shares this inbox's table and intake, so it is a replacement rather than an addition: give a
-     * [[Graph]] the copy, not both, or two loops will drain the same intake. It also has no effect once a
-     * graph is running this one — the copy is a different [[Processor]], and nobody is draining it.
+     * The copy shares this inbox's table and intake, so it is a replacement rather than an addition: run the
+     * copy, not both, or two loops will drain the same intake. It also has no effect once this one is
+     * running — the copy is a different [[Processor]], and nobody is draining it.
      *
      * @param producer where a message goes when no expectation claims it
      * @return an inbox equivalent to this one, forwarding instead of dropping
@@ -330,7 +330,7 @@ object Mailbox {
      * @param forward where a message goes when no expectation claims it; dropped when absent
      * @param sweepInterval the shortest interval between two sweeps of the expectation table
      * @tparam E the error the underlying transport aborts with
-     * @return an inbox ready to be run by a [[Graph]]; never fails
+     * @return an inbox, not yet running; never fails
      */
     def make[E <: ApplicationError](
       location: Location[E],

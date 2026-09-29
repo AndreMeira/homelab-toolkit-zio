@@ -72,15 +72,16 @@ trait Consumer[+E, +A] { self =>
 object Consumer {
 
   /**
-   * A consumer that delivers messages in batches — one `consume` call processes up to a whole
-   * `Chunk` of `A`. The batch size is fixed where the adapter constructs it, not at the call site;
-   * the batching shape is carried by the type, not by a parameter.
+   * A consumer that delivers batches: one `consume` call processes a whole `Chunk` of `A`. The batch size
+   * is fixed where the adapter constructs it, not at the call site — the batching is carried by the type.
+   *
+   * A name for the plain form, not a subtype: a `map` or `mapZIO` from one chunk to another yields a
+   * `Batched` again, since there is no subtype to lose.
    *
    * @tparam E the error consuming aborts with
    * @tparam A the element type of each delivered batch
    */
-  trait Batched[+E, +A] extends Consumer[E, Chunk[A]]:
-    def aggregate[B](fn: Chunk[A] => B): Consumer[E, B] = map(fn)
+  type Batched[+E, +A] = Consumer[E, Chunk[A]]
 
   /**
    * A consumer that runs its logic once with `()` and never fails — a no-op intake.

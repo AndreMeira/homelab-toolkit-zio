@@ -2,7 +2,7 @@
 title: Messaging — the two ports everything else is built from
 type: architecture
 status: current
-updated: 2026-09-26
+updated: 2026-09-29
 tags: [messaging, producer, consumer, pipe, partitioner, hub, router, inmemory, pollconsumer, polling]
 ---
 
@@ -144,10 +144,15 @@ Specs: `PollConsumerSpec`, `PollConsumerTeardownSpec`, `PollConsumerConcurrencyS
 
 ## Batched
 
-`Consumer.Batched[+E, +A] extends Consumer[E, Chunk[A]]` — the batch shape is carried by the *type*, not by a
-size parameter at the call site, because the size is fixed where the adapter is built. `aggregate` folds a
-batch to a single value. Note that `map`/`mapZIO` on a `Batched` return a plain `Consumer` — the batched
-subtype is erased by the combinators, so an adapter that wants to keep it re-wraps (as `homelab.nats` does).
+`Consumer.Batched[+E, +A]` is `Consumer[E, Chunk[A]]` — an alias, not a subtype. The batch shape is carried
+by the type, and the size is fixed where the adapter is built rather than at the call site. Because it names
+the plain form, a `map` or `mapZIO` from one chunk to another is still a `Batched`: `homelab.nats` turns a
+`Batched[NatsError, Message]` into a `Batched[NatsError, A]` with one `mapZIO` and nothing else.
+
+`Pipe.Batched[+E, A]` is likewise `Consumer[E, Chunk[A]] & Producer[E, A]` — chunks out, single values in, so
+not a `Pipe[E, Chunk[A]]`; `Distributer.Batched` is the in-memory one. The same rule names
+`Processor.Batched` (see [`processing.md`](./processing.md)). Why aliases and not traits:
+`../research/batched-is-a-type-not-a-trait.md`.
 
 ## Closing a resource that lives inside one blocking call
 
@@ -188,4 +193,4 @@ it needs neither the thread nor rebuilding.
 - **No ack/offset surface.** Settlement is the adapter's, driven by whether `logic` succeeded.
 - **No key parameter on `emit`.** See *Keying*.
 - **No topology description.** There is no graph of channels here — wiring is ordinary code, and what *runs*
-  the endpoints is [`processing.md`](./processing.md)'s `Graph`.
+  an endpoint is a [`processing.md`](./processing.md) `Processor`, started by whoever owns it.
