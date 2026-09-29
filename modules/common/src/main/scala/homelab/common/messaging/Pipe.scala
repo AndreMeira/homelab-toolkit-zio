@@ -84,28 +84,11 @@ object Pipe:
       def consume[E2 >: Nothing](logic: A => IO[E2, Unit]): IO[E2, Unit] = queue.takeWith((_, value) => logic(value))
 
   /**
-   * A [[Pipe]] whose intake delivers batches: a [[Consumer.Batched]] of `A` on the read side, a single-`A`
-   * [[Producer]] on the write side. Values are emitted one or many at a time and consumed a `Chunk[A]` at a
-   * time.
+   * A batched pipe: a [[Consumer.Batched]] of `A` on the read side and a single-`A` [[Producer]] on the
+   * write side. Values go in one at a time and come out a `Chunk[A]` at a time, which is why it is not a
+   * `Pipe[E, Chunk[A]]`. A name for the intersection, not a subtype; emit with [[Producer.emit]].
    *
    * @tparam E the error emission or consumption aborts with
    * @tparam A the element carried
    */
-  trait Batched[+E, A] extends Consumer.Batched[E, A] with Producer[E, A]:
-    self =>
-
-    /**
-     * Emit a single value — an alias for [[Producer.emit]].
-     *
-     * @param message the value to emit
-     * @return noop once emitted; aborts with `E` on failure
-     */
-    def send(message: A): IO[E, Unit] = emit(message)
-
-    /**
-     * Emit each value in order — an alias for [[Producer.emitMany]].
-     *
-     * @param messages the values to emit, in order
-     * @return noop once all are emitted; aborts with `E` on the first failure
-     */
-    def send(messages: Chunk[A]): IO[E, Unit] = emitMany(messages)
+  type Batched[+E, A] = Consumer[E, Chunk[A]] & Producer[E, A]

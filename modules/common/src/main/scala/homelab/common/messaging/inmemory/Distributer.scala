@@ -59,7 +59,7 @@ object Distributer {
   final class Batched[K, A](
     partitioner: Distributer.Partitioner[K, A],
     queue: KeyedQueue[K, A],
-  ) extends Pipe.Batched[Nothing, A] {
+  ) extends Consumer[Nothing, Chunk[A]] with Producer[Nothing, A] {
 
     override def consume[E2 >: Nothing](logic: Chunk[A] => IO[E2, Unit]): IO[E2, Unit] =
       queue.takeAllWith((_, values) => logic(values))

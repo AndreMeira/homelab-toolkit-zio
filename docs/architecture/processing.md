@@ -2,7 +2,7 @@
 title: Processing — Processor, Worker, Stateful, Workflow, Graph
 type: architecture
 status: current
-updated: 2026-08-16
+updated: 2026-09-29
 tags: [processing, processor, worker, stateful, workflow, graph, node, actor]
 ---
 
@@ -42,8 +42,9 @@ Three properties do most of the work:
   graph meeting the same processor twice — registered directly, then reached again as someone's child —
   starts it once. Two structurally equal processors over different pipes are two processors.
 
-`Processor.Parallel` adds a `parallelism` cap with on-demand listener spawning; `Processor.Batched` consumes
-`Consumer.Batched`. Emission is deliberately unspecified: a processor holds whatever producers it needs.
+`Processor.Parallel` adds a `parallelism` cap with on-demand listener spawning. `Processor.Batched[E, A]` is
+`Processor[E, Chunk[A]]` — a name, not a subtype — and a batched parallel processor is
+`Processor.Parallel[E, Chunk[A]]`. Emission is deliberately unspecified: a processor holds whatever producers it needs.
 
 ## Worker — request/reply
 

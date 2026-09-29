@@ -86,40 +86,14 @@ object Processor {
   }
 
   /**
-   * A [[Processor]] whose intake delivers batches — its `input` is a [[Consumer.Batched]].
+   * A [[Processor]] whose intake delivers batches: its `input` is a [[Consumer.Batched]] and `process` takes
+   * a whole `Chunk`. A name for the plain form, not a subtype; a batched parallel processor is
+   * `Processor.Parallel[E, Chunk[A]]`.
    *
    * @tparam E the error processing aborts with
    * @tparam A the element type of each consumed batch
    */
-  trait Batched[E <: ApplicationError, A] extends Processor[E, Chunk[A]] {
-
-    /**
-     * The batched intake this processor consumes from.
-     *
-     * @return the batched input consumer
-     */
-    def input: Consumer.Batched[E, A]
-  }
-
-  object Batched {
-
-    /**
-     * A [[Processor.Batched]] that handles batches concurrently up to a configured `parallelism` limit.
-     * Combines batched consumption with concurrent processing via on-demand listener spawning.
-     *
-     * @tparam E the error processing aborts with
-     * @tparam A the element type of each consumed batch
-     */
-    trait Parallel[E <: ApplicationError, A] extends Processor.Parallel[E, Chunk[A]] with Processor.Batched[E, A] {
-
-      /**
-       * The batched intake this processor consumes from.
-       *
-       * @return the batched input consumer
-       */
-      def input: Consumer.Batched[E, A]
-    }
-  }
+  type Batched[E <: ApplicationError, A] = Processor[E, Chunk[A]]
 
   /**
    * Consume one value at a time and run `handle` on it, looping until interrupted or the first failure.
