@@ -2,7 +2,7 @@
 title: "Adding modules to the sbt build"
 type: learning-material
 status: current
-updated: 2026-08-22
+updated: 2026-10-09
 tags: [sbt, multi-module, build, publishing, github-packages, modules]
 ---
 
@@ -200,6 +200,7 @@ modules/mymod/src/test/scala/homelab/mymod/   // tests
 sbt reload            # pick up build.sbt changes
 sbt mymod/compile     # build just this module
 sbt mymod/test        # test just this module
-sbt test              # test everything (via root aggregate)
+sbt testFull          # test everything (via root aggregate)
+sbt test              # only what failed, never ran, or changed since the last run
 sbt clean test        # when incremental compile acts up
 ```
