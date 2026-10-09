@@ -43,9 +43,9 @@ object ProgressSpec extends ZIOSpecDefault:
       )
       assertTrue(Progress.from(messages) == Progress.AwaitingModel)
     },
-    test("a result answering a call that was never made answers for nothing") {
+    test("a result answering a call that was never made breaks the conversation") {
       val messages = Chunk(asked, called, answering("nobody-asked"))
-      assertTrue(Progress.from(messages) == Progress.AwaitingTools(NonEmptyChunk(call("c1"), call("c2"))))
+      assertTrue(Progress.from(messages) == Progress.Broken(answering("nobody-asked")))
     },
     test("only the last turn decides, whatever earlier turns did") {
       // An earlier turn's calls were answered and are not owed again.
@@ -57,6 +57,17 @@ object ProgressSpec extends ZIOSpecDefault:
         said,
       )
       assertTrue(Progress.from(messages) == Progress.Finished(said))
+    },
+    test("a call id an earlier turn used is owed again") {
+      // Ids are the provider's, and nothing makes them unique across turns: only results after a turn answer it.
+      val messages = Chunk(asked, called, answering("c1"), answering("c2"), called)
+      assertTrue(Progress.from(messages) == Progress.AwaitingTools(NonEmptyChunk(call("c1"), call("c2"))))
+    },
+    test("a question asked while calls are outstanding breaks the conversation") {
+      // A provider takes a call's result only straight after the call, so nothing can be sent from here.
+      val dessert  = Message.User(text("and dessert?"))
+      val messages = Chunk(asked, called, dessert)
+      assertTrue(Progress.from(messages) == Progress.Broken(dessert))
     },
   )
 

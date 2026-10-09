@@ -31,8 +31,98 @@ enum Progress:
    */
   case Finished(answer: Message.Assistant)
 
+  /**
+   * The messages cannot be sent as they stand: one of them is out of place.
+   *
+   * @param from the first message out of place
+   */
+  case Broken(from: Message)
+
 
 object Progress {
+
+  /** Where a reading of the messages has got to, one message at a time. */
+  private enum Cursor:
+
+    /** Nothing read yet. */
+    case Empty
+
+    /**
+     * Someone other than the model spoke last.
+     *
+     * @param message what they said
+     */
+    case One(message: Message.System | Message.User)
+
+    /**
+     * A turn of the model, and the calls it made that are still owed a result.
+     *
+     * @param message the turn
+     * @param unanswered the calls with no result yet, in the order they were asked; empty only when it made none
+     */
+    case Aggregate(message: Message.Assistant, unanswered: List[Tool.Call.Raw])
+
+    /**
+     * A turn of the model whose calls have all been answered.
+     *
+     * @param message the turn
+     */
+    case Answered(message: Message.Assistant)
+
+    /**
+     * A message out of place. Nothing read after it changes the reading.
+     *
+     * @param from the message
+     */
+    case Broken(from: Message)
+
+  /** Reading messages into a [[Cursor]]. */
+  private object Cursor:
+
+    /**
+     * Read messages from the first, stopping at the first one out of place.
+     *
+     * @param messages the conversation, oldest first
+     * @return where the reading got to
+     */
+    def read(messages: Chunk[Message]): Cursor =
+      messages.foldWhile(Cursor.Empty) {
+        case Cursor.Broken(_) => false
+        case _                => true
+      } {
+        case Cursor.Empty -> message                                     => init(message)
+        case Cursor.One(_) -> message                                    => init(message)
+        case Cursor.Aggregate(_, Nil) -> message                         => init(message)
+        case Cursor.Answered(_) -> message                               => init(message)
+        case Cursor.Broken(from) -> message                              => Cursor.Broken(from)
+        case (cursor: Cursor.Aggregate) -> (message: Message.ToolResult) => resolve(cursor, message)
+        case (cursor: Cursor.Aggregate) -> message                       => Cursor.Broken(message)
+      }
+
+    /**
+     * Read a message when nothing is owed.
+     *
+     * @param message the message
+     * @return a turn of the model with the calls it made, or anyone else's message as the last word; broken
+     *         for a result, since nothing is owed one
+     */
+    private def init(message: Message): Cursor = message match
+      case msg: (Message.System | Message.User) => Cursor.One(msg)
+      case Message.ToolResult(_, _, _)          => Cursor.Broken(message)
+      case msg @ Message.Assistant(_, calls)    => Cursor.Aggregate(msg, calls.toList)
+
+    /**
+     * Read a result while a turn's calls are owed one.
+     *
+     * @param cursor the turn, and the calls it is still owed results for
+     * @param message the result
+     * @return the turn owing one call fewer when it answers the first call owed, answered when that call was
+     *         the last; broken when it answers any other
+     */
+    private def resolve(cursor: Cursor.Aggregate, message: Message.ToolResult): Cursor = cursor match
+      case Cursor.Aggregate(msg, call :: Nil) if call.id == message.callId  => Cursor.Answered(msg)
+      case Cursor.Aggregate(msg, call :: rest) if call.id == message.callId => Cursor.Aggregate(msg, rest)
+      case _                                                                => Cursor.Broken(message)
 
   /**
    * What a conversation is waiting for, read from its messages.
@@ -43,63 +133,17 @@ object Progress {
    * calls are all answered has moved on, one with a call outstanding has not, and one followed by nothing
    * is where the conversation stopped.
    *
+   * A turn's results come straight after it, in the order its calls were made. Any other message in their
+   * place, or a result nothing asked for, breaks the conversation, and reading stops there.
+   *
    * @param messages the conversation so far, oldest first
    * @return what has to happen next
    */
-  def from(messages: Chunk[Message]): Progress =
-    val reading = messages.foldLeft(Reading.start)(advance)
-    (messages.lastOption, reading.turn) match
-      case (None, _)                => Progress.Empty
-      case (_, None)                => Progress.AwaitingModel
-      case (Some(last), Some(turn)) =>
-        NonEmptyChunk.fromChunk(turn.calls.filter(reading.unanswered)) match
-          case Some(pending)               => Progress.AwaitingTools(pending)
-          case None if spokenByModel(last) => Progress.Finished(turn)
-          case None                        => Progress.AwaitingModel
-
-  /**
-   * Whether a message is the model speaking, which is the only kind a turn can end on.
-   *
-   * @param message the message
-   * @return true when the model wrote it
-   */
-  private def spokenByModel(message: Message): Boolean = message match
-    case Message.Assistant(_, _) => true
-    case _                       => false
-
-  /**
-   * What reading the messages so far has established.
-   *
-   * @param turn the most recent turn the model spoke, absent until it has
-   * @param answered the ids answered since that turn
-   */
-  final private case class Reading(turn: Option[Message.Assistant], answered: Set[Tool.Call.Id]):
-
-    /**
-     * Whether a call of the current turn is still owed an answer.
-     *
-     * @param call one of the turn's calls
-     * @return true when nothing has answered it
-     */
-    def unanswered(call: Tool.Call.Raw): Boolean = !answered.contains(call.id)
-
-  private object Reading:
-
-    /** Nothing read yet. */
-    val start: Reading = Reading(None, Set.empty)
-
-  /**
-   * Read one more message.
-   *
-   * An assistant turn replaces what came before it, because only the last one decides, and a tool result
-   * answers one of that turn's calls.
-   *
-   * @param reading what the messages so far established
-   * @param message the next message
-   * @return what they establish together
-   */
-  private def advance(reading: Reading, message: Message): Reading = message match
-    case turn: Message.Assistant          => Reading(Some(turn), Set.empty)
-    case Message.ToolResult(callId, _, _) => reading.copy(answered = reading.answered + callId)
-    case _                                => reading
+  def from(messages: Chunk[Message]): Progress = Cursor.read(messages) match
+    case Cursor.Empty                         => Progress.Empty
+    case Cursor.One(_)                        => Progress.AwaitingModel
+    case Cursor.Answered(_)                   => Progress.AwaitingModel
+    case Cursor.Broken(from)                  => Progress.Broken(from)
+    case Cursor.Aggregate(turn, Nil)          => Progress.Finished(turn)
+    case Cursor.Aggregate(turn, head :: rest) => Progress.AwaitingTools(NonEmptyChunk(head, rest*))
 }
