@@ -226,7 +226,7 @@ lazy val incubator = project
       "dev.zio"                       %% "zio-streams"    % zioVersion, // adapter-internal only (NATS callback bridge); never surfaced
       "io.nats"                        % "jnats"          % "2.26.3", // NATS exploration sketch (messaging/nats)
       // Redis stream sketch (messaging/redis): the same client distributed-keyed-queue uses.
-      "io.lettuce"                     % "lettuce-core"   % "6.7.1.RELEASE",
+      "io.lettuce"                     % "lettuce-core"   % "7.8.0.RELEASE",
       // Codecs derived from the *same* zio-schema the advertised JSON Schema comes from — one description,
       // so what a model is told to send is what the decoder reads. See docs/sessions/2026-08-17.
       "dev.zio"                       %% "zio-schema-json" % zioSchemaVersion,
