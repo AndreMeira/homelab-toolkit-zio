@@ -1,4 +1,4 @@
-import sbt._
+import sbt.*
 
 /**
  * Publishing this repo's modules to its own GitHub Packages Maven registry.
@@ -7,8 +7,6 @@ import sbt._
  * asymmetric in a way that is easy to get wrong: **publishing** from CI needs no secret — Actions' built-in
  * `GITHUB_TOKEN` can write to its own repo's registry — while **consuming** needs a *classic* PAT with
  * `read:packages`, since GitHub Packages serves Maven only to authenticated callers, public repo or not.
- *
- * NOTE: this is Scala 2.12 sbt-DSL code (`import sbt._`, not `sbt.*`), like every file under `project/`.
  */
 object GitHubPackages {
 

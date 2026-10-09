@@ -237,11 +237,14 @@ lazy val incubator = project
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
     // Sketches are not gated by CI. They still *compile* — that is what catches an experiment rotting
     // against a change in `common` — but running them is on demand (`incubator/testOnly …`), because they
-    // spin up brokers, race on timing, and are abandoned in place rather than maintained.
-    Test / test := {
+    // spin up brokers, race on timing, and are abandoned in place rather than maintained. Both `testFull`
+    // (what CI runs) and the incremental `test` stop at the compile, which reports `Passed` when it succeeds.
+    Test / testFull := Def.uncached {
       val _ = (Test / compile).value
       streams.value.log.info("incubator: sketches compiled, not run — use `incubator/testOnly <spec>`")
+      sbt.protocol.testing.TestResult.Passed
     },
+    Test / test := (Test / testFull).value,
   )
 
 

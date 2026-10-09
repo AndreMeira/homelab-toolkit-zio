@@ -122,7 +122,8 @@ them and its scaladoc shows the wiring.
 
 ```bash
 sbt compile
-sbt test               # full suite, incl. Postgres/NATS Testcontainers integration tests
+sbt testFull           # full suite, incl. Postgres/NATS Testcontainers integration tests
+sbt test               # only suites that failed, never ran, or whose code changed since the last run
 sbt common/test        # one module
 sbt publishLocal       # every module to ~/.ivy2/local
 ```

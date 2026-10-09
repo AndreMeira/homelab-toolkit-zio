@@ -33,6 +33,8 @@ jobs:
 
       # Full suite incl. the Postgres Testcontainers integration test — Docker is available on
       # ubuntu-latest, and the test pins the Docker Remote API version itself (Engine MinAPIVersion),
-      # so no runner-side Docker setup is needed.
+      # so no runner-side Docker setup is needed. `testFull`, because sbt 2's `test` skips suites that
+      # passed before, and setup-sbt restores the disk cache that remembers them. `--server` as in
+      # release.yml, where it matters.
       - name: Test
-        run: sbt -batch -no-colors test
+        run: sbt --server -batch -no-colors testFull
