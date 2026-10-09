@@ -2,7 +2,7 @@
 title: "Depending on a toolkit module from your service"
 type: learning-material
 status: current
-updated: 2026-08-22
+updated: 2026-10-09
 tags: [sbt, dependencies, github-packages, publishing, modules, pat]
 ---
 
@@ -118,7 +118,8 @@ release is fixed by tagging the next patch version, never by overwriting.
 
 ## Things to know
 
-- **`%%` vs `%`.** `%%` appends the Scala 3 binary suffix (`_3`); the toolkit builds with **Scala 3.8.3**, so
-  your service needs a compatible Scala 3. Plain `%` is for Java libraries only.
+- **`%%` vs `%`.** `%%` appends the Scala 3 binary suffix (`_3`); the toolkit builds with **Scala 3.9.0**, so
+  your service needs Scala 3.9 or later — a compiler cannot read what a newer one wrote. Releases up to 0.0.5
+  were built with 3.8.3. Plain `%` is for Java libraries only.
 - **You depend on the port, not the class.** Wire your code against `common`'s ports and inject the adapter —
   that is the whole point of the module split.

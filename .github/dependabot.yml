@@ -10,6 +10,12 @@
 #
 # Grouped, because an ungrouped weekly run on eight modules opens a PR per artifact and the review cost is
 # what makes people stop reading them.
+#
+# Keep an eye on the next Scala LTS. The build follows the LTS line, 3.9, by hand — Dependabot does not
+# propose Scala versions — and moving it is a breaking change for consumers: what this repo publishes can
+# only be read by a compiler at least as new, so they move first. A dependency built on a newer compiler
+# than the build's ships TASTy the build cannot read; ignore it under the sbt entry with the reason, and
+# lift the ignore when scala3Version catches up.
 version: 2
 
 updates:
@@ -31,23 +37,6 @@ updates:
         update-types:
           - minor
           - patch
-    ignore:
-      # Keep an eye on the Scala LTS. Scala 3.9.0, released 2026-09-03, is the new LTS and succeeds 3.3 as the
-      # baseline for library authors, so libraries are moving their builds to it. A dependency built on 3.9
-      # ships TASTy that the 3.8.3 this build uses cannot read, so each one is pinned below — and more will
-      # follow. Moving scala3Version to the 3.9 line lifts every pin here, but the toolkit and its consumers
-      # (distributed-keyed-queue, the services) have to move together: nothing built on 3.9 can be read by 3.8.
-
-      # zio-schema 1.9.0 is built on Scala 3.9, and its TASTy is ahead of the 3.8.3 this build uses — the
-      # reason is recorded next to the same pin in distributed-keyed-queue's build.sbt, which is on the same
-      # compiler. Lift this when scala3Version moves past it.
-      - dependency-name: "dev.zio:zio-schema*"
-        versions: [">=1.9.0"]
-
-      # zio-opentelemetry 3.1.20 is built on Scala 3.9: its POM depends on scala3-library_3 3.9.0, where 3.1.19
-      # was built on 3.3.8. Consumers get it through homelab-telemetry, so this pin holds for them too.
-      - dependency-name: "dev.zio:zio-opentelemetry*"
-        versions: [">=3.1.20"]
 
   - package-ecosystem: github-actions
     directory: /
