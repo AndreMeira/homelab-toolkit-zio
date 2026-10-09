@@ -20,7 +20,7 @@ val magnumVersion         = "1.3.1"
 val flywayVersion         = "12.9.0"
 val postgresqlVersion     = "42.7.13"
 val hikariVersion         = "7.1.0"
-val zioOtelVersion        = "3.1.19"
+val zioOtelVersion        = "3.1.20"
 val otelVersion           = "1.66.0"
 val fabric8Version        = "8.0.0"
 val testcontainersVersion = "1.20.6"
@@ -198,7 +198,7 @@ lazy val nats = project
     name := "homelab-nats",
     libraryDependencies ++= Seq(
       "dev.zio"           %% "zio-streams"    % zioVersion,
-      "io.nats"            % "jnats"          % "2.26.3",
+      "io.nats"            % "jnats"          % "2.26.4",
       "dev.zio"           %% "zio-test"       % zioVersion            % Test,
       "dev.zio"           %% "zio-test-sbt"   % zioVersion            % Test,
       "org.testcontainers" % "testcontainers" % testcontainersVersion % Test,
@@ -224,7 +224,7 @@ lazy val incubator = project
       "dev.zio"                       %% "zio-http"       % zioHttpVersion,
       "com.softwaremill.sttp.client4" %% "zio"            % sttpVersion, // llm sketch: sttp4 ZIO backend + SSE (core/model/shared-zio transitively)
       "dev.zio"                       %% "zio-streams"    % zioVersion, // adapter-internal only (NATS callback bridge); never surfaced
-      "io.nats"                        % "jnats"          % "2.26.3", // NATS exploration sketch (messaging/nats)
+      "io.nats"                        % "jnats"          % "2.26.4", // NATS exploration sketch (messaging/nats)
       // Redis stream sketch (messaging/redis): the same client distributed-keyed-queue uses.
       "io.lettuce"                     % "lettuce-core"   % "7.8.0.RELEASE",
       // Codecs derived from the *same* zio-schema the advertised JSON Schema comes from — one description,
