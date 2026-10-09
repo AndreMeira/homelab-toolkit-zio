@@ -5,7 +5,7 @@ messaging, authentication, observability — and adapters that implement them. `
 ports and everything that needs no third-party library; each adapter is a separate artifact, so depending
 on one never drags in the others' dependencies.
 
-Apache-2.0. Built with Scala 3.8.3 and ZIO 2.1.23.
+Apache-2.0. Built with Scala 3.9.0 (LTS) and ZIO 2.1.23.
 
 ## Install
 
