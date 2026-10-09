@@ -34,7 +34,7 @@ object Generator {
   /**
    * Why a type cannot be described to a model.
    *
-   * An [[ApplicationError.EncodingError]]: this is the outbound direction failing — we cannot render a
+   * An `ApplicationError.EncodingError`: this is the outbound direction failing — we cannot render a
    * description of the type for the wire. Nothing at runtime recovers from it; the fix is to change the type,
    * or to give it a schema that is describable (as `Schemas.mapAsEntries` does for maps).
    *

@@ -12,7 +12,7 @@ import zio.json.ast.Json
  * as it stands. What a store knows beyond that — when a message landed, what it is named by — is the
  * store's row, not this.
  *
- * @see [[Model.Request.messages]]
+ * @see [[Model.Request]]
  */
 enum Message:
 
@@ -56,9 +56,9 @@ object Message:
   /**
    * A piece of a message.
    *
-   * Text is the part a loop reads. Anything else a provider accepts travels as [[Raw]] and reaches the wire
+   * Text is the part a loop reads. Anything else a provider accepts travels as [[Content.Raw]] and reaches the wire
    * as it was written, so a caller can use what a provider offers without waiting for it to be modelled
-   * here — and nothing here reads a [[Raw]], so there is nothing for it to be misread as.
+   * here — and nothing here reads a [[Content.Raw]], so there is nothing for it to be misread as.
    *
    * Every role uses it, and for different things: a [[Message.User]] carries images, audio and documents; a
    * [[Message.Assistant]] carries reasoning blocks, which some providers require be handed back unaltered

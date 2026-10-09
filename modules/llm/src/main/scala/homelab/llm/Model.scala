@@ -14,7 +14,7 @@ import zio.{ Chunk, IO, UIO, ZIO }
  *
  * The failure type is a parameter so an adapter names its own refusals rather than squeezing them into a
  * set this port fixed. The bound keeps a shared vocabulary: a caller that knows nothing of `E` can still
- * ask whether a failure is an [[ApplicationError.TransientError]] and retry on that alone.
+ * ask whether a failure is an `ApplicationError.TransientError` and retry on that alone.
  *
  * @tparam E what this model's adapter fails with
  */
@@ -130,8 +130,8 @@ object Model {
   /**
    * Why the model stopped.
    *
-   * [[Stop]] and [[ToolCalls]] are the two a loop acts on; the rest end a turn without an answer it can
-   * carry forward. [[Other]] keeps a reason this type does not name, since a gateway fronts many providers
+   * `Stop` and `ToolCalls` are the two a loop acts on; the rest end a turn without an answer it can
+   * carry forward. [[FinishReason.Other]] keeps a reason this type does not name, since a gateway fronts many providers
    * and the set is theirs rather than ours.
    */
   enum FinishReason:
@@ -186,7 +186,7 @@ object Model {
    * What the model did with a request.
    *
    * @param content what it said
-   * @param calls what it asked to have run, which is empty unless `finish` is [[FinishReason.ToolCalls]]
+   * @param calls what it asked to have run, which is empty unless `finish` is `FinishReason.ToolCalls`
    * @param finish why it stopped
    * @param usage what the call consumed and cost
    */

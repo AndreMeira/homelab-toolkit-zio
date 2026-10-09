@@ -222,7 +222,7 @@ object Tool:
   /**
    * What a tool produced: the value, or the reason it could not.
    *
-   * Both reach the model as text, which [[render]] writes. A loop after something the tool produced matches
+   * Both reach the model as text, which `render` writes. A loop after something the tool produced matches
    * the success rather than reading it back out of that text; one after what the model asked for reads the
    * call instead, where [[Call.Decoded]] holds it.
    *
@@ -310,7 +310,7 @@ object Tool:
   /**
    * Why a tool's arguments cannot be advertised.
    *
-   * An [[ApplicationError.EncodingError]]: the outbound direction failing, and nothing at runtime recovers
+   * An `ApplicationError.EncodingError`: the outbound direction failing, and nothing at runtime recovers
    * from it — a tool whose arguments cannot be described cannot exist as written, so the fix is to change
    * the type rather than to handle this.
    *
@@ -379,7 +379,7 @@ object Tool:
    * Describe a tool's arguments and check they can be advertised, which is the whole of what registration
    * asks of a type.
    *
-   * Goes through [[Encoder]] rather than the derivation directly, so a type carrying its own description is
+   * Goes through [[schema.Encoder]] rather than the derivation directly, so a type carrying its own description is
    * described the way it says.
    *
    * @tparam A the arguments the model chooses
