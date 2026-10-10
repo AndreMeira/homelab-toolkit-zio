@@ -76,6 +76,7 @@ trait Basic[Ctx] extends Workflow[Any, ApplicationError, String, Chunk[Message],
       case Progress.AwaitingTools(pending) => answer(messages, pending)
       case Progress.Empty                  => ask(messages)
       case Progress.AwaitingModel          => ask(messages)
+      case Progress.Broken(_)              => ZIO.fail(Basic.Broken)
 
   /**
    * Ask the model what to do next, offering what this caller may use.
@@ -157,3 +158,6 @@ object Basic:
      * @return the reason, naming the agent and its budget
      */
     override def message: String = s"agent '$agent' took its $budget turns without answering"
+
+  case object Broken extends ApplicationError.DomainError:
+    override def message: String = "conversation is broken"

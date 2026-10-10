@@ -4,8 +4,9 @@ package homelab.incubator.llm.v4.playground.chat
 import homelab.common.error.ApplicationError
 import homelab.common.processing.Workflow
 import homelab.common.processing.Workflow.Step
-import homelab.llm.*
 import homelab.incubator.llm.v4.playground.chat.Chat.{ Ask, BudgetExhausted, Ongoing }
+import homelab.llm.*
+import homelab.llm.Progress.Broken
 import zio.{ Chunk, IO, NonEmptyChunk, ZIO }
 
 
@@ -82,6 +83,7 @@ final class Chat(
       case Progress.AwaitingTools(pending) => answer(ongoing, pending)
       case Progress.Empty                  => ask(ongoing)
       case Progress.AwaitingModel          => ask(ongoing)
+      case Progress.Broken(_)              => ZIO.fail(Chat.Broken)
 
   /**
    * Ask the model what to do next, and record its turn.
@@ -234,3 +236,6 @@ object Chat:
      * @return the reason, naming the conversation and its budget
      */
     override def message: String = s"conversation '$conversation' took its $budget turns without answering"
+    
+  case object Broken extends ApplicationError.DomainError:
+    override def message: String = "conversation is broken"
