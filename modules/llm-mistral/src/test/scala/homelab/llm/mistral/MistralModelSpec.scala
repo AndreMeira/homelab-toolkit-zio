@@ -30,11 +30,12 @@ object MistralModelSpec extends ZIOSpecDefault:
       test("what the instance always asks for, without the conversation saying so") {
         for
           client <- ClientStub.answering(said)
-          config  = MistralModel.Config(temperature = Some(0.3), reasoningEffort = Some(ReasoningEffort.High))
+          config  = MistralModel.Config(temperature = Some(0.3), topK = Some(40), reasoningEffort = Some(ReasoningEffort.High))
           _      <- MistralModel(client, config).complete(medium, conversation)
           asked  <- client.seen
         yield assertTrue(
           asked.flatMap(_.temperature).contains(0.3),
+          asked.flatMap(_.topK).contains(40),
           asked.flatMap(_.reasoningEffort).contains(ReasoningEffort.High),
         )
       },

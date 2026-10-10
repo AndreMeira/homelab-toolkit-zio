@@ -74,19 +74,30 @@ final class HttpMistralClient(
   /**
    * What the API refused with.
    *
-   * A 401 and a 403 are the credential; a 429 and a 5xx are worth another attempt; anything else is the
-   * request itself, and repeating it unchanged will fail the same way. A 403 is also what a guardrail set
-   * to block on its own error answers with, and reads as a refused credential here.
+   * A 401 is the credential, and so is a 403 the API calls an authentication error; a 429 and a 5xx are
+   * worth another attempt; anything else is the request itself, and repeating it unchanged will fail the
+   * same way. That includes any other 403, which is what a guardrail answers when it blocks a request.
    *
    * @param status what it answered with
    * @param body what it said, which is usually an error object and sometimes a bare list of problems
    * @return the failure
    */
   private def refused(status: StatusCode, body: String): MistralError =
-    val detail = body.fromJson[FailureResponse].toOption.flatMap(_.explanation).getOrElse(body.take(200))
-    if status == StatusCode.Unauthorized || status == StatusCode.Forbidden then MistralError.Refused(detail)
+    val failure = body.fromJson[FailureResponse].toOption
+    val detail  = failure.flatMap(_.explanation).getOrElse(body.take(200))
+    if status == StatusCode.Unauthorized || credentialRefused(status, failure) then MistralError.Refused(detail)
     else if status == StatusCode.TooManyRequests || status.isServerError then MistralError.Unavailable(detail)
     else MistralError.Rejected(status.code, detail)
+
+  /**
+   * Whether a 403 is about the credential rather than about the request.
+   *
+   * @param status what the API answered with
+   * @param failure what it said, where its body read as an error
+   * @return true for a 403 whose error the API calls an authentication error
+   */
+  private def credentialRefused(status: StatusCode, failure: Option[FailureResponse]): Boolean =
+    status == StatusCode.Forbidden && failure.flatMap(_.kind).contains("authentication_error")
 
   /**
    * What to say about a body that parsed as JSON and is not a completion.

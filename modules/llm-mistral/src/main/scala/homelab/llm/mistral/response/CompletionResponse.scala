@@ -39,9 +39,44 @@ object CompletionResponse:
    * @param message what it said and asked for
    * @param finishReason why it stopped — `stop`, `length`, `model_length`, `error` or `tool_calls` — as the
    *                     API spelled it
+   * @param logprobs how likely each token of the answer was, where the request asked
+   * @param promptLogprobs how likely each token of the prompt was, where the request asked
    */
   @jsonMemberNames(SnakeCase)
-  final case class Choice(index: Int, message: AssistantMessage, finishReason: Option[String]) derives JsonDecoder
+  final case class Choice(
+    index: Int,
+    message: AssistantMessage,
+    finishReason: Option[String],
+    logprobs: Option[Logprobs] = None,
+    promptLogprobs: Option[Logprobs] = None,
+  ) derives JsonDecoder
+
+  /**
+   * How likely each token of a text was.
+   *
+   * @param content one entry per token, in order
+   */
+  final case class Logprobs(content: Chunk[Logprobs.Token]) derives JsonDecoder
+
+  object Logprobs:
+
+    /**
+     * One token, and how likely it was.
+     *
+     * @param token the token, as text
+     * @param logprob the log of its probability
+     * @param bytes the token, as UTF-8 bytes
+     * @param tokenId what the tokenizer calls it
+     * @param topLogprobs the likeliest tokens at its position, where the request asked for them
+     */
+    @jsonMemberNames(SnakeCase)
+    final case class Token(
+      token: String,
+      logprob: Double,
+      bytes: Chunk[Int],
+      tokenId: Int,
+      topLogprobs: Option[Chunk[Token]] = None,
+    ) derives JsonDecoder
 
   /**
    * What the model said and asked for.
@@ -63,7 +98,7 @@ object CompletionResponse:
     final private case class Received(content: Option[Json] = None, toolCalls: Option[Chunk[Call]] = None) derives JsonDecoder
 
     /** A message is read in two steps: the fields, then its content as chunks. */
-    given JsonDecoder[AssistantMessage] = JsonDecoder[Received].mapOrFail(read)
+    given JsonDecoder[AssistantMessage] = JsonDecoder[Received].mapOrFail(transform)
 
     /**
      * One message, out of what arrived.
@@ -71,7 +106,7 @@ object CompletionResponse:
      * @param received the fields as the API sent them
      * @return the message; refuses content that is neither text nor chunks
      */
-    private def read(received: Received): Either[String, AssistantMessage] =
+    private def transform(received: Received): Either[String, AssistantMessage] =
       chunks(received.content).map(AssistantMessage(_, received.toolCalls))
 
     /**
@@ -103,7 +138,7 @@ object CompletionResponse:
    * The called tool and its arguments.
    *
    * The API sends the arguments as a string and its schema allows an object; either is read as the JSON
-   * text the model wrote.
+   * text the model wrote, and anything else is refused.
    *
    * @param name which tool the model asked for
    * @param arguments the JSON it wrote, unparsed
@@ -121,25 +156,27 @@ object CompletionResponse:
     final private case class Received(name: String, arguments: Json) derives JsonDecoder
 
     /** A function is read in two steps: the fields, then its arguments as text. */
-    given JsonDecoder[Function] = JsonDecoder[Received].map(read)
+    given JsonDecoder[Function] = JsonDecoder[Received].mapOrFail(transform)
 
     /**
      * One function, out of what arrived.
      *
      * @param received the fields as the API sent them
-     * @return the function, its arguments as text
+     * @return the function, its arguments as text; refuses arguments that are neither a string nor an object
      */
-    private def read(received: Received): Function = Function(received.name, text(received.arguments))
+    private def transform(received: Received): Either[String, Function] =
+      args(received.arguments).map(Function(received.name, _))
 
     /**
      * Arguments as the text of a JSON object.
      *
      * @param arguments a string holding the JSON, or the JSON itself
-     * @return the text: the string as it came, or the object written out
+     * @return the text: the string as it came, or the object written out; refuses any other JSON
      */
-    private def text(arguments: Json): String = arguments match
-      case Json.Str(written) => written
-      case other             => other.toJson
+    private def args(arguments: Json): Either[String, String] = arguments match
+      case Json.Str(value)  => Right(value)
+      case fields: Json.Obj => Right(fields.toJson)
+      case other            => Left(s"arguments are neither a string nor an object: ${other.toJson.take(80)}")
 
   /**
    * What the call consumed.

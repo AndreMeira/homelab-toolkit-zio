@@ -38,6 +38,16 @@ object ContentChunkSpec extends ZIOSpecDefault:
           thinking.toJson == """{"type":"thinking","thinking":[{"type":"text","text":"hmm"}],"signature":"sig"}"""
         )
       },
+      test("a resource, with what it holds as a chunk of its own") {
+        val resource = decoded(ContentChunk.Kind.Resource("file:///notes.md", ContentChunk.text("hi")))
+        assertTrue(
+          resource.toJson == """{"type":"resource","uri":"file:///notes.md","content":{"type":"text","text":"hi"}}"""
+        )
+      },
+      test("a resource given by reference, with what is known about it") {
+        val link = decoded(ContentChunk.Kind.ResourceLink("file:///notes.md", Some(Map("size" -> Json.Num(12)))))
+        assertTrue(link.toJson == """{"type":"resource_link","uri":"file:///notes.md","metadata":{"size":12}}""")
+      },
       test("a raw chunk, exactly as it was read") {
         val raw = ContentChunk.Raw(Json.Obj("type" -> Json.Str("citation"), "source" -> Json.Str("x")))
         assertTrue(raw.toJson == """{"type":"citation","source":"x"}""")
@@ -78,6 +88,8 @@ object ContentChunkSpec extends ZIOSpecDefault:
           ContentChunk.text("hi"),
           decoded(ContentChunk.Kind.DocumentUrl("https://x/a.pdf")),
           decoded(ContentChunk.Kind.Thinking(Chunk(ContentChunk.text("hmm")), closed = Some(false))),
+          decoded(ContentChunk.Kind.Resource("file:///notes.md", ContentChunk.text("hi"))),
+          decoded(ContentChunk.Kind.ResourceLink("file:///notes.md")),
         )
         assertTrue(chunks.toJson.fromJson[Chunk[ContentChunk]] == Right(chunks))
       },

@@ -26,8 +26,8 @@ field shipped last week rather than one already known — none of that belongs i
 A preset still works for the simplest case, and it costs nothing, because `ChatCompletionModel.compatible`
 already exists. The section below says how far it goes.
 
-Everything here was read from Mistral's OpenAPI spec and docs on 2026-10-10. **Nothing was run against the
-API** — there is no key in the homelab yet. [What to check before building](#what-to-check-before-building)
+Everything here was read from Mistral's OpenAPI spec, its Python SDK and its docs on 2026-10-10. **Nothing
+was run against the API** — there is no key in the homelab yet. [What to check before building](#what-to-check-before-building)
 lists what only a live call can settle.
 
 ## What `compatible` already does
@@ -218,6 +218,12 @@ Each of these needs one call with a key, and each changes the design if the answ
 
 Read on 2026-10-10.
 
+- Mistral's Python SDK v3.2.0, released 2026-10-09 and generated from Mistral's own spec:
+  <https://github.com/mistralai/client-python/tree/v3.2.0/src/mistralai/client/models>. Where it and the
+  OpenAPI file below disagree, the module follows the SDK, which is the newer of the two. On 2026-10-10 they
+  disagreed three ways: the SDK's request has seven fields the file does not (`min_tokens`,
+  `repetition_penalty`, `top_k` and four for logprobs), its content chunks add `resource` and
+  `resource_link`, and its chat-completions tools no longer include web search or the code interpreter.
 - Mistral's OpenAPI spec, <https://docs.mistral.ai/openapi.yaml> — `ChatCompletionRequest`,
   `AssistantMessage`, `ToolMessage`, `ToolCall`, `FunctionCall`, `ContentChunk`, `ThinkChunk`,
   `ChatCompletionChoice` and `ReasoningEffort` were checked against it directly.

@@ -57,8 +57,9 @@ object MistralModel:
    *
    * Settled once, so a caller chooses a cooler model for classification, a forced tool for extraction, or
    * how hard a reasoning model thinks, and a caller who wants none of it builds the default. The tools come
-   * from the session instead, which decides what a caller may use. `n` and `prediction` are on the client:
-   * a completion holds one answer, and a prediction belongs to one conversation rather than to an instance.
+   * from the session instead, which decides what a caller may use. `n`, `prediction` and the logprobs are on
+   * the client: a completion holds one answer and no logprobs, and a prediction belongs to one conversation
+   * rather than to an instance.
    *
    * @param toolChoice whether the model may call a tool, must call one, or must call a named one
    * @param maxTokens the most the model may produce
@@ -69,6 +70,9 @@ object MistralModel:
    * @param responseFormat what shape the answer must take
    * @param presencePenalty how much to discourage a token for having appeared at all
    * @param frequencyPenalty how much to discourage a token for having appeared often
+   * @param minTokens the least the model may produce
+   * @param repetitionPenalty how much to discourage repeating what has already been said
+   * @param topK how many of the likeliest tokens to sample from
    * @param parallelToolCalls whether it may ask for several tools in one turn
    * @param reasoningEffort how much it reasons first, on a model that reasons
    * @param promptMode whether Mistral puts its system prompt for reasoning in front of the conversation
@@ -91,6 +95,9 @@ object MistralModel:
     responseFormat: Option[ResponseFormat] = None,
     presencePenalty: Option[Double] = None,
     frequencyPenalty: Option[Double] = None,
+    minTokens: Option[Int] = None,
+    repetitionPenalty: Option[Double] = None,
+    topK: Option[Int] = None,
     parallelToolCalls: Option[Boolean] = None,
     reasoningEffort: Option[ReasoningEffort] = None,
     promptMode: Option[PromptMode] = None,

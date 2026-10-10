@@ -105,6 +105,16 @@ object MistralClientSpec extends ZIOSpecDefault:
           arguments(objected) == Chunk("""{"city":"Hamburg"}"""),
         )
       },
+      test("how likely each token was, when the request asked") {
+        for
+          backend   = HttpClient.stub(response = withLogprobs)
+          response <- MistralClient.make(backend, "api-key", MistralClient.Endpoint, Monitor.Noop).complete(userMessage)
+          tokens    = response.choices.flatMap(_.logprobs.map(_.content).getOrElse(Chunk.empty))
+        yield assertTrue(
+          tokens.map(_.token) == Chunk("12"),
+          tokens.flatMap(_.topLogprobs.getOrElse(Chunk.empty)).map(_.token) == Chunk("12", "11"),
+        )
+      },
       test("every choice, when several were asked for") {
         for
           backend   = HttpClient.stub(response = twoAnswers)
@@ -157,6 +167,29 @@ object MistralClientSpec extends ZIOSpecDefault:
           body.exists(_.contains(""""prompt_mode":"reasoning"""")),
           body.exists(_.contains(""""service_tier":"standard_only"""")),
           body.exists(_.contains(""""prediction":{"content":"draft","type":"content"}""")),
+        )
+      },
+      test("the sampling and logprob fields, each under the name Mistral uses") {
+        val sampled = userMessage.copy(
+          minTokens = Some(4),
+          repetitionPenalty = Some(1.1),
+          topK = Some(40),
+          logprobs = Some(true),
+          topLogprobs = Some(2),
+          promptLogprobs = Some(true),
+          topPromptLogprobs = Some(1),
+        )
+
+        for
+          recorder <- Recorder.make
+          backend   = recorder.httpClient(response = plainAnswer)
+          _        <- MistralClient.make(backend, "api-key", MistralClient.Endpoint, Monitor.Noop).complete(sampled)
+          body     <- recorder.requestBody
+        yield assertTrue(
+          body.exists(_.contains(""""min_tokens":4""")),
+          body.exists(_.contains(""""repetition_penalty":1.1""")),
+          body.exists(_.contains(""""top_k":40""")),
+          body.exists(_.contains(""""logprobs":true,"top_logprobs":2,"prompt_logprobs":true,"top_prompt_logprobs":1""")),
         )
       },
       test("a field left unset is absent rather than null, since the schema refuses what it does not expect") {
@@ -232,6 +265,21 @@ object MistralClientSpec extends ZIOSpecDefault:
           !failure.isInstanceOf[ApplicationError.TransientError],
         )
       },
+      test("nor is a 403 the API calls an authentication error") {
+        for
+          backend  = HttpClient.stub(response = forbiddenKey, StatusCode.Forbidden)
+          failure <- MistralClient.make(backend, "api-key", MistralClient.Endpoint, Monitor.Noop).complete(userMessage).flip
+        yield assertTrue(failure == MistralError.Refused("This key cannot use this model"))
+      },
+      test("any other 403 is the request refused, not the credential — a guardrail that blocked it, say") {
+        for
+          backend  = HttpClient.stub(response = blocked, StatusCode.Forbidden)
+          failure <- MistralClient.make(backend, "api-key", MistralClient.Endpoint, Monitor.Noop).complete(userMessage).flip
+        yield assertTrue(
+          failure == MistralError.Rejected(403, "Request blocked"),
+          !failure.isInstanceOf[ApplicationError.UnauthorisedError],
+        )
+      },
       test("a rate limit is, and says which limit") {
         for
           backend  = HttpClient.stub(response = rateLimited, StatusCode.TooManyRequests)
@@ -273,6 +321,12 @@ object MistralClientSpec extends ZIOSpecDefault:
           backend  = HttpClient.stub(response = "upstream connect error", StatusCode.BadGateway)
           failure <- MistralClient.make(backend, "api-key", MistralClient.Endpoint, Monitor.Noop).complete(userMessage).flip
         yield assertTrue(failure == MistralError.Unavailable("upstream connect error"))
+      },
+      test("a call whose arguments are neither a string nor an object is malformed") {
+        for
+          backend  = HttpClient.stub(response = calledWithAList)
+          failure <- MistralClient.make(backend, "api-key", MistralClient.Endpoint, Monitor.Noop).complete(userMessage).flip
+        yield assertTrue(failure.isInstanceOf[MistralError.Malformed])
       },
       test("an answer that is not a completion is malformed") {
         for
@@ -325,6 +379,28 @@ object MistralClientSpec extends ZIOSpecDefault:
       """{"id":"cmpl-5","model":"mistral-medium-latest","created":1760000000,
         |"choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"D681PevKs",
         |"function":{"name":"weather","arguments":{"city":"Hamburg"}}}]},"finish_reason":"tool_calls"}]}""".stripMargin
+
+    /** The same call, with its arguments as a list, which the schema does not allow. */
+    val calledWithAList: String =
+      """{"id":"cmpl-8","model":"mistral-medium-latest","created":1760000000,
+        |"choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"D681PevKs",
+        |"function":{"name":"weather","arguments":["Hamburg"]}}]},"finish_reason":"tool_calls"}]}""".stripMargin
+
+    /** An answer that reports how likely its one token was, and the two likeliest at its position. */
+    val withLogprobs: String =
+      """{"id":"cmpl-9","model":"mistral-medium-latest","created":1760000000,
+        |"choices":[{"index":0,"message":{"role":"assistant","content":"12"},"finish_reason":"stop",
+        |"logprobs":{"content":[{"token":"12","logprob":-0.1,"bytes":[49,50],"token_id":1032,
+        |"top_logprobs":[{"token":"12","logprob":-0.1,"bytes":[49,50],"token_id":1032},
+        |{"token":"11","logprob":-2.4,"bytes":[49,49],"token_id":1031}]}]}}]}""".stripMargin
+
+    /** A 403 the API calls an authentication error. */
+    val forbiddenKey: String =
+      """{"object":"error","message":"This key cannot use this model","type":"authentication_error","param":null,"code":null}"""
+
+    /** A 403 for the request rather than the key, as a guardrail that blocked it might answer. */
+    val blocked: String =
+      """{"object":"error","message":"Request blocked","type":"invalid_request_error","param":null,"code":null}"""
 
     /** Two answers to one request. */
     val twoAnswers: String =

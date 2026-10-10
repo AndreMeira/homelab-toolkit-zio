@@ -125,6 +125,22 @@ object ContentChunk:
      */
     @jsonHint("input_audio") @jsonMemberNames(SnakeCase) case InputAudio(inputAudio: String)
 
+    /**
+     * A resource, given with its content.
+     *
+     * @param uri what the resource is called
+     * @param content what it holds, as a text or image chunk
+     */
+    @jsonHint("resource") case Resource(uri: String, content: ContentChunk)
+
+    /**
+     * A resource, given by reference only.
+     *
+     * @param uri what the resource is called
+     * @param metadata what is known about it, each value a string, number or flag
+     */
+    @jsonHint("resource_link") case ResourceLink(uri: String, metadata: Option[Map[String, Json]] = None)
+
   /**
    * Where an image is, and how closely to look at it.
    *
@@ -193,13 +209,13 @@ object ContentChunk:
   given JsonEncoder[ContentChunk] = JsonEncoder[Json].contramap(json)
 
   /** A chunk is read as one of the named kinds where it is one, and kept raw where it is not. */
-  given JsonDecoder[ContentChunk] = JsonDecoder[Json].map(read)
+  given JsonDecoder[ContentChunk] = JsonDecoder[Json].map(transform)
 
   /**
    * One chunk, as JSON.
    *
    * The derived encoder answers an `Either`, and the left is unreachable: every kind is strings, numbers,
-   * flags and nested chunks, and nothing about them can fail to be written.
+   * flags, JSON and nested chunks, and nothing about them can fail to be written.
    *
    * @param chunk the chunk
    * @return it, written
@@ -214,4 +230,4 @@ object ContentChunk:
    * @param json the chunk as it arrived
    * @return it as a named kind, or kept whole when it is not one
    */
-  private def read(json: Json): ContentChunk = json.as[Kind].fold(_ => Raw(json), Decoded.apply)
+  private def transform(json: Json): ContentChunk = json.as[Kind].fold(_ => Raw(json), Decoded.apply)

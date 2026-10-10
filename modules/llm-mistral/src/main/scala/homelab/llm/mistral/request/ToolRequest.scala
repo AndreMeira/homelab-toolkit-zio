@@ -24,27 +24,6 @@ enum ToolRequest derives JsonEncoder {
   @jsonHint("function") case Function(function: ToolRequest.Definition)
 
   /**
-   * Mistral's web search.
-   *
-   * @param toolConfiguration how it is set up, where a caller says
-   */
-  @jsonHint("web_search") @jsonMemberNames(SnakeCase) case WebSearch(toolConfiguration: Option[Json] = None)
-
-  /**
-   * Mistral's premium web search.
-   *
-   * @param toolConfiguration how it is set up, where a caller says
-   */
-  @jsonHint("web_search_premium") @jsonMemberNames(SnakeCase) case WebSearchPremium(toolConfiguration: Option[Json] = None)
-
-  /**
-   * Code run in Mistral's sandbox.
-   *
-   * @param toolConfiguration how it is set up, where a caller says
-   */
-  @jsonHint("code_interpreter") @jsonMemberNames(SnakeCase) case CodeInterpreter(toolConfiguration: Option[Json] = None)
-
-  /**
    * Images generated on Mistral's side.
    *
    * @param toolConfiguration how it is set up, where a caller says

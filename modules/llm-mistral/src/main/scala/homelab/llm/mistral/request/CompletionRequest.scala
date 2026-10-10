@@ -32,6 +32,13 @@ import zio.json.ast.Json
  * @param responseFormat what shape the answer must take
  * @param presencePenalty how much to discourage a token for having appeared at all
  * @param frequencyPenalty how much to discourage a token for having appeared often
+ * @param minTokens the least the model may produce
+ * @param repetitionPenalty how much to discourage repeating what has already been said
+ * @param topK how many of the likeliest tokens to sample from
+ * @param logprobs whether to report how likely each token of the answer was
+ * @param topLogprobs how many of the likeliest tokens to report at each position of the answer
+ * @param promptLogprobs whether to report how likely each token of the prompt was
+ * @param topPromptLogprobs how many of the likeliest tokens to report at each position of the prompt
  * @param parallelToolCalls whether it may ask for several tools in one turn
  * @param prediction what the answer is expected to contain, for an answer that edits it
  * @param reasoningEffort how much it reasons first, on a model that reasons
@@ -57,6 +64,13 @@ final case class CompletionRequest(
   responseFormat: Option[ResponseFormat] = None,
   presencePenalty: Option[Double] = None,
   frequencyPenalty: Option[Double] = None,
+  minTokens: Option[Int] = None,
+  repetitionPenalty: Option[Double] = None,
+  topK: Option[Int] = None,
+  logprobs: Option[Boolean] = None,
+  topLogprobs: Option[Int] = None,
+  promptLogprobs: Option[Boolean] = None,
+  topPromptLogprobs: Option[Int] = None,
   parallelToolCalls: Option[Boolean] = None,
   prediction: Option[Prediction] = None,
   reasoningEffort: Option[ReasoningEffort] = None,
@@ -96,6 +110,9 @@ object CompletionRequest:
       responseFormat = config.responseFormat,
       presencePenalty = config.presencePenalty,
       frequencyPenalty = config.frequencyPenalty,
+      minTokens = config.minTokens,
+      repetitionPenalty = config.repetitionPenalty,
+      topK = config.topK,
       parallelToolCalls = config.parallelToolCalls,
       reasoningEffort = config.reasoningEffort,
       promptMode = config.promptMode,
