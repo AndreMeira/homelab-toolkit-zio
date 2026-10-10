@@ -1,4 +1,4 @@
-package homelab.llm.openai.request
+package homelab.llm.mistral.request
 
 
 import homelab.llm.schema.JsonSchema
@@ -9,10 +9,8 @@ import zio.json.ast.Json
 /**
  * What shape the answer must take.
  *
- * [[ResponseFormat.Schema]] is the one worth reaching for: a provider that supports it constrains decoding
- * to the schema, so what comes back parses by construction rather than by luck. The schema it takes is the
- * toolkit's own, so a type described for a tool can be asked for as an answer without being described
- * twice.
+ * JSON of any shape also needs the conversation to tell the model to produce JSON, which Mistral requires
+ * of that mode. A schema is the one worth reaching for: with `strict` set, decoding is constrained to it.
  *
  * @see [[CompletionRequest]]
  */
@@ -37,13 +35,20 @@ enum ResponseFormat derives JsonEncoder {
 object ResponseFormat:
 
   /**
-   * A schema, as this protocol asks for one.
+   * A schema, as this API asks for one.
    *
-   * @param name what to call it, which a provider may report in an error
+   * @param name what to call it, which the API may report in an error
    * @param schema what the answer must conform to
-   * @param strict whether the provider must constrain decoding rather than merely ask
+   * @param description what the answer is, in the words the model reads
+   * @param strict whether decoding is constrained to the schema rather than merely asked for, which the API
+   *               defaults to false
    */
-  final case class Described(name: String, schema: Json, strict: Boolean = true) derives JsonEncoder
+  final case class Described(
+    name: String,
+    schema: Json,
+    description: Option[String] = None,
+    strict: Option[Boolean] = None,
+  ) derives JsonEncoder
 
   /**
    * An answer that must conform to a schema, strictly.
@@ -52,4 +57,5 @@ object ResponseFormat:
    * @param schema what the answer must conform to
    * @return the format to ask for
    */
-  def conforming(name: String, schema: JsonSchema): ResponseFormat = Schema(Described(name, schema.json))
+  def conforming(name: String, schema: JsonSchema): ResponseFormat =
+    Schema(Described(name, schema.json, strict = Some(true)))

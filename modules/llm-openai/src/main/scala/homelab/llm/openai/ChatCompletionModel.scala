@@ -13,7 +13,7 @@ import zio.Chunk
 
 
 /**
- * A chat-completions endpoint as a [[Model]].
+ * A chat-completions endpoint as a `Model`.
  *
  * The general case over [[ChatCompletionClient]], which is the whole call. A port holds one conversation
  * and answers one completion, so what this does is narrow: several answers become the first, and what the
@@ -56,12 +56,12 @@ object ChatCompletionModel:
    * What an instance asks for on every call, beyond the conversation itself.
    *
    * The protocol takes more than a conversation implies, and none of it belongs in
-   * [[homelab.llm.Model.Request]], which is the general case. Settling it here means a caller chooses once
+   * `homelab.llm.Model.Request`, which is the general case. Settling it here means a caller chooses once
    * — a cooler model for classification, a forced tool for extraction, a ceiling on what any one answer
    * may cost — rather than at each call, and a caller who wants none of it builds the default.
    *
    * What is absent is as deliberate. The tools come from the session, which decides what a caller may use,
-   * so they are not an instance's to fix. And `n` is not here because a [[homelab.llm.Model.Completion]]
+   * so they are not an instance's to fix. And `n` is not here because a `homelab.llm.Model.Completion`
    * holds one answer: an instance asking for three would pay for three and discard two, every call. A
    * caller who wants alternatives holds [[ChatCompletionClient]], where `n` is a field of the request.
    *

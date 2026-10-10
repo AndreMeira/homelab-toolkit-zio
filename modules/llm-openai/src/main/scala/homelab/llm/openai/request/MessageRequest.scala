@@ -11,7 +11,7 @@ import zio.json.ast.Json
  * One message, as a chat-completions request carries it.
  *
  * The roles a provider names, each with the fields that role actually has. What makes this worth a type of
- * its own rather than a rendering of [[Message]] is the last case: a tool's answer is a *string*, where
+ * its own rather than a rendering of `Message` is the last case: a tool's answer is a *string*, where
  * every other role's content is an array of parts. That is a difference in shape, and a case with different
  * fields is where a difference in shape belongs.
  */

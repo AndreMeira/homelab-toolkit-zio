@@ -2,20 +2,25 @@
 title: "How an LLM adapter is laid out — the client under the port"
 type: architecture
 status: current
-updated: 2026-09-26
-tags: [llm, adapters, ports, layering, openai, anthropic]
+updated: 2026-10-10
+tags: [llm, adapters, ports, layering, openai, anthropic, mistral]
 ---
 
 # How an LLM adapter is laid out
 
 `homelab-llm` holds the ports. Each provider is its own artifact — `homelab-llm-openai`,
-`homelab-llm-anthropic` — and both are built the same way, in three layers:
+`homelab-llm-anthropic`, `homelab-llm-mistral` — and all three are built the same way, in three layers:
 
-| | `llm-openai` | `llm-anthropic` |
-|---|---|---|
-| the protocol's types | `request/`, `response/` | `request/`, `response/` |
-| the call, nothing withheld | `ChatCompletionClient` | `AnthropicClient` |
-| the port, over the client | `ChatCompletionModel` | `AnthropicModel` |
+| | `llm-openai` | `llm-anthropic` | `llm-mistral` |
+|---|---|---|---|
+| the protocol's types | `request/`, `response/` | `request/`, `response/` | `request/`, `response/` |
+| the call, nothing withheld | `ChatCompletionClient` | `AnthropicClient` | `MistralClient` |
+| the port, over the client | `ChatCompletionModel` | `AnthropicModel` | `MistralModel` |
+
+`llm-mistral` is the one built wire first: the client and its types came before `MistralModel`, which is
+the order the next section argues for. Mistral serves a dialect of chat completions rather than an endpoint
+of it, which is why it is not a preset on `ChatCompletionModel` —
+[a Mistral adapter](../research/a-mistral-adapter.md) has the comparison.
 
 The middle layer is the one worth explaining, because a reader coming from the port will not expect it.
 
@@ -92,3 +97,21 @@ sets from — so the Anthropic adapter marks the block without parsing its own c
 
 The flag is a fact about what happened, and the text is how the model is told. Keeping them apart is what
 stops an adapter having to recover one from the other.
+
+## What the Mistral adapter does that the other two do not
+
+**It rewrites tool-call ids.** Many Mistral models refuse an id that is not nine letters and digits, and a
+conversation may hold ids another provider minted. `request/CallId.from` sends an id in that form as it is,
+and any other as nine characters derived from it — the same for the same id, so a call and the tool message
+answering it still pair. The conversation keeps the ids it had; the rewrite exists only in the request.
+
+**It reads content as chunks.** Mistral answers in a string, or in an array of chunks when a model reasoned.
+`ContentChunk` reads both, in the `Raw` / `Decoded` pair `llm-anthropic` uses for blocks. Text becomes
+`Message.Content.Text`; a thinking chunk becomes `Message.Content.Raw`, which is how it reaches the next
+turn — Mistral asks for reasoning to be replayed.
+
+**It sends no failure flag.** Mistral's tool message has no field for a tool that failed, so, as with
+chat completions, the fact travels in the words `Tool.Result.render` writes.
+
+**Two finish reasons the port has no case for.** `model_length` is read as `Length`, which Mistral does not
+document and the name suggests. `error` stays `Other("error")`, so the answer still reaches the caller.

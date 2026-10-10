@@ -13,7 +13,7 @@ import zio.json.ast.Json
  * A part the caller built is not one of these — it is already JSON, and goes out as written. That is why it
  * is not a case here and why [[ContentPart.parts]] answers in `Json`.
  *
- * @see [[Message.Content]], which this is the wire's spelling of
+ * @see `Message.Content`, which this is the wire's spelling of
  */
 @jsonDiscriminator("type")
 enum ContentPart derives JsonEncoder {
