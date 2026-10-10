@@ -28,7 +28,7 @@ trait ChatCompletionClient {
    * Ask for a completion.
    *
    * @param request what to ask for
-   * @param extra fields merged over the request, for a protocol that has moved since [[CompletionRequest]]
+   * @param extra fields merged over the request, for a protocol that has moved since [[request.CompletionRequest]]
    *              last did — a field this type already names belongs in the field
    * @return what the provider answered; aborts with what it or the transport refused
    */

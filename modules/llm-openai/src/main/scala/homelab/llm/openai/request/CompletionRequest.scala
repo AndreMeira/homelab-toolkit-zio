@@ -12,7 +12,7 @@ import zio.Chunk
  * A chat-completions request, as the protocol defines it.
  *
  * What the API takes, not what a port can carry: a caller holding this can ask for several answers, cap
- * what the model produces, force a particular tool, or fix a seed — none of which [[homelab.llm.Model]]
+ * what the model produces, force a particular tool, or fix a seed — none of which `homelab.llm.Model`
  * has a field for, and all of which are lost if the only way to reach the provider is through it.
  *
  * Everything but the first two is optional and omitted when absent, because a provider offered a null

@@ -34,21 +34,18 @@ object CompletionResponse:
    */
   @jsonMemberNames(SnakeCase)
   final case class Choice(
-    message: CompletionResponse.Turn,
+    message: CompletionResponse.AssistantMessage,
     finishReason: Option[String],
   ) derives JsonDecoder
 
   /**
-   * An assistant turn.
-   *
-   * Named for what it is rather than for the field that carries it, since `Message` in this package is the
-   * conversation's own and this is the wire's account of one turn of it.
+   * What the model said and asked for.
    *
    * @param content   what it said, absent when it only asked for tools
    * @param toolCalls what it asked for, absent when it only answered
    */
   @jsonMemberNames(SnakeCase)
-  final case class Turn(
+  final case class AssistantMessage(
     content: Option[String],
     toolCalls: Option[Chunk[CompletionResponse.Call]],
   ) derives JsonDecoder
@@ -95,13 +92,13 @@ object CompletionResponse:
   /**
    * One completion, read out of a decoded body.
    *
-   * Every refusal is an [[ChatCompletionError.Malformed]]: the body parsed as JSON and still did not say what a
+   * Every refusal is an [[error.ChatCompletionError.Malformed]]: the body parsed as JSON and still did not say what a
    * completion needs. A gateway that answers with no choices has not answered.
    *
    * Only the first choice is read, and the rest are dropped. There is more than one only when a caller
-   * asked for several through [[request.CompletionRequest.n]], which is reached by holding the client —
+   * asked for several through `n` on [[request.CompletionRequest]], which is reached by holding the client —
    * what the port carries back is one completion, with nowhere to put an alternative. A caller that wants
-   * several is asking for something [[Model]] does not model, and is served by the client instead.
+   * several is asking for something `Model` does not model, and is served by the client instead.
    *
    * @param response what the gateway sent
    * @return the completion; refuses when the body carries no choice to read

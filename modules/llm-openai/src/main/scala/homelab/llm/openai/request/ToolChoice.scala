@@ -8,7 +8,7 @@ import zio.json.ast.Json
 /**
  * Whether the model may call a tool, must call one, or must call a named one.
  *
- * @see [[CompletionRequest.toolChoice]]
+ * @see [[CompletionRequest]]
  */
 enum ToolChoice {
 

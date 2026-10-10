@@ -14,7 +14,7 @@ import zio.json.ast.Json
  * toolkit's own, so a type described for a tool can be asked for as an answer without being described
  * twice.
  *
- * @see [[CompletionRequest.responseFormat]]
+ * @see [[CompletionRequest]]
  */
 @jsonDiscriminator("type")
 enum ResponseFormat derives JsonEncoder {
