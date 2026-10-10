@@ -188,6 +188,23 @@ lazy val llmAnthropic = project
   )
 
 
+// LLM adapter — Mistral's chat completions, a dialect of the protocol `llm-openai` speaks rather than an
+// endpoint of it: a schema that refuses any field it does not name, fields of its own, and answers whose
+// content may be chunks rather than a string. Why it is not a preset: docs/research/a-mistral-adapter.md.
+lazy val llmMistral = project
+  .in(file("modules/llm-mistral"))
+  .dependsOn(common, llm)
+  .settings(
+    name := "homelab-llm-mistral",
+    libraryDependencies ++= Seq(
+      "com.softwaremill.sttp.client4" %% "zio"          % sttpVersion,
+      "dev.zio"                       %% "zio-test"     % zioVersion % Test,
+      "dev.zio"                       %% "zio-test-sbt" % zioVersion % Test,
+    ),
+    testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
+  )
+
+
 // Messaging adapter — NATS (Core NATS ephemeral pub/sub + JetStream durable delivery), promoted from the
 // llm's messaging/nats sketches. Implements the common `messaging` ports; ZStream is an internal
 // bridge detail (never surfaced). Integration tests via Testcontainers (a JetStream-enabled nats server).
@@ -250,7 +267,7 @@ lazy val incubator = project
 
 lazy val root = project
   .in(file("."))
-  .aggregate(common, postgres, telemetry, auth, llm, llmOpenai, llmAnthropic, incubator, nats)
+  .aggregate(common, postgres, telemetry, auth, llm, llmOpenai, llmAnthropic, llmMistral, incubator, nats)
   .settings(
     name           := "homelab-toolkit-zio",
     publish / skip := true,
