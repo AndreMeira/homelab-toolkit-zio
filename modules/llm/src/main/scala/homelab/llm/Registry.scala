@@ -99,7 +99,7 @@ object Registry {
   /**
    * What the model is told when a tool aborts.
    *
-   * An abort is an [[ApplicationError]] raised by the tool's own dependencies, and its message is written
+   * An abort is an `ApplicationError` raised by the tool's own dependencies, and its message is written
    * for an operator: a query that failed, a path, an upstream payload. The model reads the conversation this
    * text lands in, so it gets the fact and the detail is logged.
    */
@@ -116,8 +116,8 @@ object Registry {
   /**
    * Why a tool could not be registered.
    *
-   * An [[ApplicationError.ImplementationError]] even though its cause is an
-   * [[ApplicationError.EncodingError]], and the change of category is the point. The cause is a fact about a
+   * An `ApplicationError.ImplementationError` even though its cause is an
+   * `ApplicationError.EncodingError`, and the change of category is the point. The cause is a fact about a
    * type, which a caller might answer by choosing another representation. This is a tool that cannot exist
    * as written: nothing recovers from it, so it is fixed rather than handled.
    *

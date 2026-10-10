@@ -18,7 +18,7 @@ import scala.collection.immutable.ListMap
  *
  * Three encodings carry an invariant rather than documenting one:
  *
- *   - **`required` does not exist as a list.** A field carries its own [[Shape.Obj.Field.required]] flag, so a schema
+ *   - **`required` does not exist as a list.** A [[Shape.Obj.Field]] carries its own `required` flag, so a schema
  *     cannot require a property it does not have. The rendered `required` array is computed.
  *   - **`additionalProperties` is not a field.** It renders as `false`, always. Strict-mode providers demand
  *     it, and offering the choice invites someone to turn it on and silently lose strictness.
