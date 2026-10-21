@@ -18,10 +18,10 @@ val jwtVersion            = "11.0.4"
 val zioHttpVersion        = "3.11.6"
 val magnumVersion         = "1.3.1"
 val flywayVersion         = "12.9.0"
-val postgresqlVersion     = "42.7.13"
+val postgresqlVersion     = "42.7.14"
 val hikariVersion         = "7.1.0"
 val zioOtelVersion        = "3.1.20"
-val otelVersion           = "1.66.0"
+val otelVersion           = "1.67.0"
 val fabric8Version        = "8.0.0"
 val testcontainersVersion = "1.20.6"
 val sttpVersion           = "4.0.27"
@@ -243,7 +243,7 @@ lazy val incubator = project
       "dev.zio"                       %% "zio-streams"    % zioVersion, // adapter-internal only (NATS callback bridge); never surfaced
       "io.nats"                        % "jnats"          % "2.26.4", // NATS exploration sketch (messaging/nats)
       // Redis stream sketch (messaging/redis): the same client distributed-keyed-queue uses.
-      "io.lettuce"                     % "lettuce-core"   % "7.8.0.RELEASE",
+      "io.lettuce"                     % "lettuce-core"   % "7.9.0.RELEASE",
       // Codecs derived from the *same* zio-schema the advertised JSON Schema comes from — one description,
       // so what a model is told to send is what the decoder reads. See docs/sessions/2026-08-17.
       "dev.zio"                       %% "zio-schema-json" % zioSchemaVersion,
