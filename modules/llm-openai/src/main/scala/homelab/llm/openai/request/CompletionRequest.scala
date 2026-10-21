@@ -2,7 +2,7 @@ package homelab.llm.openai.request
 
 
 import homelab.llm.Model
-import homelab.llm.openai.ChatCompletionModel
+import homelab.llm.openai.OpenAiModel
 import zio.json.*
 import zio.json.ast.Json
 import zio.Chunk
@@ -19,7 +19,7 @@ import zio.Chunk
  * where it expected nothing may answer differently from one offered nothing at all.
  *
  * A field the protocol has and this does not is a field to add here. Until it is,
- * [[ChatCompletionClient.complete]] takes what to merge over this, which is a hedge against the protocol
+ * [[OpenAIClient.complete]] takes what to merge over this, which is a hedge against the protocol
  * moving rather than a place to put what is already known.
  *
  * @param model which model to ask for, as this provider names it
@@ -74,7 +74,7 @@ object CompletionRequest:
    * @param config what the instance asking always asks for
    * @return what to send
    */
-  def from(model: Model.Name, request: Model.Request, config: ChatCompletionModel.Config): CompletionRequest =
+  def from(model: Model.Name, request: Model.Request, config: OpenAiModel.Config): CompletionRequest =
     CompletionRequest(
       model = model,
       messages = request.messages.map(MessageRequest.from),

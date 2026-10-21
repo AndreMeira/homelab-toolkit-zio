@@ -37,16 +37,11 @@ final class MistralModel(
    *         which includes a conversation whose messages come in an order the API does not accept
    */
   override def complete(model: Model.Name, request: Model.Request): IO[MistralError, Model.Completion] =
-    client.complete(CompletionRequest.from(model, request, config), config.extra).flatMap(answer)
-
-  /**
-   * One completion, out of everything the API answered.
-   *
-   * @param response what the API answered
-   * @return the completion; aborts when the body carries no choice to read
-   */
-  private def answer(response: CompletionResponse): IO[MistralError, Model.Completion] =
-    ZIO.fromEither(CompletionResponse.completion(response))
+    for
+      question    = CompletionRequest.from(model, request, config)
+      response   <- client.complete(question, config.extra)
+      completion <- ZIO.fromEither(CompletionResponse.completion(response))
+    yield completion
 }
 
 
