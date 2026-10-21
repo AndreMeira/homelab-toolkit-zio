@@ -37,16 +37,11 @@ final class OpenAiModel(
    *         refused
    */
   override def complete(model: Model.Name, request: Model.Request): IO[ChatCompletionError, Model.Completion] =
-    client.complete(CompletionRequest.from(model, request, config), config.extra).flatMap(answer)
-
-  /**
-   * One completion, out of everything the provider answered.
-   *
-   * @param response what the provider answered
-   * @return the completion; aborts when the body carries no choice to read
-   */
-  private def answer(response: CompletionResponse): IO[ChatCompletionError, Model.Completion] =
-    ZIO.fromEither(CompletionResponse.completion(response))
+    for
+      question    = CompletionRequest.from(model, request, config)
+      response   <- client.complete(question, config.extra)
+      completion <- ZIO.fromEither(CompletionResponse.completion(response))
+    yield completion
 }
 
 
