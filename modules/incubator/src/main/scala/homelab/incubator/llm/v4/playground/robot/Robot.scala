@@ -106,21 +106,13 @@ final class Robot(
   ): IO[ApplicationError, Next] =
     for
       outcomes <- session.dispatchAll(completion.calls)
-      answers   = outcomes.map(answered)
+      answers   = outcomes.map(Message.fromOutcome)
       appended  = asked ++ (Message.fromCompletion(completion) +: answers)
       taken     = state.decisions + 1
     yield outcomes.flatMap(ending).headOption match
       case Some(RigTools.Ending.Done(_, _))        => Step.Done(Robot.Ending.Concluded(taken))
       case Some(RigTools.Ending.GiveUp(reason, _)) => Step.Done(Robot.Ending.GaveUp(taken, reason))
       case None                                    => Step.Continue(state.copy(transcript = appended, decisions = taken))
-
-  /**
-   * One tool's answer, as the conversation carries it.
-   *
-   * @param outcome what dispatch produced
-   * @return the message to append
-   */
-  private def answered(outcome: Outcome): Message = Message.fromOutcome(outcome)
 
   /**
    * The ending an outcome carries, when it carries one.

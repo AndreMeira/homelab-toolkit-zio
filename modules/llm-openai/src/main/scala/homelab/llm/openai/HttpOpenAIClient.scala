@@ -16,19 +16,19 @@ import zio.{ IO, Task, ZIO }
  * A chat-completions client over HTTP.
  *
  * What differs between providers is where to post and what to send with it, which is why those are
- * arguments and the presets that fill them in live on [[ChatCompletionClient]].
+ * arguments and the presets that fill them in live on [[OpenAIClient]].
  *
  * @param backend what sends the request
  * @param endpoint where to post
  * @param headers what to send with it — the credential, and whatever else a provider attributes a call by
  * @param monitor observes each call, tagged with the model it asked for
  */
-final class HttpChatCompletionClient(
+final class HttpOpenAIClient(
   backend: Backend[Task],
   endpoint: Uri,
   headers: Map[String, String],
   monitor: Monitor = Monitor.Noop,
-) extends ChatCompletionClient {
+) extends OpenAIClient {
 
   /**
    * Ask for a completion.
@@ -41,7 +41,7 @@ final class HttpChatCompletionClient(
     request: CompletionRequest,
     extra: Json.Obj = Json.Obj(),
   ): IO[ChatCompletionError, CompletionResponse] =
-    monitor.measure("ChatCompletionClient.complete", ChatCompletionClient.Tag, "model" -> request.model):
+    monitor.measure("OpenAIClient.complete", OpenAIClient.Tag, "model" -> request.model):
       send(CompletionRequest.body(request, extra).toJson).flatMap { response =>
         response.body match
           case Right(body) => ZIO.fromEither(body.fromJson[CompletionResponse]).mapError(unreadable(body))

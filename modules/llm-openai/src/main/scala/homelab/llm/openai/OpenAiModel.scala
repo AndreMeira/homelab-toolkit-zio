@@ -15,17 +15,17 @@ import zio.Chunk
 /**
  * A chat-completions endpoint as a `Model`.
  *
- * The general case over [[ChatCompletionClient]], which is the whole call. A port holds one conversation
+ * The general case over [[OpenAIClient]], which is the whole call. A port holds one conversation
  * and answers one completion, so what this does is narrow: several answers become the first, and what the
- * protocol offers beyond a conversation is settled once, in the [[ChatCompletionModel.Config]] this was
+ * protocol offers beyond a conversation is settled once, in the [[OpenAiModel.Config]] this was
  * built with, rather than passed at each call.
  *
  * @param client what the call is made through
  * @param config what every call this makes asks for, beyond the conversation itself
  */
-final class ChatCompletionModel(
-  client: ChatCompletionClient,
-  config: ChatCompletionModel.Config = ChatCompletionModel.Config(),
+final class OpenAiModel(
+  client: OpenAIClient,
+  config: OpenAiModel.Config = OpenAiModel.Config(),
 ) extends Model[ChatCompletionError] {
 
   /**
@@ -50,7 +50,7 @@ final class ChatCompletionModel(
 }
 
 
-object ChatCompletionModel:
+object OpenAiModel:
 
   /**
    * What an instance asks for on every call, beyond the conversation itself.
@@ -63,7 +63,7 @@ object ChatCompletionModel:
    * What is absent is as deliberate. The tools come from the session, which decides what a caller may use,
    * so they are not an instance's to fix. And `n` is not here because a `homelab.llm.Model.Completion`
    * holds one answer: an instance asking for three would pay for three and discard two, every call. A
-   * caller who wants alternatives holds [[ChatCompletionClient]], where `n` is a field of the request.
+   * caller who wants alternatives holds [[OpenAIClient]], where `n` is a field of the request.
    *
    * @param toolChoice whether the model may call a tool, must call one, or must call a named one
    * @param maxTokens the most the model may produce
@@ -111,8 +111,8 @@ object ChatCompletionModel:
     referer: Option[String] = None,
     config: Config = Config(),
     monitor: Monitor = Monitor.Noop,
-  ): ZIO[Scope, ChatCompletionError, ChatCompletionModel] =
-    ChatCompletionClient.openRouter(apiKey, referer, monitor).map(ChatCompletionModel(_, config))
+  ): ZIO[Scope, ChatCompletionError, OpenAiModel] =
+    OpenAIClient.openRouter(apiKey, referer, monitor).map(OpenAiModel(_, config))
 
   /**
    * OpenAI itself, with a transport of its own.
@@ -128,8 +128,8 @@ object ChatCompletionModel:
     organisation: Option[String] = None,
     config: Config = Config(),
     monitor: Monitor = Monitor.Noop,
-  ): ZIO[Scope, ChatCompletionError, ChatCompletionModel] =
-    ChatCompletionClient.openAi(apiKey, organisation, monitor).map(ChatCompletionModel(_, config))
+  ): ZIO[Scope, ChatCompletionError, OpenAiModel] =
+    OpenAIClient.openAi(apiKey, organisation, monitor).map(OpenAiModel(_, config))
 
   /**
    * Anything else that serves this protocol, with a transport of its own.
@@ -145,5 +145,5 @@ object ChatCompletionModel:
     apiKey: Option[String] = None,
     config: Config = Config(),
     monitor: Monitor = Monitor.Noop,
-  ): ZIO[Scope, ChatCompletionError, ChatCompletionModel] =
-    ChatCompletionClient.compatible(endpoint, apiKey, monitor).map(ChatCompletionModel(_, config))
+  ): ZIO[Scope, ChatCompletionError, OpenAiModel] =
+    OpenAIClient.compatible(endpoint, apiKey, monitor).map(OpenAiModel(_, config))

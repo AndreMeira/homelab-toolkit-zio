@@ -37,16 +37,11 @@ final class AnthropicModel(
    *         refused
    */
   override def complete(model: Model.Name, request: Model.Request): IO[AnthropicError, Model.Completion] =
-    client.complete(CompletionRequest.from(model, request, config), config.extra).flatMap(answer)
-
-  /**
-   * One completion, out of everything the API answered.
-   *
-   * @param response what the API answered
-   * @return the completion; aborts when the body carries nothing to read
-   */
-  private def answer(response: CompletionResponse): IO[AnthropicError, Model.Completion] =
-    ZIO.fromEither(CompletionResponse.completion(response))
+    for
+      question    = CompletionRequest.from(model, request, config)
+      response   <- client.complete(question, config.extra)
+      completion <- ZIO.fromEither(CompletionResponse.completion(response))
+    yield completion
 }
 
 

@@ -17,12 +17,12 @@ import zio.{ IO, Scope, Task, ZIO }
  *
  * One method, and nothing withheld: a request carries everything the protocol takes and a response gives
  * back everything it answered with — every choice, not the first, and the reason and usage as they came.
- * What a caller does with that is theirs; [[ChatCompletionModel]] is one thing to do with it, and holding
+ * What a caller does with that is theirs; [[OpenAiModel]] is one thing to do with it, and holding
  * this instead is how to reach what a port has no field for.
  *
  * Streaming is deliberately absent: a request here is one call and one answer.
  */
-trait ChatCompletionClient {
+trait OpenAIClient {
 
   /**
    * Ask for a completion.
@@ -36,7 +36,7 @@ trait ChatCompletionClient {
 }
 
 
-object ChatCompletionClient:
+object OpenAIClient:
 
   /** Metric and span tag marking calls to a language model. */
   val Tag: (String, String) = "resource" -> "llm"
@@ -62,7 +62,7 @@ object ChatCompletionClient:
     apiKey: String,
     referer: Option[String] = None,
     monitor: Monitor = Monitor.Noop,
-  ): ZIO[Scope, ChatCompletionError, ChatCompletionClient] =
+  ): ZIO[Scope, ChatCompletionError, OpenAIClient] =
     transport.map(backend => openRouter(backend, apiKey, referer, monitor))
 
   /**
@@ -79,9 +79,9 @@ object ChatCompletionClient:
     apiKey: String,
     referer: Option[String],
     monitor: Monitor,
-  ): ChatCompletionClient =
+  ): OpenAIClient =
     val attribution = referer.fold(Map.empty[String, String])(site => Map("HTTP-Referer" -> site))
-    HttpChatCompletionClient(backend, OpenRouter, bearer(apiKey) ++ attribution, monitor)
+    HttpOpenAIClient(backend, OpenRouter, bearer(apiKey) ++ attribution, monitor)
 
   /**
    * OpenAI itself.
@@ -95,7 +95,7 @@ object ChatCompletionClient:
     apiKey: String,
     organisation: Option[String] = None,
     monitor: Monitor = Monitor.Noop,
-  ): ZIO[Scope, ChatCompletionError, ChatCompletionClient] =
+  ): ZIO[Scope, ChatCompletionError, OpenAIClient] =
     transport.map(backend => openAi(backend, apiKey, organisation, monitor))
 
   /**
@@ -112,9 +112,9 @@ object ChatCompletionClient:
     apiKey: String,
     organisation: Option[String],
     monitor: Monitor,
-  ): ChatCompletionClient =
+  ): OpenAIClient =
     val billed = organisation.fold(Map.empty[String, String])(org => Map("OpenAI-Organization" -> org))
-    HttpChatCompletionClient(backend, OpenAi, bearer(apiKey) ++ billed, monitor)
+    HttpOpenAIClient(backend, OpenAi, bearer(apiKey) ++ billed, monitor)
 
   /**
    * Anything else that serves this protocol — a fast-inference host, or a server running locally.
@@ -131,7 +131,7 @@ object ChatCompletionClient:
     endpoint: Uri,
     apiKey: Option[String] = None,
     monitor: Monitor = Monitor.Noop,
-  ): ZIO[Scope, ChatCompletionError, ChatCompletionClient] =
+  ): ZIO[Scope, ChatCompletionError, OpenAIClient] =
     transport.map(backend => compatible(backend, endpoint, apiKey, monitor))
 
   /**
@@ -148,8 +148,8 @@ object ChatCompletionClient:
     endpoint: Uri,
     apiKey: Option[String],
     monitor: Monitor,
-  ): ChatCompletionClient =
-    HttpChatCompletionClient(backend, endpoint, apiKey.fold(Map.empty[String, String])(bearer), monitor)
+  ): OpenAIClient =
+    HttpOpenAIClient(backend, endpoint, apiKey.fold(Map.empty[String, String])(bearer), monitor)
 
   /**
    * A transport for a caller who has no opinion about one: the JDK's own client, closed with the scope.
