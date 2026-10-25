@@ -25,28 +25,20 @@ import zio.*
  * stay held. The scope must therefore outlive the `consume` calls running on it, or a batch could be handed
  * back while its handler still works on it.
  *
- * @param batchSize the maximum messages fetched per `consume`, and so the whole in-flight set
- * @param expiry    how long the server holds an unfilled fetch open before returning what it has
- * @param heartbeat `inProgress()` keepalive interval while the handler runs, or `None` to disable
- * @param context   the durable consumer to fetch from
- * @param onFailure what to do when processing a batch fails
- * @param retryAfter how long a batch whose handler failed or died waits before it is delivered again
- * @param held      the messages received and not yet settled
+ * @param context the durable consumer to fetch from
+ * @param config  how much it fetches and for how long, keeps a slow handler alive, and settles what failed
+ * @param held    the messages received and not yet settled
  */
 final class BatchConsumer private (
-  batchSize: Int,
-  expiry: Duration,
-  heartbeat: Option[Duration],
   context: ConsumerContext,
-  onFailure: HandlerFailurePolicy,
-  retryAfter: Duration,
+  config: BatchConsumer.Config,
   held: Ref[Set[Message]],
 ) extends ConsumerContract.Batched[NatsError, Message]:
 
   private val options = FetchConsumeOptions
     .builder()
-    .maxMessages(batchSize)
-    .expiresIn(expiry.toMillis)
+    .maxMessages(config.batchSize)
+    .expiresIn(config.expiry.toMillis)
     .build()
 
   /**
@@ -67,7 +59,7 @@ final class BatchConsumer private (
     ZIO.uninterruptibleMask: restore =>
       restore(fetch).flatMap { messages =>
         (held.update(_ ++ messages) *>
-          restore(Heartbeat.wrap(heartbeat, messages)(logic(messages))).exit
+          restore(Heartbeat.wrap(config.heartbeat, messages)(logic(messages))).exit
             .flatMap(settle(messages, _)))
           .unless(messages.isEmpty)
           .unit
@@ -129,7 +121,7 @@ final class BatchConsumer private (
     outcome match
       case Right(_)    => ackAll(messages)
       case Left(error) =>
-        onFailure match
+        config.onFailure match
           case HandlerFailurePolicy.Discard   => dismissAll(messages)
           case HandlerFailurePolicy.Redeliver => retryAll(messages)
           case HandlerFailurePolicy.Surface   => stopHolding(messages) *> ZIO.fail(error)
@@ -161,10 +153,10 @@ final class BatchConsumer private (
    * @return noop once all are naked; aborts with [[NatsError.Ack]] on the first failure
    */
   private def retryAll(messages: Chunk[Message]): IO[NatsError, Unit] =
-    if retryAfter.isZero then nackAll(messages)
+    if config.retryAfter.isZero then nackAll(messages)
     else
       ZIO.foreachDiscard(messages): message =>
-        ZIO.attemptBlocking(message.nakWithDelay(retryAfter.toMillis)).mapError(NatsError.Ack(_)) *>
+        ZIO.attemptBlocking(message.nakWithDelay(config.retryAfter.toMillis)).mapError(NatsError.Ack(_)) *>
           stopHolding(Chunk(message))
 
   /**
@@ -262,15 +254,7 @@ object BatchConsumer:
       conf     = ContextConfig(stream, durable, subject, config.ackWait, config.maxAckPending)
       context <- subscriber.attach(conf)
       held    <- Ref.make(Set.empty[Message])
-      consumer = new BatchConsumer(
-                   config.batchSize,
-                   config.expiry,
-                   config.heartbeat,
-                   context,
-                   config.onFailure,
-                   config.retryAfter,
-                   held,
-                 )
+      consumer = new BatchConsumer(context, config, held)
       _       <- ZIO.addFinalizer(consumer.handBackAll)
     yield consumer
 
