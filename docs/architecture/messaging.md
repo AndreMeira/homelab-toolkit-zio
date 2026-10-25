@@ -2,7 +2,7 @@
 title: Messaging — the two ports everything else is built from
 type: architecture
 status: current
-updated: 2026-09-29
+updated: 2026-10-25
 tags: [messaging, producer, consumer, pipe, partitioner, hub, router, inmemory, pollconsumer, polling]
 ---
 
@@ -153,6 +153,31 @@ the plain form, a `map` or `mapZIO` from one chunk to another is still a `Batche
 not a `Pipe[E, Chunk[A]]`; `Distributer.Batched` is the in-memory one. The same rule names
 `Processor.Batched` (see [`processing.md`](./processing.md)). Why aliases and not traits:
 `../research/batched-is-a-type-not-a-trait.md`.
+
+## Settling a handler that was interrupted
+
+An adapter settles by how `logic` *ended*, and interruption is one of the endings. The JetStream consumers
+(`stream.Consumer`, `stream.BatchConsumer`) run `consume` inside `uninterruptibleMask`, restoring only the pull
+and `logic`, and settle the captured `Exit`:
+
+| `logic` ended by | Settlement |
+|---|---|
+| success | `ack` |
+| typed failure | `HandlerFailurePolicy` — `nak`, `term`, or surface unsettled |
+| interruption | `nak` at once, whatever the policy, then the interruption carries on |
+| defect | nothing; redelivered after `ackWait` |
+
+Two things follow. **A closing scope hands work back immediately**: an interrupted handler is `nak`ed, so its
+message is redelivered in milliseconds rather than after `ackWait` (30 s by default) — on every rolling restart,
+not only on failures. And **a handler that finished as the interrupt arrived is still acked**, because the step
+from its result to the settlement cannot be interrupted. Interruption is not a failure of the work, which is why
+it ignores the policy: `Discard` would drop a message nobody finished, `Surface` would leave it waiting out
+`ackWait`.
+
+One gap is left, the same one `PollConsumer` documents: an interrupt landing as the pull returns drops that
+message on the client, and it comes back after `ackWait`. Covered in `NatsSpec` ("an interrupted handler's
+message is nacked…", "a handler that completes while being interrupted is still acked", and the batched
+variant).
 
 ## Closing a resource that lives inside one blocking call
 
