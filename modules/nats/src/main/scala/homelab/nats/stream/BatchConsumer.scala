@@ -20,7 +20,8 @@ import zio.*
  * takes its whole batch with it. See [[BatchConsumer.make]].
  *
  * Messages received and not yet settled when the consumer's scope closes are `nak`ed, so they are redelivered
- * at once. The scope must therefore outlive the `consume` calls running on it, or a batch could be handed
+ * at once. That includes those whose ack, nak or term call failed, and those a failed call never reached, which
+ * stay held. The scope must therefore outlive the `consume` calls running on it, or a batch could be handed
  * back while its handler still works on it.
  *
  * @param batchSize the maximum messages fetched per `consume`, and so the whole in-flight set
@@ -64,8 +65,7 @@ final class BatchConsumer private (
       restore(fetch).flatMap { messages =>
         (held.update(_ ++ messages) *>
           restore(Heartbeat.wrap(heartbeat, messages)(logic(messages))).exit
-            .flatMap(settle(messages, _))
-            .ensuring(held.update(_ -- messages)))
+            .flatMap(settle(messages, _)))
           .unless(messages.isEmpty)
           .unit
       }
@@ -87,7 +87,7 @@ final class BatchConsumer private (
         cause.failureOption match
           case Some(error)                     => handleResult(messages, Left(error))
           case None if cause.isInterruptedOnly => nackAll(messages) *> ZIO.refailCause(cause)
-          case None                            => ZIO.refailCause(cause)
+          case None                            => stopHolding(messages) *> ZIO.refailCause(cause)
 
   /**
    * Fetch up to `batchSize` messages, asking again until at least one arrives.
@@ -129,7 +129,7 @@ final class BatchConsumer private (
         onFailure match
           case HandlerFailurePolicy.Discard   => dismissAll(messages)
           case HandlerFailurePolicy.Redeliver => nackAll(messages)
-          case HandlerFailurePolicy.Surface   => ZIO.fail(error)
+          case HandlerFailurePolicy.Surface   => stopHolding(messages) *> ZIO.fail(error)
 
   /**
    * `ack` every message.
@@ -139,7 +139,7 @@ final class BatchConsumer private (
    */
   private def ackAll(messages: Chunk[Message]): IO[NatsError, Unit] =
     ZIO.foreachDiscard(messages): message =>
-      ZIO.attemptBlocking(message.ack()).mapError(NatsError.Ack(_))
+      ZIO.attemptBlocking(message.ack()).mapError(NatsError.Ack(_)) *> stopHolding(Chunk(message))
 
   /**
    * `nak` every message (redeliver).
@@ -149,7 +149,16 @@ final class BatchConsumer private (
    */
   private def nackAll(messages: Chunk[Message]): IO[NatsError, Unit] =
     ZIO.foreachDiscard(messages): message =>
-      ZIO.attemptBlocking(message.nak()).mapError(NatsError.Ack(_))
+      ZIO.attemptBlocking(message.nak()).mapError(NatsError.Ack(_)) *> stopHolding(Chunk(message))
+
+  /**
+   * Stop holding messages whose fate is decided: settled, or deliberately left to `ackWait`. A message whose
+   * settle call failed, or that a failed call never reached, is not, so the scope's release `nak`s it again.
+   *
+   * @param messages the messages no longer held
+   * @return noop
+   */
+  private def stopHolding(messages: Chunk[Message]): UIO[Unit] = held.update(_ -- messages)
 
   /**
    * `nak` every message still held, so each is redelivered at once rather than after `ackWait`; the release of
@@ -168,7 +177,7 @@ final class BatchConsumer private (
    */
   private def dismissAll(messages: Chunk[Message]): IO[NatsError, Unit] =
     ZIO.foreachDiscard(messages): message =>
-      ZIO.attemptBlocking(message.term()).mapError(NatsError.Ack(_))
+      ZIO.attemptBlocking(message.term()).mapError(NatsError.Ack(_)) *> stopHolding(Chunk(message))
 
 
 object BatchConsumer:

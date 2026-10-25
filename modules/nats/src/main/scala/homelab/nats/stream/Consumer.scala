@@ -20,8 +20,9 @@ import zio.*
  * reaches this class as a failing handler and is settled the same way. See [[Consumer.make]].
  *
  * A message received and not yet settled when the consumer's scope closes is `nak`ed, so it is redelivered at
- * once. The scope must therefore outlive the `consume` calls running on it, or a message could be handed
- * back while its handler still works on it.
+ * once. That includes one whose ack, nak or term call failed, which stays held. The scope must therefore
+ * outlive the `consume` calls running on it, or a message could be handed back while its handler still works
+ * on it.
  *
  * @param context   the durable consumer to pull from
  * @param expiry    how long the server holds an unanswered pull open before returning nothing
@@ -57,7 +58,6 @@ final class Consumer private (
         held.update(_ + message) *>
           restore(Heartbeat.wrap(heartbeat, Chunk(message))(logic(message))).exit
             .flatMap(settle(message, _))
-            .ensuring(held.update(_ - message))
 
   /**
    * Settle a message by how its handler ended: by outcome when it succeeded or failed, `nak` when it was
@@ -76,7 +76,7 @@ final class Consumer private (
         cause.failureOption match
           case Some(error)                     => handleResult(message, Left(error))
           case None if cause.isInterruptedOnly => nack(message) *> ZIO.refailCause(cause)
-          case None                            => ZIO.refailCause(cause)
+          case None                            => stopHolding(message) *> ZIO.refailCause(cause)
 
   /**
    * Pull the next message, asking again until one arrives.
@@ -107,7 +107,7 @@ final class Consumer private (
       case Right(_)    => ack(message)
       case Left(error) =>
         onFailure match
-          case HandlerFailurePolicy.Surface   => ZIO.fail(error)
+          case HandlerFailurePolicy.Surface   => stopHolding(message) *> ZIO.fail(error)
           case HandlerFailurePolicy.Discard   => dismiss(message)
           case HandlerFailurePolicy.Redeliver => nack(message)
 
@@ -118,7 +118,7 @@ final class Consumer private (
    * @return noop once acked; aborts with [[NatsError.Ack]] on failure
    */
   private def ack(message: Message): IO[NatsError, Unit] =
-    ZIO.attemptBlocking(message.ack()).mapError(NatsError.Ack(_))
+    ZIO.attemptBlocking(message.ack()).mapError(NatsError.Ack(_)) *> stopHolding(message)
 
   /**
    * Negatively acknowledge for redelivery (`nak`).
@@ -127,7 +127,16 @@ final class Consumer private (
    * @return noop once naked; aborts with [[NatsError.Ack]] on failure
    */
   private def nack(message: Message): IO[NatsError, Unit] =
-    ZIO.attemptBlocking(message.nak()).mapError(NatsError.Ack(_))
+    ZIO.attemptBlocking(message.nak()).mapError(NatsError.Ack(_)) *> stopHolding(message)
+
+  /**
+   * Stop holding a message whose fate is decided: settled, or deliberately left to `ackWait`. A message
+   * whose settle call failed is not, so the scope's release `nak`s it again.
+   *
+   * @param message the message no longer held
+   * @return noop
+   */
+  private def stopHolding(message: Message): UIO[Unit] = held.update(_ - message)
 
   /**
    * `nak` every message still held, so each is redelivered at once rather than after `ackWait`; the release of
@@ -145,7 +154,7 @@ final class Consumer private (
    * @return noop once termed; aborts with [[NatsError.Ack]] on failure
    */
   private def dismiss(message: Message): IO[NatsError, Unit] =
-    ZIO.attemptBlocking(message.term()).mapError(NatsError.Ack(_))
+    ZIO.attemptBlocking(message.term()).mapError(NatsError.Ack(_)) *> stopHolding(message)
 
 
 object Consumer:
