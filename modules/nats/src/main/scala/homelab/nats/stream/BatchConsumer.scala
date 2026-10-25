@@ -19,18 +19,25 @@ import zio.*
  * happens below the decoder and per batch, so a malformed payload reaches this class as a failing handler and
  * takes its whole batch with it. See [[BatchConsumer.make]].
  *
+ * Messages received and not yet settled when the consumer's scope closes are `nak`ed, so they are redelivered
+ * at once. That includes those whose ack, nak or term call failed, and those a failed call never reached, which
+ * stay held. The scope must therefore outlive the `consume` calls running on it, or a batch could be handed
+ * back while its handler still works on it.
+ *
  * @param batchSize the maximum messages fetched per `consume`, and so the whole in-flight set
  * @param expiry    how long the server holds an unfilled fetch open before returning what it has
  * @param heartbeat `inProgress()` keepalive interval while the handler runs, or `None` to disable
  * @param context   the durable consumer to fetch from
  * @param onFailure what to do when processing a batch fails
+ * @param held      the messages received and not yet settled
  */
-final class BatchConsumer(
+final class BatchConsumer private (
   batchSize: Int,
   expiry: Duration,
   heartbeat: Option[Duration],
   context: ConsumerContext,
   onFailure: HandlerFailurePolicy,
+  held: Ref[Set[Message]],
 ) extends ConsumerContract.Batched[NatsError, Message]:
 
   private val options = FetchConsumeOptions
@@ -56,8 +63,9 @@ final class BatchConsumer(
   override def consume[E2 >: NatsError](logic: Chunk[Message] => IO[E2, Unit]): IO[E2, Unit] =
     ZIO.uninterruptibleMask: restore =>
       restore(fetch).flatMap { messages =>
-        restore(Heartbeat.wrap(heartbeat, messages)(logic(messages))).exit
-          .flatMap(settle(messages, _))
+        (held.update(_ ++ messages) *>
+          restore(Heartbeat.wrap(heartbeat, messages)(logic(messages))).exit
+            .flatMap(settle(messages, _)))
           .unless(messages.isEmpty)
           .unit
       }
@@ -79,7 +87,7 @@ final class BatchConsumer(
         cause.failureOption match
           case Some(error)                     => handleResult(messages, Left(error))
           case None if cause.isInterruptedOnly => nackAll(messages) *> ZIO.refailCause(cause)
-          case None                            => ZIO.refailCause(cause)
+          case None                            => stopHolding(messages) *> ZIO.refailCause(cause)
 
   /**
    * Fetch up to `batchSize` messages, asking again until at least one arrives.
@@ -121,7 +129,7 @@ final class BatchConsumer(
         onFailure match
           case HandlerFailurePolicy.Discard   => dismissAll(messages)
           case HandlerFailurePolicy.Redeliver => nackAll(messages)
-          case HandlerFailurePolicy.Surface   => ZIO.fail(error)
+          case HandlerFailurePolicy.Surface   => stopHolding(messages) *> ZIO.fail(error)
 
   /**
    * `ack` every message.
@@ -131,7 +139,7 @@ final class BatchConsumer(
    */
   private def ackAll(messages: Chunk[Message]): IO[NatsError, Unit] =
     ZIO.foreachDiscard(messages): message =>
-      ZIO.attemptBlocking(message.ack()).mapError(NatsError.Ack(_))
+      ZIO.attemptBlocking(message.ack()).mapError(NatsError.Ack(_)) *> stopHolding(Chunk(message))
 
   /**
    * `nak` every message (redeliver).
@@ -141,7 +149,25 @@ final class BatchConsumer(
    */
   private def nackAll(messages: Chunk[Message]): IO[NatsError, Unit] =
     ZIO.foreachDiscard(messages): message =>
-      ZIO.attemptBlocking(message.nak()).mapError(NatsError.Ack(_))
+      ZIO.attemptBlocking(message.nak()).mapError(NatsError.Ack(_)) *> stopHolding(Chunk(message))
+
+  /**
+   * Stop holding messages whose fate is decided: settled, or deliberately left to `ackWait`. A message whose
+   * settle call failed, or that a failed call never reached, is not, so the scope's release `nak`s it again.
+   *
+   * @param messages the messages no longer held
+   * @return noop
+   */
+  private def stopHolding(messages: Chunk[Message]): UIO[Unit] = held.update(_ -- messages)
+
+  /**
+   * `nak` every message still held, so each is redelivered at once rather than after `ackWait`; the release of
+   * the scope this consumer was acquired in. A `nak` that fails leaves its message to `ackWait`.
+   *
+   * @return noop once every `nak` has been sent, or has failed
+   */
+  private def handBackAll: UIO[Unit] =
+    held.getAndSet(Set.empty).flatMap(ZIO.foreachDiscard(_)(message => nackAll(Chunk(message)).ignore))
 
   /**
    * `term` every message (stop redelivery).
@@ -151,7 +177,7 @@ final class BatchConsumer(
    */
   private def dismissAll(messages: Chunk[Message]): IO[NatsError, Unit] =
     ZIO.foreachDiscard(messages): message =>
-      ZIO.attemptBlocking(message.term()).mapError(NatsError.Ack(_))
+      ZIO.attemptBlocking(message.term()).mapError(NatsError.Ack(_)) *> stopHolding(Chunk(message))
 
 
 object BatchConsumer:
@@ -214,9 +240,13 @@ object BatchConsumer:
     subject: String,
     config: Config,
   ): ZIO[Scope, NatsError, ConsumerContract.Batched[NatsError, Message]] =
-    subscriber
-      .attach(ContextConfig(stream, durable, subject, config.ackWait, config.maxAckPending))
-      .map(context => new BatchConsumer(config.batchSize, config.expiry, config.heartbeat, context, config.onFailure))
+    for
+      conf     = ContextConfig(stream, durable, subject, config.ackWait, config.maxAckPending)
+      context <- subscriber.attach(conf)
+      held    <- Ref.make(Set.empty[Message])
+      consumer = new BatchConsumer(config.batchSize, config.expiry, config.heartbeat, context, config.onFailure, held)
+      _       <- ZIO.addFinalizer(consumer.handBackAll)
+    yield consumer
 
   /**
    * A batched consumer of decoded values: the message consumer with `A`'s decoder layered over it.

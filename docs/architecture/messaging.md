@@ -179,6 +179,12 @@ is nacked after `nackDelay`, and one that was interrupted is nacked with no dela
 that ran and failed. Interrupted, failed and done elements of one batch are still written together, at most one
 statement each.
 
+**What a consumer still holds when its scope closes is handed back too.** Each JetStream consumer keeps the
+messages it has received and not yet settled; the release of its scope `nak`s whatever is left, so it is
+redelivered at once. Normally nothing is left — an interrupted `consume` settles its own message — so this is
+the backstop for a settle that did not land. It assumes the scope outlives the `consume` calls on it, or a
+message could be handed back while its handler still runs.
+
 One gap is left, the same one `PollConsumer` documents: an interrupt landing as the pull returns drops that
 message on the client, and it comes back after `ackWait`. Covered in `NatsSpec` ("an interrupted handler's
 message is nacked…", "a handler that completes while being interrupted is still acked", and the batched

@@ -343,6 +343,27 @@ object NatsSpec extends ZIOSpecDefault:
             again       <- consumer.consume(_ => ZIO.unit).timeout(4.seconds)
           yield assertTrue(exit.isInterrupted, again.isEmpty)
       },
+      test("a message still held when the consumer's scope closes is nak'ed, so redelivered well before ackWait") {
+        ZIO.scoped:
+          for
+            connection  <- ZIO.service[Connection]
+            _           <- NatsSpecLayers.stream(connection, "HELD", "held.>")
+            producer    <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(_ => "held.in"))
+            config       = StreamConsumer.Config(ackWait = 30.seconds, expiry = 1.second)
+            _           <- producer.emit("in-flight")
+            started     <- Promise.make[Nothing, Unit]
+            // the first consumer's scope closes while its handler, forked outside that scope, still holds the message
+            handler     <- ZIO.scoped:
+                             StreamConsumer
+                               .make[String](connection, "HELD", "worker", "held.>", config)(using Codec.Decoder.utf8)
+                               .flatMap(first => first.consume(_ => started.succeed(()) *> ZIO.never).forkDaemon <* started.await)
+            second      <- StreamConsumer.make[String](connection, "HELD", "worker", "held.>", config)(using Codec.Decoder.utf8)
+            redelivered <- Ref.make(Option.empty[String])
+            outcome     <- second.consume(message => redelivered.set(Some(message))).timeout(5.seconds)
+            out         <- redelivered.get
+            _           <- handler.interrupt
+          yield assertTrue(outcome.isDefined, out == Some("in-flight"))
+      },
       test("a durable publish to a subject no stream captures fails with Publish") {
         ZIO.scoped:
           for
@@ -424,6 +445,30 @@ object NatsSpec extends ZIOSpecDefault:
                              .consume(batch => redelivered.update(_ ++ batch))
                              .repeatUntilZIO(_ => redelivered.get.map(_.size == 3))
                              .timeout(5.seconds)
+          yield assertTrue(outcome.isDefined)
+      },
+      test("a batch still held when the consumer's scope closes is nak'ed, so redelivered well before ackWait") {
+        ZIO.scoped:
+          for
+            connection  <- ZIO.service[Connection]
+            _           <- NatsSpecLayers.stream(connection, "BATCHHELD", "batchheld.>")
+            producer    <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(value => s"batchheld.$value"))
+            config       = StreamBatchConsumer.Config(batchSize = 2, expiry = 1.second, ackWait = 30.seconds)
+            _           <- ZIO.foreachDiscard(1 to 2)(i => producer.emit(i.toString))
+            started     <- Promise.make[Nothing, Unit]
+            handler     <- ZIO.scoped:
+                             StreamBatchConsumer
+                               .make[String](connection, "BATCHHELD", "worker", "batchheld.>", config)(using Codec.Decoder.utf8)
+                               .flatMap(first => first.consume(_ => started.succeed(()) *> ZIO.never).forkDaemon <* started.await)
+            second      <- StreamBatchConsumer.make[String](connection, "BATCHHELD", "worker", "batchheld.>", config)(
+                             using Codec.Decoder.utf8
+                           )
+            redelivered <- Ref.make(Set.empty[String])
+            outcome     <- second
+                             .consume(batch => redelivered.update(_ ++ batch))
+                             .repeatUntilZIO(_ => redelivered.get.map(_.size == 2))
+                             .timeout(5.seconds)
+            _           <- handler.interrupt
           yield assertTrue(outcome.isDefined)
       },
       test("drains a durable batch and acks it") {
