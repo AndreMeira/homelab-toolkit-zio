@@ -19,16 +19,22 @@ import zio.*
  * why there is a single failure policy here — settling happens below the decoder, so a malformed payload
  * reaches this class as a failing handler and is settled the same way. See [[Consumer.make]].
  *
+ * A message received and not yet settled when the consumer's scope closes is `nak`ed, so it is redelivered at
+ * once. The scope must therefore outlive the `consume` calls running on it, or a message could be handed
+ * back while its handler still works on it.
+ *
  * @param context   the durable consumer to pull from
  * @param expiry    how long the server holds an unanswered pull open before returning nothing
  * @param heartbeat `inProgress()` keepalive interval while the handler runs, or `None` to disable
  * @param onFailure what to do when processing a message fails
+ * @param held      the messages received and not yet settled
  */
-final class Consumer(
+final class Consumer private (
   context: ConsumerContext,
   expiry: Duration,
   heartbeat: Option[Duration],
   onFailure: HandlerFailurePolicy,
+  held: Ref[Set[Message]],
 ) extends ConsumerContract[NatsError, Message]:
 
   /**
@@ -48,8 +54,10 @@ final class Consumer(
   override def consume[E2 >: NatsError](logic: Message => IO[E2, Unit]): IO[E2, Unit] =
     ZIO.uninterruptibleMask: restore =>
       restore(next).flatMap: message =>
-        restore(Heartbeat.wrap(heartbeat, Chunk(message))(logic(message))).exit
-          .flatMap(settle(message, _))
+        held.update(_ + message) *>
+          restore(Heartbeat.wrap(heartbeat, Chunk(message))(logic(message))).exit
+            .flatMap(settle(message, _))
+            .ensuring(held.update(_ - message))
 
   /**
    * Settle a message by how its handler ended: by outcome when it succeeded or failed, `nak` when it was
@@ -122,6 +130,15 @@ final class Consumer(
     ZIO.attemptBlocking(message.nak()).mapError(NatsError.Ack(_))
 
   /**
+   * `nak` every message still held, so each is redelivered at once rather than after `ackWait`; the release of
+   * the scope this consumer was acquired in. A `nak` that fails leaves its message to `ackWait`.
+   *
+   * @return noop once every `nak` has been sent, or has failed
+   */
+  private def handBackAll: UIO[Unit] =
+    held.getAndSet(Set.empty).flatMap(ZIO.foreachDiscard(_)(message => nack(message).ignore))
+
+  /**
    * Terminally drop the message, stopping redelivery (`term`).
    *
    * @param message the message to terminate
@@ -189,9 +206,13 @@ object Consumer:
     subject: String,
     config: Config,
   ): ZIO[Scope, NatsError, ConsumerContract[NatsError, Message]] =
-    subscriber
-      .attach(ContextConfig(stream, durable, subject, config.ackWait, config.maxAckPending))
-      .map(context => new Consumer(context, config.expiry, config.heartbeat, config.onFailure))
+    for
+      conf     = ContextConfig(stream, durable, subject, config.ackWait, config.maxAckPending)
+      context <- subscriber.attach(conf)
+      held    <- Ref.make(Set.empty[Message])
+      consumer = new Consumer(context, config.expiry, config.heartbeat, config.onFailure, held)
+      _       <- ZIO.addFinalizer(consumer.handBackAll)
+    yield consumer
 
   /**
    * A consumer of decoded values: the message consumer with `A`'s decoder layered over it.
