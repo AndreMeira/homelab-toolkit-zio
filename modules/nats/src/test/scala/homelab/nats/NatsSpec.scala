@@ -305,7 +305,7 @@ object NatsSpec extends ZIOSpecDefault:
                              "INTERRUPTED",
                              "worker",
                              "interrupted.>",
-                             StreamConsumer.Config(ackWait = 30.seconds, expiry = 1.second),
+                             StreamConsumer.Config(ackWait = 30.seconds, expiry = 1.second, retryAfter = 10.seconds),
                            )(using Codec.Decoder.utf8)
             _           <- producer.emit("cut-off")
             started     <- Promise.make[Nothing, Unit]
@@ -342,6 +342,34 @@ object NatsSpec extends ZIOSpecDefault:
             // not acked, it would be redelivered after ackWait (2 s)
             again       <- consumer.consume(_ => ZIO.unit).timeout(4.seconds)
           yield assertTrue(exit.isInterrupted, again.isEmpty)
+      },
+      test("a failing handler's message is redelivered after retryAfter, not at once") {
+        ZIO.scoped:
+          for
+            connection <- ZIO.service[Connection]
+            _          <- NatsSpecLayers.stream(connection, "BACKOFF", "backoff.>")
+            producer   <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(_ => "backoff.in"))
+            config      = StreamConsumer.Config(ackWait = 30.seconds, expiry = 1.second, retryAfter = 2.seconds)
+            consumer   <- StreamConsumer.make[String](connection, "BACKOFF", "worker", "backoff.>", config)(using Codec.Decoder.utf8)
+            _          <- producer.emit("x")
+            _          <- consumer.consume(_ => ZIO.fail(NatsError.Decode("forced failure")))
+            failedAt   <- Clock.nanoTime
+            outcome    <- consumer.consume(_ => ZIO.unit).timeout(10.seconds)
+            backAt     <- Clock.nanoTime
+          yield assertTrue(outcome.isDefined, Duration.fromNanos(backAt - failedAt) >= 1500.millis)
+      },
+      test("a dying handler's message is redelivered after retryAfter, not after ackWait") {
+        ZIO.scoped:
+          for
+            connection <- ZIO.service[Connection]
+            _          <- NatsSpecLayers.stream(connection, "DIED", "died.>")
+            producer   <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(_ => "died.in"))
+            config      = StreamConsumer.Config(ackWait = 30.seconds, expiry = 1.second, retryAfter = 1.second)
+            consumer   <- StreamConsumer.make[String](connection, "DIED", "worker", "died.>", config)(using Codec.Decoder.utf8)
+            _          <- producer.emit("x")
+            died       <- consumer.consume(_ => ZIO.die(new IllegalStateException("handler bug"))).exit
+            outcome    <- consumer.consume(_ => ZIO.unit).timeout(6.seconds)
+          yield assertTrue(died.isFailure, outcome.isDefined)
       },
       test("a message still held when the consumer's scope closes is nak'ed, so redelivered well before ackWait") {
         ZIO.scoped:
@@ -470,6 +498,27 @@ object NatsSpec extends ZIOSpecDefault:
                              .timeout(5.seconds)
             _           <- handler.interrupt
           yield assertTrue(outcome.isDefined)
+      },
+      test("a failing batch handler's messages are redelivered after retryAfter, not at once") {
+        ZIO.scoped:
+          for
+            connection <- ZIO.service[Connection]
+            _          <- NatsSpecLayers.stream(connection, "BATCHBACKOFF", "batchbackoff.>")
+            producer   <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(value => s"batchbackoff.$value"))
+            config      = StreamBatchConsumer.Config(batchSize = 2, expiry = 1.second, ackWait = 30.seconds, retryAfter = 2.seconds)
+            consumer   <- StreamBatchConsumer.make[String](connection, "BATCHBACKOFF", "worker", "batchbackoff.>", config)(
+                            using Codec.Decoder.utf8
+                          )
+            _          <- ZIO.foreachDiscard(1 to 2)(i => producer.emit(i.toString))
+            _          <- consumer.consume(_ => ZIO.fail(NatsError.Decode("forced failure")))
+            failedAt   <- Clock.nanoTime
+            back       <- Ref.make(Set.empty[String])
+            outcome    <- consumer
+                            .consume(batch => back.update(_ ++ batch))
+                            .repeatUntilZIO(_ => back.get.map(_.size == 2))
+                            .timeout(10.seconds)
+            backAt     <- Clock.nanoTime
+          yield assertTrue(outcome.isDefined, Duration.fromNanos(backAt - failedAt) >= 1500.millis)
       },
       test("drains a durable batch and acks it") {
         val expected = (1 to 10).map(_.toString).toSet

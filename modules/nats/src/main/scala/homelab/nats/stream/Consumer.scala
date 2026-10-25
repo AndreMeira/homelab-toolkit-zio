@@ -11,7 +11,8 @@ import zio.*
 /**
  * A durable JetStream [[ConsumerContract]] over messages, pulled one at a time. Each message is settled
  * with '''explicit ack''': `ack` when `logic` succeeds, and on failure whatever `onFailure` dictates — `nak`
- * (redeliver), `term` (discard), or surface the error. Redelivery is real, so '''handlers must be
+ * after `retryAfter` (redeliver), `term` (discard), or surface the error. A handler that dies is also `nak`ed
+ * after `retryAfter`; one that was interrupted is `nak`ed at once. Redelivery is real, so '''handlers must be
  * idempotent'''. An optional `heartbeat` pings `inProgress()` while the handler runs so slow work isn't
  * redelivered mid-flight.
  *
@@ -24,17 +25,13 @@ import zio.*
  * outlive the `consume` calls running on it, or a message could be handed back while its handler still works
  * on it.
  *
- * @param context   the durable consumer to pull from
- * @param expiry    how long the server holds an unanswered pull open before returning nothing
- * @param heartbeat `inProgress()` keepalive interval while the handler runs, or `None` to disable
- * @param onFailure what to do when processing a message fails
- * @param held      the messages received and not yet settled
+ * @param context the durable consumer to pull from
+ * @param config  how it pulls, keeps a slow handler alive, and settles what failed
+ * @param held    the messages received and not yet settled
  */
 final class Consumer private (
   context: ConsumerContext,
-  expiry: Duration,
-  heartbeat: Option[Duration],
-  onFailure: HandlerFailurePolicy,
+  config: Consumer.Config,
   held: Ref[Set[Message]],
 ) extends ConsumerContract[NatsError, Message]:
 
@@ -56,12 +53,12 @@ final class Consumer private (
     ZIO.uninterruptibleMask: restore =>
       restore(next).flatMap: message =>
         held.update(_ + message) *>
-          restore(Heartbeat.wrap(heartbeat, Chunk(message))(logic(message))).exit
+          restore(Heartbeat.wrap(config.heartbeat, Chunk(message))(logic(message))).exit
             .flatMap(settle(message, _))
 
   /**
-   * Settle a message by how its handler ended: by outcome when it succeeded or failed, `nak` when it was
-   * interrupted, and not at all when it died, leaving the message to redeliver after `ackWait`.
+   * Settle a message by how its handler ended: by outcome when it succeeded or failed, `nak` at once when it
+   * was interrupted, and `nak` after `retryAfter` when it died.
    *
    * @param message the message to settle
    * @param exit    how the handler ended
@@ -76,7 +73,7 @@ final class Consumer private (
         cause.failureOption match
           case Some(error)                     => handleResult(message, Left(error))
           case None if cause.isInterruptedOnly => nack(message) *> ZIO.refailCause(cause)
-          case None                            => stopHolding(message) *> ZIO.refailCause(cause)
+          case None                            => retry(message) *> ZIO.refailCause(cause)
 
   /**
    * Pull the next message, asking again until one arrives.
@@ -89,7 +86,7 @@ final class Consumer private (
    */
   private def next: IO[NatsError, Message] =
     ZIO
-      .attemptBlockingInterrupt(context.next(expiry))
+      .attemptBlockingInterrupt(context.next(config.expiry))
       .mapError(NatsError.Receive(_))
       .flatMap(message => if message == null then next else ZIO.succeed(message))
 
@@ -106,10 +103,10 @@ final class Consumer private (
     outcome match
       case Right(_)    => ack(message)
       case Left(error) =>
-        onFailure match
+        config.onFailure match
           case HandlerFailurePolicy.Surface   => stopHolding(message) *> ZIO.fail(error)
           case HandlerFailurePolicy.Discard   => dismiss(message)
-          case HandlerFailurePolicy.Redeliver => nack(message)
+          case HandlerFailurePolicy.Redeliver => retry(message)
 
   /**
    * Acknowledge successful processing (`ack`).
@@ -128,6 +125,16 @@ final class Consumer private (
    */
   private def nack(message: Message): IO[NatsError, Unit] =
     ZIO.attemptBlocking(message.nak()).mapError(NatsError.Ack(_)) *> stopHolding(message)
+
+  /**
+   * Negatively acknowledge for redelivery after `retryAfter`: work that ran and did not answer backs off.
+   *
+   * @param message the message to nak
+   * @return noop once naked; aborts with [[NatsError.Ack]] on failure
+   */
+  private def retry(message: Message): IO[NatsError, Unit] =
+    if config.retryAfter.isZero then nack(message)
+    else ZIO.attemptBlocking(message.nakWithDelay(config.retryAfter.toMillis)).mapError(NatsError.Ack(_)) *> stopHolding(message)
 
   /**
    * Stop holding a message whose fate is decided: settled, or deliberately left to `ackWait`. A message
@@ -168,6 +175,7 @@ object Consumer:
    * @param heartbeat     `inProgress()` keepalive interval while the handler runs, or `None` to disable
    * @param onFailure     what to do when processing a message fails — decoding included, see [[make]]
    * @param expiry        how long the server holds an unanswered pull open before returning nothing
+   * @param retryAfter    how long a message whose handler failed or died waits before it is delivered again
    */
   final case class Config(
     ackWait: Duration = 30.seconds,
@@ -175,6 +183,7 @@ object Consumer:
     heartbeat: Option[Duration] = None,
     onFailure: HandlerFailurePolicy = HandlerFailurePolicy.Redeliver,
     expiry: Duration = 30.seconds,
+    retryAfter: Duration = Duration.Zero,
   )
 
   /**
@@ -219,7 +228,7 @@ object Consumer:
       conf     = ContextConfig(stream, durable, subject, config.ackWait, config.maxAckPending)
       context <- subscriber.attach(conf)
       held    <- Ref.make(Set.empty[Message])
-      consumer = new Consumer(context, config.expiry, config.heartbeat, config.onFailure, held)
+      consumer = new Consumer(context, config, held)
       _       <- ZIO.addFinalizer(consumer.handBackAll)
     yield consumer
 
