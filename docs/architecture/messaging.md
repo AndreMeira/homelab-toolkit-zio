@@ -174,6 +174,11 @@ from its result to the settlement cannot be interrupted. Interruption is not a f
 it ignores the policy: `Discard` would drop a message nobody finished, `Surface` would leave it waiting out
 `ackWait`.
 
+`PollConsumer` follows the same rule with its own verdicts: a handler that answered is acked, one that failed
+is nacked after `nackDelay`, and one that was interrupted is nacked with no delay, since the backoff is for work
+that ran and failed. Interrupted, failed and done elements of one batch are still written together, at most one
+statement each.
+
 One gap is left, the same one `PollConsumer` documents: an interrupt landing as the pull returns drops that
 message on the client, and it comes back after `ackWait`. Covered in `NatsSpec` ("an interrupted handler's
 message is nacked…", "a handler that completes while being interrupted is still acked", and the batched
