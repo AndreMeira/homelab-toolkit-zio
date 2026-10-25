@@ -12,8 +12,9 @@ import zio.*
  * A durable JetStream batched [[ConsumerContract.Batched]] over messages, pulled a batch at a time. Fetches
  * up to `batchSize` messages when it is ready to work on them, runs `logic` on them (under the heartbeat),
  * and settles them
- * '''together''': `ackAll` on success, else `onFailure` (`nak` / `term` / surface). Redelivery is real, so
- * '''handlers must be idempotent'''.
+ * '''together''': `ackAll` on success, else `onFailure` (`nak` after `retryAfter` / `term` / surface).
+ * A handler that dies also has its batch `nak`ed after `retryAfter`; one that was interrupted, at once.
+ * Redelivery is real, so '''handlers must be idempotent'''.
  *
  * It consumes `Message`, not decoded values: decoding is layered on top by the `make[A]` factory. Settling
  * happens below the decoder and per batch, so a malformed payload reaches this class as a failing handler and
@@ -29,6 +30,7 @@ import zio.*
  * @param heartbeat `inProgress()` keepalive interval while the handler runs, or `None` to disable
  * @param context   the durable consumer to fetch from
  * @param onFailure what to do when processing a batch fails
+ * @param retryAfter how long a batch whose handler failed or died waits before it is delivered again
  * @param held      the messages received and not yet settled
  */
 final class BatchConsumer private (
@@ -37,6 +39,7 @@ final class BatchConsumer private (
   heartbeat: Option[Duration],
   context: ConsumerContext,
   onFailure: HandlerFailurePolicy,
+  retryAfter: Duration,
   held: Ref[Set[Message]],
 ) extends ConsumerContract.Batched[NatsError, Message]:
 
@@ -71,8 +74,8 @@ final class BatchConsumer private (
       }
 
   /**
-   * Settle a batch by how its handler ended: by outcome when it succeeded or failed, `nak` when it was
-   * interrupted, and not at all when it died, leaving the batch to redeliver after `ackWait`.
+   * Settle a batch by how its handler ended: by outcome when it succeeded or failed, `nak` at once when it
+   * was interrupted, and `nak` after `retryAfter` when it died.
    *
    * @param messages the messages to settle
    * @param exit     how the handler ended
@@ -87,7 +90,7 @@ final class BatchConsumer private (
         cause.failureOption match
           case Some(error)                     => handleResult(messages, Left(error))
           case None if cause.isInterruptedOnly => nackAll(messages) *> ZIO.refailCause(cause)
-          case None                            => stopHolding(messages) *> ZIO.refailCause(cause)
+          case None                            => retryAll(messages) *> ZIO.refailCause(cause)
 
   /**
    * Fetch up to `batchSize` messages, asking again until at least one arrives.
@@ -128,7 +131,7 @@ final class BatchConsumer private (
       case Left(error) =>
         onFailure match
           case HandlerFailurePolicy.Discard   => dismissAll(messages)
-          case HandlerFailurePolicy.Redeliver => nackAll(messages)
+          case HandlerFailurePolicy.Redeliver => retryAll(messages)
           case HandlerFailurePolicy.Surface   => stopHolding(messages) *> ZIO.fail(error)
 
   /**
@@ -150,6 +153,19 @@ final class BatchConsumer private (
   private def nackAll(messages: Chunk[Message]): IO[NatsError, Unit] =
     ZIO.foreachDiscard(messages): message =>
       ZIO.attemptBlocking(message.nak()).mapError(NatsError.Ack(_)) *> stopHolding(Chunk(message))
+
+  /**
+   * `nak` every message for redelivery after `retryAfter`: work that ran and did not answer backs off.
+   *
+   * @param messages the messages to nak
+   * @return noop once all are naked; aborts with [[NatsError.Ack]] on the first failure
+   */
+  private def retryAll(messages: Chunk[Message]): IO[NatsError, Unit] =
+    if retryAfter.isZero then nackAll(messages)
+    else
+      ZIO.foreachDiscard(messages): message =>
+        ZIO.attemptBlocking(message.nakWithDelay(retryAfter.toMillis)).mapError(NatsError.Ack(_)) *>
+          stopHolding(Chunk(message))
 
   /**
    * Stop holding messages whose fate is decided: settled, or deliberately left to `ackWait`. A message whose
@@ -192,6 +208,7 @@ object BatchConsumer:
    *                      consumer is already bounded by `batchSize`
    * @param heartbeat     `inProgress()` keepalive interval while the handler runs, or `None` to disable
    * @param onFailure     what to do when processing a batch fails — decoding included, see [[make]]
+   * @param retryAfter    how long a batch whose handler failed or died waits before it is delivered again
    */
   final case class Config(
     batchSize: Int = 100,
@@ -200,6 +217,7 @@ object BatchConsumer:
     maxAckPending: Int = 256,
     heartbeat: Option[Duration] = None,
     onFailure: HandlerFailurePolicy = HandlerFailurePolicy.Redeliver,
+    retryAfter: Duration = Duration.Zero,
   )
 
   /**
@@ -244,7 +262,15 @@ object BatchConsumer:
       conf     = ContextConfig(stream, durable, subject, config.ackWait, config.maxAckPending)
       context <- subscriber.attach(conf)
       held    <- Ref.make(Set.empty[Message])
-      consumer = new BatchConsumer(config.batchSize, config.expiry, config.heartbeat, context, config.onFailure, held)
+      consumer = new BatchConsumer(
+                   config.batchSize,
+                   config.expiry,
+                   config.heartbeat,
+                   context,
+                   config.onFailure,
+                   config.retryAfter,
+                   held,
+                 )
       _       <- ZIO.addFinalizer(consumer.handBackAll)
     yield consumer
 
