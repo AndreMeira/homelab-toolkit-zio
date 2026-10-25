@@ -72,8 +72,8 @@ trait Stateful[E >: AdapterError <: ApplicationError, K, S, I, O] extends Worker
    * @return the handler the worker runs per message
    */
   final override def receive: I => IO[E, O] = message =>
-    val entity = key(message)
     for
+      entity   = key(message)
       current <- store.get(entity).someOrElseZIO(init(message))
       outcome <- next(current, message)
       reply   <- outcome match

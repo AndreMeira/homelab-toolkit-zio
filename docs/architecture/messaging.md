@@ -174,6 +174,11 @@ from its result to the settlement cannot be interrupted. Interruption is not a f
 it ignores the policy: `Discard` would drop a message nobody finished, `Surface` would leave it waiting out
 `ackWait`.
 
+`PollConsumer` follows the same rule with its own verdicts: a handler that answered is acked, one that failed
+is nacked after `nackDelay`, and one that was interrupted is nacked with no delay, since the backoff is for work
+that ran and failed. Interrupted, failed and done elements of one batch are still written together, at most one
+statement each.
+
 **What a consumer still holds when its scope closes is handed back too.** Each JetStream consumer keeps the
 messages it has received and not yet settled; the release of its scope `nak`s whatever is left, so it is
 redelivered at once. Normally nothing is left — an interrupted `consume` settles its own message — so this is

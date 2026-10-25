@@ -109,7 +109,7 @@ final class PollConsumer[E, A] private (channel: PollConsumer.Channel[E, A]) ext
     for
       settled <- Promise.make[Nothing, Unit]
       exit    <- restore(logic(element)).exit
-      verdict  = if exit.isSuccess then Verdict.Done else Verdict.Failed
+      verdict  = Verdict.of(exit)
       _       <- channel.settlement.offer(Settlement.Filed(Pending(element, verdict, settled)))
       _       <- restore(settled.await.raceFirst(channel.failure.await))
       done    <- exit
@@ -241,7 +241,29 @@ object PollConsumer:
 
   /** What a worker decided about an element: whether the store should retire it or hand it out again. */
   private[PollConsumer] enum Verdict:
-    case Done, Failed
+
+    /** The handler answered: retire the element. */
+    case Done
+
+    /** The handler ended without answering: hand the element out again after the retry backoff. */
+    case Failed
+
+    /** The handler was stopped before it finished: hand the element out again at once. */
+    case Interrupted
+
+  private[PollConsumer] object Verdict:
+
+    /**
+     * The verdict a handler's ending amounts to. Interruption is not a failure of the work, so it does not
+     * earn the backoff a failure does.
+     *
+     * @param exit how the handler ended
+     * @return `Done` on success, `Interrupted` when it was interrupted, else `Failed`
+     */
+    def of(exit: Exit[?, Unit]): Verdict =
+      if exit.isSuccess then Done
+      else if exit.isInterrupted then Interrupted
+      else Failed
 
   /**
    * One element's verdict, in transit to the settler, with the promise the worker is waiting on.
@@ -549,7 +571,8 @@ object PollConsumer:
         write(verdicts).unless(verdicts.isEmpty).as(batch)
 
     /**
-     * Write one batch — at most one `ack` and one `nack` — and release everyone waiting on it.
+     * Write one batch — at most one `ack`, one backed-off `nack` for failures and one immediate `nack` for
+     * interruptions — and release everyone waiting on it.
      *
      * The promises are completed only after the write lands, which is what makes `consume` mean "recorded"
      * rather than "attempted". A failed write completes none of them and simply propagates: the settler dies,
@@ -560,9 +583,12 @@ object PollConsumer:
      * @return noop once written and released; aborts with `E` if the store fails
      */
     private def write(batch: Chunk[Pending[A]]): IO[E, Unit] = {
-      val (done, failed) = batch.partition(_.verdict == Verdict.Done)
+      val done        = batch.filter(_.verdict == Verdict.Done)
+      val failed      = batch.filter(_.verdict == Verdict.Failed)
+      val interrupted = batch.filter(_.verdict == Verdict.Interrupted)
       source.ack(done.map(_.element)).unless(done.isEmpty)
         *> source.nack(failed.map(_.element), nackDelay).unless(failed.isEmpty)
+        *> source.nack(interrupted.map(_.element), Duration.Zero).unless(interrupted.isEmpty)
         *> ZIO.foreachDiscard(batch)(_.settled.succeed(()))
     }
 
@@ -638,8 +664,9 @@ object PollConsumer:
    * @param pollSize the most the fetcher will claim in one query
    * @param writeSize the most verdicts, or nacks, written in one statement
    * @param nackDelay how long an element whose handler *failed* stays unavailable — a retry backoff. It
-   *                  does not apply to elements handed back untouched at shutdown or after a cancellation;
-   *                  those return immediately (see [[Fetcher.drain]] and [[Canceller.step]])
+   *                  does not apply to elements whose handler was interrupted, nor to elements handed back
+   *                  untouched at shutdown or after a cancellation; those return immediately (see
+   *                  [[Fetcher.drain]] and [[Canceller.step]])
    * @tparam E the error the store aborts with
    * @tparam A the element handled
    * @return the worker, with its fetcher and settler already running; never fails

@@ -123,10 +123,9 @@ object Processor {
    */
   def parallel[E, A](input: Consumer[E, A], parallelism: Int)(handle: A => IO[E, Unit]): ZIO[Scope, E, Nothing] =
     for
-      scope   <- ZIO.scope
       sem     <- Semaphore.make(parallelism)
       failure <- Promise.make[E, Nothing]
-      _       <- spawn(input, sem, failure)(handle).forever.forkIn(scope)
+      _       <- spawn(input, sem, failure)(handle).forever.forkScoped
       never   <- failure.await
     yield never
 

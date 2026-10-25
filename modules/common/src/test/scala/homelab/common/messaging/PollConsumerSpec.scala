@@ -17,7 +17,7 @@ object PollConsumerSpec extends ZIOSpecDefault:
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("PollConsumer")(
     test("a consumer torn down mid-flight still records the verdict it was holding") {
-      // The caller is interrupted inside `logic`, files a Failed verdict on the way out, and the settler —
+      // The caller is interrupted inside `logic`, files an Interrupted verdict on the way out, and the settler —
       // which the registration order keeps alive longer than the callers — writes it. Swap the two `make`
       // lines in `PollConsumer.make` and this element is stranded until its lease expires.
       for
@@ -31,7 +31,8 @@ object PollConsumerSpec extends ZIOSpecDefault:
                        *> running.await
                    }
         nacked  <- source.nackCalls.get
-      yield assertTrue(nacked.flat == List(1))
+        waits   <- source.nackWaits.get
+      yield assertTrue(nacked.flat == List(1), waits == List(Duration.Zero)) // interrupted, not failed: no backoff
     },
     test("verdicts filed but not yet written are flushed at teardown") {
       // Settlement is made slow, so when the scope closes verdicts are queued and the settler is mid-write.
@@ -204,13 +205,15 @@ object PollConsumerSpec extends ZIOSpecDefault:
                      }
         acked     <- source.ackCalls.get
         nacked    <- source.nackCalls.get
+        waits     <- source.nackWaits.get
       yield
         val (held, exit, second, handled) = result
         assertTrue(
           held == 1,
-          exit.isInterrupted,     // the cancellation reached the caller, not swallowed
-          nacked.flat == List(1), // and its element went back to the store
-          second.isDefined,       // the next caller was served rather than left waiting
+          exit.isInterrupted,           // the cancellation reached the caller, not swallowed
+          nacked.flat == List(1),       // and its element went back to the store
+          waits == List(Duration.Zero), // at once: it was stopped, not failed
+          second.isDefined,             // the next caller was served rather than left waiting
           handled == 2,
           acked.flat == List(2),
         )
