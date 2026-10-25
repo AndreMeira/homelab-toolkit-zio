@@ -11,7 +11,7 @@ package homelab.nats
  * does.
  */
 enum HandlerFailurePolicy:
-  /** `nak` the message — retry via redelivery (the default). */
+  /** `nak` the message — retry via redelivery, after the consumer's `retryAfter` (the default). */
   case Redeliver
 
   /** `term` the message — stop redelivering it. */

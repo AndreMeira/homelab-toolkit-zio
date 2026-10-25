@@ -163,9 +163,9 @@ and `logic`, and settle the captured `Exit`:
 | `logic` ended by | Settlement |
 |---|---|
 | success | `ack` |
-| typed failure | `HandlerFailurePolicy` — `nak`, `term`, or surface unsettled |
+| typed failure | `HandlerFailurePolicy` — `nak` after `retryAfter`, `term`, or surface unsettled |
 | interruption | `nak` at once, whatever the policy, then the interruption carries on |
-| defect | nothing; redelivered after `ackWait` |
+| defect | `nak` after `retryAfter` |
 
 Two things follow. **A closing scope hands work back immediately**: an interrupted handler is `nak`ed, so its
 message is redelivered in milliseconds rather than after `ackWait` (30 s by default) — on every rolling restart,
