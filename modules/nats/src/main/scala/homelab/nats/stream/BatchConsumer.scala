@@ -43,19 +43,43 @@ final class BatchConsumer(
    * Drain a batch, run `logic` on it (under the heartbeat), and settle it. One call processes one batch; a run
    * loop calls it repeatedly.
    *
+   * Only the fetch and `logic` are interruptible; settling is not. An interrupted `logic` has its whole batch
+   * `nak`ed at once, whatever `onFailure` says, and a `logic` that completed just as the interrupt arrived is
+   * still settled by its outcome. An interrupt landing as the fetch returns drops that batch, which is
+   * redelivered after `ackWait`.
+   *
    * @param logic processes one batch of consumed messages
    * @tparam E2 the widened error, admitting `logic`'s failures
    * @return noop once the batch is settled; aborts with `E2` if `logic` fails under Surface, or with
    *         [[NatsError.Ack]] if a settlement call fails
    */
   override def consume[E2 >: NatsError](logic: Chunk[Message] => IO[E2, Unit]): IO[E2, Unit] =
-    fetch.flatMap { messages =>
-      Heartbeat
-        .wrap(heartbeat, messages)(logic(messages).either)
-        .flatMap(handleResult(messages, _))
-        .unless(messages.isEmpty)
-        .unit
-    }
+    ZIO.uninterruptibleMask: restore =>
+      restore(fetch).flatMap { messages =>
+        restore(Heartbeat.wrap(heartbeat, messages)(logic(messages))).exit
+          .flatMap(settle(messages, _))
+          .unless(messages.isEmpty)
+          .unit
+      }
+
+  /**
+   * Settle a batch by how its handler ended: by outcome when it succeeded or failed, `nak` when it was
+   * interrupted, and not at all when it died, leaving the batch to redeliver after `ackWait`.
+   *
+   * @param messages the messages to settle
+   * @param exit     how the handler ended
+   * @tparam E2 the handler's error
+   * @return noop once settled; re-raises the interruption or defect after settling, aborts with `E2` under
+   *         Surface, or with [[NatsError.Ack]] if an ack/nak/term call fails
+   */
+  private def settle[E2](messages: Chunk[Message], exit: Exit[E2, Unit]): IO[NatsError | E2, Unit] =
+    exit match
+      case Exit.Success(_)     => handleResult(messages, Right(()))
+      case Exit.Failure(cause) =>
+        cause.failureOption match
+          case Some(error)                     => handleResult(messages, Left(error))
+          case None if cause.isInterruptedOnly => nackAll(messages) *> ZIO.refailCause(cause)
+          case None                            => ZIO.refailCause(cause)
 
   /**
    * Fetch up to `batchSize` messages, asking again until at least one arrives.

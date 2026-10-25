@@ -35,17 +35,40 @@ final class Consumer(
    * Take the next message, run `logic` on it (under the heartbeat), and settle by the outcome. One call
    * processes one message; a run loop calls it repeatedly.
    *
+   * Only the pull and `logic` are interruptible; settling is not. An interrupted `logic` is `nak`ed at once,
+   * whatever `onFailure` says, and a `logic` that completed just as the interrupt arrived is still settled by
+   * its outcome. An interrupt landing as the pull returns drops that message, which is redelivered after
+   * `ackWait`.
+   *
    * @param logic processes one consumed message
    * @tparam E2 the widened error, admitting `logic`'s failures
    * @return noop once the message is settled; aborts with `E2` if `logic` fails under Surface, or with
    *         [[NatsError.Ack]] if a settlement call fails
    */
   override def consume[E2 >: NatsError](logic: Message => IO[E2, Unit]): IO[E2, Unit] =
-    for
-      message <- next
-      result  <- Heartbeat.wrap(heartbeat, Chunk(message))(logic(message).either)
-      _       <- handleResult(message, result)
-    yield ()
+    ZIO.uninterruptibleMask: restore =>
+      restore(next).flatMap: message =>
+        restore(Heartbeat.wrap(heartbeat, Chunk(message))(logic(message))).exit
+          .flatMap(settle(message, _))
+
+  /**
+   * Settle a message by how its handler ended: by outcome when it succeeded or failed, `nak` when it was
+   * interrupted, and not at all when it died, leaving the message to redeliver after `ackWait`.
+   *
+   * @param message the message to settle
+   * @param exit    how the handler ended
+   * @tparam E2 the handler's error
+   * @return noop once settled; re-raises the interruption or defect after settling, aborts with `E2` under
+   *         Surface, or with [[NatsError.Ack]] if the ack/nak/term call fails
+   */
+  private def settle[E2](message: Message, exit: Exit[E2, Unit]): IO[NatsError | E2, Unit] =
+    exit match
+      case Exit.Success(_)     => handleResult(message, Right(()))
+      case Exit.Failure(cause) =>
+        cause.failureOption match
+          case Some(error)                     => handleResult(message, Left(error))
+          case None if cause.isInterruptedOnly => nack(message) *> ZIO.refailCause(cause)
+          case None                            => ZIO.refailCause(cause)
 
   /**
    * Pull the next message, asking again until one arrives.

@@ -294,6 +294,55 @@ object NatsSpec extends ZIOSpecDefault:
             count      <- attempts.get
           yield assertTrue(count == 1)
       },
+      test("an interrupted handler's message is nacked, so redelivered well before ackWait") {
+        ZIO.scoped:
+          for
+            connection  <- ZIO.service[Connection]
+            _           <- NatsSpecLayers.stream(connection, "INTERRUPTED", "interrupted.>")
+            producer    <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(_ => "interrupted.in"))
+            consumer    <- StreamConsumer.make[String](
+                             connection,
+                             "INTERRUPTED",
+                             "worker",
+                             "interrupted.>",
+                             StreamConsumer.Config(ackWait = 30.seconds, expiry = 1.second),
+                           )(using Codec.Decoder.utf8)
+            _           <- producer.emit("cut-off")
+            started     <- Promise.make[Nothing, Unit]
+            first       <- consumer.consume(_ => started.succeed(()) *> ZIO.never).fork
+            _           <- started.await
+            _           <- first.interrupt
+            redelivered <- Ref.make(Option.empty[String])
+            outcome     <- consumer.consume(message => redelivered.set(Some(message))).timeout(5.seconds)
+            out         <- redelivered.get
+          yield assertTrue(outcome.isDefined, out == Some("cut-off"))
+      },
+      test("a handler that completes while being interrupted is still acked") {
+        ZIO.scoped:
+          for
+            connection  <- ZIO.service[Connection]
+            _           <- NatsSpecLayers.stream(connection, "COMPLETED", "completed.>")
+            producer    <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(_ => "completed.in"))
+            consumer    <- StreamConsumer.make[String](
+                             connection,
+                             "COMPLETED",
+                             "worker",
+                             "completed.>",
+                             StreamConsumer.Config(ackWait = 2.seconds, expiry = 1.second),
+                           )(using Codec.Decoder.utf8)
+            _           <- producer.emit("finished")
+            started     <- Promise.make[Nothing, Unit]
+            gate        <- Promise.make[Nothing, Unit]
+            first       <- consumer.consume(_ => ZIO.uninterruptible(started.succeed(()) *> gate.await)).fork
+            _           <- started.await
+            interrupted <- first.interrupt.fork
+            _           <- ZIO.sleep(200.millis) // the interrupt is pending while the handler is still running
+            _           <- gate.succeed(())
+            exit        <- interrupted.join
+            // not acked, it would be redelivered after ackWait (2 s)
+            again       <- consumer.consume(_ => ZIO.unit).timeout(4.seconds)
+          yield assertTrue(exit.isInterrupted, again.isEmpty)
+      },
       test("a durable publish to a subject no stream captures fails with Publish") {
         ZIO.scoped:
           for
@@ -352,6 +401,31 @@ object NatsSpec extends ZIOSpecDefault:
       },
     ),
     suite("jetstream batched")(
+      test("an interrupted batch handler's messages are nacked, so redelivered well before ackWait") {
+        ZIO.scoped:
+          for
+            connection  <- ZIO.service[Connection]
+            _           <- NatsSpecLayers.stream(connection, "BATCHINTR", "batchintr.>")
+            producer    <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(value => s"batchintr.$value"))
+            consumer    <- StreamBatchConsumer.make[String](
+                             connection,
+                             "BATCHINTR",
+                             "worker",
+                             "batchintr.>",
+                             StreamBatchConsumer.Config(batchSize = 3, expiry = 1.second, ackWait = 30.seconds),
+                           )(using Codec.Decoder.utf8)
+            _           <- ZIO.foreachDiscard(1 to 3)(i => producer.emit(i.toString))
+            started     <- Promise.make[Nothing, Unit]
+            first       <- consumer.consume(_ => started.succeed(()) *> ZIO.never).fork
+            _           <- started.await
+            _           <- first.interrupt
+            redelivered <- Ref.make(Set.empty[String])
+            outcome     <- consumer
+                             .consume(batch => redelivered.update(_ ++ batch))
+                             .repeatUntilZIO(_ => redelivered.get.map(_.size == 3))
+                             .timeout(5.seconds)
+          yield assertTrue(outcome.isDefined)
+      },
       test("drains a durable batch and acks it") {
         val expected = (1 to 10).map(_.toString).toSet
         ZIO.scoped:
