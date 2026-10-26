@@ -20,11 +20,11 @@ val magnumVersion         = "1.3.1"
 val flywayVersion         = "12.9.0"
 val postgresqlVersion     = "42.7.14"
 val hikariVersion         = "7.1.0"
-val zioOtelVersion        = "3.1.20"
+val zioOtelVersion        = "3.1.21"
 val otelVersion           = "1.67.0"
 val fabric8Version        = "8.0.0"
 val testcontainersVersion = "1.20.6"
-val sttpVersion           = "4.0.27"
+val sttpVersion           = "4.1.0"
 
 ThisBuild / scalaVersion := scala3Version
 ThisBuild / organization := "com.andremeira.homelab"
