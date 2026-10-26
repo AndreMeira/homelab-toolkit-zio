@@ -37,17 +37,17 @@ object KeyLock:
    * @return a new [[KeyLock]] with no keys held
    */
   def make[K]: UIO[KeyLock[K]] =
-    Ref.Synchronized.make(Map.empty[K, (Semaphore, Int)]).map(new Apply(_))
+    Ref.make(Map.empty[K, (Semaphore, Int)]).map(new Apply(_))
 
   /**
-   * The map-backed [[KeyLock]]: a `Ref.Synchronized` from key to its `(semaphore, holder count)` pair. A
-   * key's semaphore is created on the first [[withPermit]] and dropped when the last holder releases, so the
-   * map only ever holds currently-contended keys.
+   * The map-backed [[KeyLock]]: a `Ref` from key to its `(semaphore, holder count)` pair.
+   * A key's semaphore is created on the first [[withPermit]] and dropped when the last holder releases,
+   * so the map only ever holds currently-contended keys.
    *
-   * @param ref the key → (semaphore, holder count) table
+   * @param locks the key → (semaphore, holder count) table
    * @tparam K the key type
    */
-  private class Apply[K](ref: Ref.Synchronized[Map[K, (Semaphore, Int)]]) extends KeyLock[K]:
+  private class Apply[K](locks: Ref[Map[K, (Semaphore, Int)]]) extends KeyLock[K]:
     def withPermit[R, E, A](key: K)(zio: ZIO[R, E, A]): ZIO[R, E, A] =
       ZIO.acquireReleaseWith(acquire(key))(_ => release(key)) { sem =>
         sem.withPermit(zio)
@@ -55,16 +55,18 @@ object KeyLock:
 
     /**
      * Get `key`'s semaphore — creating it with a single permit if absent — and record one more holder. The
-     * increment and the map insert happen atomically inside the `Ref.Synchronized`.
+     * increment and the map insert happen in one `modify` of the `Ref`; the semaphore is made beforehand so
+     * that function stays pure, and is discarded when the key already has one.
      *
      * @param key the key to acquire the semaphore for
      * @return the key's semaphore, its holder count now bumped by one
      */
     private def acquire(key: K): UIO[Semaphore] =
-      ref.modifyZIO { map =>
-        map.get(key) match
-          case Some((s, n)) => ZIO.succeed((s, map.updated(key, (s, n + 1))))
-          case None         => Semaphore.make(1).map(s => (s, map.updated(key, (s, 1))))
+      Semaphore.make(1).flatMap { newLock =>
+        locks.modify: locks =>
+          locks.get(key) match
+            case Some((lock, n)) => lock    -> locks.updated(key, (lock, n + 1))
+            case None            => newLock -> locks.updated(key, (newLock, 1))
       }
 
     /**
@@ -75,9 +77,9 @@ object KeyLock:
      * @return unit once the count is decremented (or the entry evicted)
      */
     private def release(key: K): UIO[Unit] =
-      ref.update { map =>
-        map.get(key) match
-          case Some((s, 1)) => map - key // last user → evict
-          case Some((s, n)) => map.updated(key, (s, n - 1))
-          case None         => map
+      locks.update { locks =>
+        locks.get(key) match
+          case Some((s, 1)) => locks - key // last user → evict
+          case Some((s, n)) => locks.updated(key, (s, n - 1))
+          case None         => locks
       }

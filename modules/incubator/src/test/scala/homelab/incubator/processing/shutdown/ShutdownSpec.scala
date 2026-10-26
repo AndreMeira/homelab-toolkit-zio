@@ -1,5 +1,6 @@
 package homelab.incubator.processing.shutdown
 
+
 import homelab.common.messaging.Consumer
 import zio.*
 import zio.test.*
@@ -94,7 +95,8 @@ object ShutdownSpec extends ZIOSpecDefault:
           outcome     <- Promise.make[Nothing, Exit[Nothing, String]]
           app         <- ZIO.scoped {
                            for
-                             _ <- shutdown.graceful(started.succeed(()) *> gate.await.as("posted"))
+                             _ <- shutdown
+                                    .graceful(started.succeed(()) *> gate.await.as("posted"))
                                     .exit
                                     .flatMap(outcome.succeed)
                                     .forkScoped
@@ -146,7 +148,7 @@ object ShutdownSpec extends ZIOSpecDefault:
           _        <- queue.offer("request")
           value    <- received.await
           _        <- waiting.join
-        yield assertTrue(value == "request")
+        yield assertTrue(value == "request"),
     )
 
   private object Support:
