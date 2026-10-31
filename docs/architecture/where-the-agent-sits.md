@@ -2,7 +2,7 @@
 title: "Where an agent sits in a system — as a user, or as a component"
 type: architecture
 status: current
-updated: 2026-09-22
+updated: 2026-10-31
 tags: [agent, tool-calling, security, authorisation, prompt-injection, confused-deputy, design]
 ---
 
@@ -101,7 +101,7 @@ Three type parameters, and the first two are the whole idea:
   It appears in no schema. The model is never told it exists.
 
 **A prompt injection cannot set what the model was never offered.** That sentence is the entire security
-argument, and it is checkable by reading the schema that goes over the wire. If `userId` is not in `Input`,
+argument, and it is checkable by reading the schema that goes over the network. If `userId` is not in `Input`,
 there is no sequence of tokens that sets it.
 
 ### Binding the context, once, where it cannot be forgotten

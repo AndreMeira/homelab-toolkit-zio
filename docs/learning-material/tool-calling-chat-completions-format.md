@@ -1,12 +1,12 @@
 ---
-title: "What a tool call actually looks like on the wire"
+title: "What a tool call actually looks like in the chat-completions JSON"
 type: learning-material
 status: current
-updated: 2026-08-17
-tags: [llm, openrouter, tool-calling, json-schema, streaming, wire-format]
+updated: 2026-10-31
+tags: [llm, openrouter, tool-calling, json-schema, streaming, chat-completions]
 ---
 
-# What a tool call actually looks like on the wire
+# What a tool call actually looks like in the chat-completions JSON
 
 The OpenAI chat-completions shape, which OpenRouter speaks and normalises across providers. Written down
 because the design decisions in `incubator/llm/v2` — why a tool result is text, why every call needs an
@@ -147,7 +147,7 @@ second (`nullable`), but the deriver currently renders optional fields the class
 
 ## What this pins down in our design
 
-| Wire fact | Consequence in `llm/v2` |
+| JSON fact | Consequence in `llm/v2` |
 |---|---|
 | `parameters` must describe an object | a tool must reject a non-object schema root |
 | `arguments` is a string, model-generated | decode failures are data fed back, never run failures |
