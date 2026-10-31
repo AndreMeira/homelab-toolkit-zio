@@ -21,7 +21,7 @@ Landed in `modules/incubator/src/main/scala/homelab/incubator/llm/v2/` — 23 sp
 | `Schemas.scala` | `mapAsEntries` — a `Map` described as a list of entries |
 | `Tool.scala` | `Tool` (pure behaviour) + `Registry` + `Session` |
 
-Plus `zio-schema` in `common`, [`../learning-material/tool-calling-wire-format.md`](../learning-material/tool-calling-wire-format.md),
+Plus `zio-schema` in `common`, [`../learning-material/tool-calling-chat-completions-format.md`](../learning-material/tool-calling-chat-completions-format.md),
 and [`../research/llm-design-exploration.md`](../research/llm-design-exploration.md)
 for the design rationale.
 
