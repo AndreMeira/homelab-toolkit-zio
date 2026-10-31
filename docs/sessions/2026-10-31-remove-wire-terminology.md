@@ -40,23 +40,23 @@ Renamed with `git mv`. Both links to it are updated, including the one in a date
 The LLM adapters' request/response types describe themselves as "as the wire carries it", or their fields
 as "which the wire spells `type`". Name the JSON instead.
 
-- [ ] `llm-openai/request/MessageRequest.scala` 62 "One message of a conversation, as the wire carries it" → "as the chat-completions JSON carries it"
-- [ ] `llm-openai/request/CallRequest.scala` 15 "which the wire spells `type`" → "which the JSON spells `type`"; 36 "as the wire carries it" → "as the chat-completions JSON carries it"
-- [ ] `llm-openai/request/ContentPart.scala` 16 "which this is the wire's spelling of" → "which this is the chat-completions spelling of"; 33 "as the wire carries them" → "as the chat-completions JSON carries them"
-- [ ] `llm-openai/request/ToolChoice.scala` 38 "The wire is a union of a string and an object here" → "The JSON is a union of…"
-- [ ] `llm-openai` test `CompletionRequestSpec.scala`:
+- [x] `llm-openai/request/MessageRequest.scala` 62 "One message of a conversation, as the wire carries it" → "as the chat-completions JSON carries it"
+- [x] `llm-openai/request/CallRequest.scala` 15 "which the wire spells `type`" → "which the JSON spells `type`"; 36 "as the wire carries it" → "as the chat-completions JSON carries it"
+- [x] `llm-openai/request/ContentPart.scala` 16 "which this is the wire's spelling of" → "which this is the chat-completions spelling of"; 33 "as the wire carries them" → "as the chat-completions JSON carries them"
+- [x] `llm-openai/request/ToolChoice.scala` 38 "The wire is a union of a string and an object here" → "The JSON is a union of…"
+- [x] `llm-openai` test `CompletionRequestSpec.scala`:
   - 12 "What a request looks like on the wire" → "What a request looks like as JSON"
   - test name 18 "the name the wire uses" → "the name the JSON uses"
   - test name 69 "a raw part reaches the wire as it was written" → "… reaches the JSON as it was written"
-- [ ] `llm-mistral/request/CallRequest.scala` 17, `Prediction.scala` 11, `response/FailureResponse.scala` 17 "which the wire spells `type`" → "which the JSON spells `type`"
-- [ ] `llm-mistral/request/ContentChunk.scala` 147 "The wire takes either a bare string or an object here" → "Mistral's JSON takes…"
-- [ ] `llm-mistral/request/ToolChoice.scala` 41 "The wire is a union…" → "The JSON is a union…"
-- [ ] incubator `llm/v1/sketchOne.scala` 68 "Wire model (subset of the OpenRouter streaming chunk…)" → "Streaming-chunk model (subset of…)"; 187 "one wire chunk" → "one streaming chunk"
+- [x] `llm-mistral/request/CallRequest.scala` 17, `Prediction.scala` 11, `response/FailureResponse.scala` 17 "which the wire spells `type`" → "which the JSON spells `type`"
+- [x] `llm-mistral/request/ContentChunk.scala` 147 "The wire takes either a bare string or an object here" → "Mistral's JSON takes…"
+- [x] `llm-mistral/request/ToolChoice.scala` 41 "The wire is a union…" → "The JSON is a union…"
+- [x] incubator `llm/v1/sketchOne.scala` 68 "Wire model (subset of the OpenRouter streaming chunk…)" → "Streaming-chunk model (subset of…)"; 187 "one wire chunk" → "one streaming chunk"
 
 ## 3. Docs where "wire" means a DTO
 
-- [ ] `docs/architecture/sequence-types.md` 15 "the adapters on `List` for wire types" → "… for their request/response types"
-- [ ] `docs/architecture/llm-adapters.md` 20 "the one built wire first: the client and its types came before `MistralModel`" → "the one built client first"; 42 "**wire first, then the port over it**" → "**the client and its types first, then the port over it**"
+- [x] `docs/architecture/sequence-types.md` 15 "the adapters on `List` for wire types" → "… for their request/response types"
+- [x] `docs/architecture/llm-adapters.md` 20 "the one built wire first: the client and its types came before `MistralModel`" → "the one built client first"; 42 "**wire first, then the port over it**" → "**the client and its types first, then the port over it**"
 - [x] `docs/learning-material/tool-calling-chat-completions-format.md` (was `tool-calling-wire-format.md`): title, heading, tag and the "JSON fact" header, with the §1 rename
 
 Bump `updated:` in the frontmatter of each doc you edit.
@@ -87,7 +87,7 @@ Confirm or override before touching them.
 ## 5. Done when
 
 - [x] The §1 rename is approved and done.
-- [ ] §2 and §3 are done.
+- [x] §2 and §3 are done (branch `rename-wire-dto-comments`).
 - [ ] `sbt testFull` passes.
 - [ ] Everything this finds is out of scope (see the top) or in §4:
   ```bash

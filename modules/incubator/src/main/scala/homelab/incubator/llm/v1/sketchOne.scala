@@ -65,7 +65,7 @@ object sketchOne:
     rest: ZStream[Any, LlmError, Message],
   )
 
-  // ── Wire model (subset of the OpenRouter streaming chunk we consume) ────────
+  // ── Streaming-chunk model (subset of the OpenRouter streaming chunk we consume) ──
   // Named `ChatChunk` (not `Chunk`) to avoid collision with zio.Chunk.
 
   final private case class ChatChunk(choices: List[Choice])
@@ -184,7 +184,7 @@ object sketchOne:
     evt.data.flatMap(_.fromJson[ChatChunk].toOption)
 
   /**
-   * Fold one wire chunk into (emitted messages, next accumulator).
+   * Fold one streaming chunk into (emitted messages, next accumulator).
    *
    *   - content delta   -> emit TextDelta
    *   - reasoning delta -> emit Reasoning

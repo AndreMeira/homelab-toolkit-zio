@@ -9,13 +9,13 @@ import zio.test.*
 import zio.{ Chunk, Scope }
 
 
-/** What a request looks like on the wire, and what a conversation becomes on the way there. */
+/** What a request looks like as JSON, and what a conversation becomes on the way there. */
 object CompletionRequestSpec extends ZIOSpecDefault:
   import Support.*
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("CompletionRequest")(
     suite("roles")(
-      test("each role is sent under the name the wire uses, with content as parts") {
+      test("each role is sent under the name the JSON uses, with content as parts") {
         assertTrue(
           sent(Message.system(text("be brief"))) ==
             s"""{"model":"$model","messages":[{"role":"system","content":[{"type":"text","text":"be brief"}]}]}""",
@@ -66,7 +66,7 @@ object CompletionRequestSpec extends ZIOSpecDefault:
       },
     ),
     suite("content")(
-      test("a raw part reaches the wire as it was written") {
+      test("a raw part reaches the JSON as it was written") {
         val image = Json.Obj("type" -> Json.Str("image_url"), "image_url" -> Json.Obj("url" -> Json.Str("data:…")))
         assertTrue(sent(Message.user(Chunk(Message.Content.Raw(image)))).contains(""""type":"image_url""""))
       }

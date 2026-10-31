@@ -12,7 +12,7 @@ import zio.json.*
  * are the JSON string the model wrote, unparsed, whatever this adapter made of them since.
  *
  * @param id what the model named it, echoed back with the answer
- * @param kind what kind of call it is, which the wire spells `type` and which is always a function
+ * @param kind what kind of call it is, which the JSON spells `type` and which is always a function
  * @param function which tool, and with what
  */
 final case class CallRequest(
@@ -33,7 +33,7 @@ object CallRequest:
   final case class Function(name: String, arguments: String) derives JsonEncoder
 
   /**
-   * One call, as the wire carries it.
+   * One call, as the chat-completions JSON carries it.
    *
    * @param call what the model asked for
    * @return what to send for it

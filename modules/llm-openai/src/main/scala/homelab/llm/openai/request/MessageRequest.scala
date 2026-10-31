@@ -59,7 +59,7 @@ enum MessageRequest derives JsonEncoder {
 object MessageRequest:
 
   /**
-   * One message of a conversation, as the wire carries it.
+   * One message of a conversation, as the chat-completions JSON carries it.
    *
    * @param message what the toolkit holds
    * @return what to send for it

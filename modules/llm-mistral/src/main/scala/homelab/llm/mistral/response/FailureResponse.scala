@@ -14,7 +14,7 @@ import zio.json.ast.Json
  * Every field is optional so that one decoder reads both.
  *
  * @param message what went wrong: prose, or an object holding the problems found
- * @param kind the API's category for it, which the wire spells `type`
+ * @param kind the API's category for it, which the JSON spells `type`
  * @param code the API's identifier for it, a string of digits where one is given
  * @param detail the problems found, when the body is the bare list
  */
