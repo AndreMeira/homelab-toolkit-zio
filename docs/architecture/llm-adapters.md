@@ -2,7 +2,7 @@
 title: "How an LLM adapter is laid out — the client under the port"
 type: architecture
 status: current
-updated: 2026-10-10
+updated: 2026-10-31
 tags: [llm, adapters, ports, layering, openai, anthropic, mistral]
 ---
 
@@ -17,7 +17,7 @@ tags: [llm, adapters, ports, layering, openai, anthropic, mistral]
 | the call, nothing withheld | `ChatCompletionClient` | `AnthropicClient` | `MistralClient` |
 | the port, over the client | `ChatCompletionModel` | `AnthropicModel` | `MistralModel` |
 
-`llm-mistral` is the one built wire first: the client and its types came before `MistralModel`, which is
+`llm-mistral` is the one built client first: the client and its types came before `MistralModel`, which is
 the order the next section argues for. Mistral serves a dialect of chat completions rather than an endpoint
 of it, which is why it is not a preset on `ChatCompletionModel` —
 [a Mistral adapter](../research/a-mistral-adapter.md) has the comparison.
@@ -39,7 +39,7 @@ takes, everything it answers. The port is then written over it, and what the por
 by whoever holds the client. `n` is the worked example: the client hands back every choice, and the model
 takes the first *because a `Model.Completion` holds one*. A caller who wants the rest holds the client.
 
-The order matters as much as the shape: **wire first, then the port over it.** `distributed-keyed-queue`
+The order matters as much as the shape: **the client and its types first, then the port over it.** `distributed-keyed-queue`
 was built that way — `QueueClient` before `queue/managed/` — and its ports did not lose anything. The LLM
 modules were built port-first, and each adapter then discovered what the port could not hold, one field at
 a time.

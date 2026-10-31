@@ -13,7 +13,7 @@ import zio.json.ast.Json
  * A part the caller built is not one of these — it is already JSON, and goes out as written. That is why it
  * is not a case here and why [[ContentPart.parts]] answers in `Json`.
  *
- * @see `Message.Content`, which this is the wire's spelling of
+ * @see `Message.Content`, which this is the chat-completions spelling of
  */
 @jsonDiscriminator("type")
 enum ContentPart derives JsonEncoder {
@@ -30,7 +30,7 @@ enum ContentPart derives JsonEncoder {
 object ContentPart:
 
   /**
-   * The parts of a message, as the wire carries them.
+   * The parts of a message, as the chat-completions JSON carries them.
    *
    * A part the caller built passes through as it was written; a part this adapter models is written by the
    * derived encoder.

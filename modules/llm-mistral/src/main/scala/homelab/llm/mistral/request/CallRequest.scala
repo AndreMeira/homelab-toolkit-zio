@@ -14,7 +14,7 @@ import zio.json.*
  *
  * @param id what the call was named, in the form the API takes, echoed back with the answer
  * @param function which tool, and with what
- * @param kind what kind of call it is, which the wire spells `type` and which is always a function
+ * @param kind what kind of call it is, which the JSON spells `type` and which is always a function
  * @param index where the call sat among the turn's calls
  */
 final case class CallRequest(

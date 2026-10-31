@@ -144,7 +144,7 @@ object ContentChunk:
   /**
    * Where an image is, and how closely to look at it.
    *
-   * The wire takes either a bare string or an object here. This writes the object, which carries both
+   * Mistral's JSON takes either a bare string or an object here. This writes the object, which carries both
    * fields, and reads either.
    *
    * @param url a URL, or the image as a `data:` URI

@@ -35,7 +35,7 @@ object ToolChoice:
   /**
    * How a choice is written.
    *
-   * The wire is a union of a string and an object here — three of the four are bare words and the fourth
+   * The JSON is a union of a string and an object here — three of the four are bare words and the fourth
    * is a function object — which no derivation expresses, so this says it directly.
    */
   given JsonEncoder[ToolChoice] = JsonEncoder[Json].contramap {

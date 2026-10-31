@@ -2,7 +2,7 @@
 title: "Which sequence type a public signature uses, and when not to"
 type: architecture
 status: current
-updated: 2026-09-26
+updated: 2026-10-31
 tags: [collections, chunk, list, conventions, api, zio]
 ---
 
@@ -12,7 +12,7 @@ tags: [collections, chunk, list, conventions, api, zio]
 reasons that count are listed below.
 
 This page exists because the toolkit spent its first year without the rule and ended up with three
-conventions: `common` and `nats` on `List`, `llm` mixed, the adapters on `List` for wire types. That cost
+conventions: `common` and `nats` on `List`, `llm` mixed, the adapters on `List` for their request/response types. That cost
 37 conversion sites and one port that spells a collection of tool calls three different ways.
 
 ## Why `Chunk`
