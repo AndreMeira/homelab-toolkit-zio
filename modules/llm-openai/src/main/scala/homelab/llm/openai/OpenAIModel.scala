@@ -2,7 +2,7 @@ package homelab.llm.openai
 
 
 import homelab.common.monitor.Monitor
-import homelab.llm.openai.error.ChatCompletionError
+import homelab.llm.openai.error.OpenAIError
 import homelab.llm.openai.request.{ CompletionRequest, ResponseFormat, ToolChoice }
 import homelab.llm.openai.response.CompletionResponse
 import homelab.llm.Model
@@ -17,16 +17,16 @@ import zio.Chunk
  *
  * The general case over [[OpenAIClient]], which is the whole call. A port holds one conversation
  * and answers one completion, so what this does is narrow: several answers become the first, and what the
- * protocol offers beyond a conversation is settled once, in the [[OpenAiModel.Config]] this was
+ * protocol offers beyond a conversation is settled once, in the [[OpenAIModel.Config]] this was
  * built with, rather than passed at each call.
  *
  * @param client what the call is made through
  * @param config what every call this makes asks for, beyond the conversation itself
  */
-final class OpenAiModel(
+final class OpenAIModel(
   client: OpenAIClient,
-  config: OpenAiModel.Config = OpenAiModel.Config(),
-) extends Model[ChatCompletionError] {
+  config: OpenAIModel.Config = OpenAIModel.Config(),
+) extends Model[OpenAIError] {
 
   /**
    * Send a conversation and read what the model does next.
@@ -36,7 +36,7 @@ final class OpenAiModel(
    * @return what the model said, asked for, and cost; aborts with what the provider or the transport
    *         refused
    */
-  override def complete(model: Model.Name, request: Model.Request): IO[ChatCompletionError, Model.Completion] =
+  override def complete(model: Model.Name, request: Model.Request): IO[OpenAIError, Model.Completion] =
     for
       question    = CompletionRequest.from(model, request, config)
       response   <- client.complete(question, config.extra)
@@ -45,7 +45,7 @@ final class OpenAiModel(
 }
 
 
-object OpenAiModel:
+object OpenAIModel:
 
   /**
    * What an instance asks for on every call, beyond the conversation itself.
@@ -106,8 +106,8 @@ object OpenAiModel:
     referer: Option[String] = None,
     config: Config = Config(),
     monitor: Monitor = Monitor.Noop,
-  ): ZIO[Scope, ChatCompletionError, OpenAiModel] =
-    OpenAIClient.openRouter(apiKey, referer, monitor).map(OpenAiModel(_, config))
+  ): ZIO[Scope, OpenAIError, OpenAIModel] =
+    OpenAIClient.openRouter(apiKey, referer, monitor).map(OpenAIModel(_, config))
 
   /**
    * OpenAI itself, with a transport of its own.
@@ -123,8 +123,8 @@ object OpenAiModel:
     organisation: Option[String] = None,
     config: Config = Config(),
     monitor: Monitor = Monitor.Noop,
-  ): ZIO[Scope, ChatCompletionError, OpenAiModel] =
-    OpenAIClient.openAi(apiKey, organisation, monitor).map(OpenAiModel(_, config))
+  ): ZIO[Scope, OpenAIError, OpenAIModel] =
+    OpenAIClient.openAi(apiKey, organisation, monitor).map(OpenAIModel(_, config))
 
   /**
    * Anything else that serves this protocol, with a transport of its own.
@@ -140,5 +140,5 @@ object OpenAiModel:
     apiKey: Option[String] = None,
     config: Config = Config(),
     monitor: Monitor = Monitor.Noop,
-  ): ZIO[Scope, ChatCompletionError, OpenAiModel] =
-    OpenAIClient.compatible(endpoint, apiKey, monitor).map(OpenAiModel(_, config))
+  ): ZIO[Scope, OpenAIError, OpenAIModel] =
+    OpenAIClient.compatible(endpoint, apiKey, monitor).map(OpenAIModel(_, config))

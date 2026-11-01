@@ -2,7 +2,7 @@ package homelab.llm.openai.request
 
 
 import homelab.llm.Model
-import homelab.llm.openai.OpenAiModel
+import homelab.llm.openai.OpenAIModel
 import zio.json.*
 import zio.json.ast.Json
 import zio.Chunk
@@ -74,7 +74,7 @@ object CompletionRequest:
    * @param config what the instance asking always asks for
    * @return what to send
    */
-  def from(model: Model.Name, request: Model.Request, config: OpenAiModel.Config): CompletionRequest =
+  def from(model: Model.Name, request: Model.Request, config: OpenAIModel.Config): CompletionRequest =
     CompletionRequest(
       model = model,
       messages = request.messages.map(MessageRequest.from),

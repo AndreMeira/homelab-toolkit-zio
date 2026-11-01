@@ -2,7 +2,7 @@ package homelab.llm.openai
 
 
 import homelab.common.monitor.Monitor
-import homelab.llm.openai.error.ChatCompletionError
+import homelab.llm.openai.error.OpenAIError
 import homelab.llm.openai.request.CompletionRequest
 import homelab.llm.openai.response.{ CompletionResponse, FailureResponse }
 import sttp.client4.*
@@ -40,7 +40,7 @@ final class HttpOpenAIClient(
   override def complete(
     request: CompletionRequest,
     extra: Json.Obj = Json.Obj(),
-  ): IO[ChatCompletionError, CompletionResponse] =
+  ): IO[OpenAIError, CompletionResponse] =
     monitor.measure("OpenAIClient.complete", OpenAIClient.Tag, "model" -> request.model):
       send(CompletionRequest.body(request, extra).toJson).flatMap { response =>
         response.body match
@@ -54,14 +54,14 @@ final class HttpOpenAIClient(
    * @param body the request body, already rendered
    * @return the response, whatever its status; aborts when the call did not complete
    */
-  private def send(body: String): IO[ChatCompletionError, Response[Either[String, String]]] =
+  private def send(body: String): IO[OpenAIError, Response[Either[String, String]]] =
     basicRequest
       .post(endpoint)
       .headers(headers)
       .header("Content-Type", "application/json")
       .body(body)
       .send(backend)
-      .mapError(failure => ChatCompletionError.Unavailable(failure.getMessage))
+      .mapError(failure => OpenAIError.Unavailable(failure.getMessage))
 
   /**
    * What the provider refused with.
@@ -73,11 +73,11 @@ final class HttpOpenAIClient(
    * @param body what it said, which is usually an error object and sometimes prose
    * @return the failure
    */
-  private def refused(status: StatusCode, body: String): ChatCompletionError =
+  private def refused(status: StatusCode, body: String): OpenAIError =
     val detail = body.fromJson[FailureResponse].map(_.error.message).getOrElse(body.take(200))
-    if status == StatusCode.Unauthorized || status == StatusCode.Forbidden then ChatCompletionError.Refused(detail)
-    else if status == StatusCode.TooManyRequests || status.isServerError then ChatCompletionError.Unavailable(detail)
-    else ChatCompletionError.Rejected(status.code, detail)
+    if status == StatusCode.Unauthorized || status == StatusCode.Forbidden then OpenAIError.Refused(detail)
+    else if status == StatusCode.TooManyRequests || status.isServerError then OpenAIError.Unavailable(detail)
+    else OpenAIError.Rejected(status.code, detail)
 
   /**
    * What to say about a body that parsed as JSON and is not a completion.
@@ -86,6 +86,6 @@ final class HttpOpenAIClient(
    * @param reason what the decoder reported
    * @return the failure, carrying enough of the body to see what arrived
    */
-  private def unreadable(body: String)(reason: String): ChatCompletionError =
-    ChatCompletionError.Malformed(s"$reason, in ${body.take(200)}")
+  private def unreadable(body: String)(reason: String): OpenAIError =
+    OpenAIError.Malformed(s"$reason, in ${body.take(200)}")
 }

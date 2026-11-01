@@ -1,7 +1,7 @@
 package homelab.llm.openai
 
 
-import homelab.llm.openai.error.ChatCompletionError
+import homelab.llm.openai.error.OpenAIError
 import homelab.llm.openai.request.CompletionRequest
 import homelab.llm.openai.response.CompletionResponse
 import homelab.llm.{ Message, Model }
@@ -12,23 +12,23 @@ import zio.{ Chunk, IO, Ref, Scope, UIO, ZIO }
 
 
 /** What the port narrows, and what it leaves to whoever holds the client. */
-object ChatCompletionModelSpec extends ZIOSpecDefault:
+object OpenAIModelSpec extends ZIOSpecDefault:
   import Support.*
 
-  def spec: Spec[TestEnvironment & Scope, Any] = suite("OpenAiModel")(
+  def spec: Spec[TestEnvironment & Scope, Any] = suite("OpenAIModel")(
     suite("what it narrows")(
       test("takes the first of several answers, because a completion holds one") {
         val twice = """{"choices":[{"message":{"content":"first"},"finish_reason":"stop"},
                       |{"message":{"content":"second"},"finish_reason":"stop"}]}""".stripMargin
         for
           client     <- ClientStub.answering(twice)
-          completion <- OpenAiModel(client).complete(gpt4o, conversation)
+          completion <- OpenAIModel(client).complete(gpt4o, conversation)
         yield assertTrue(completion.content == text("first"))
       },
       test("asks for nothing the conversation did not imply") {
         for
           client <- ClientStub.answering(said)
-          _      <- OpenAiModel(client).complete(gpt4o, conversation)
+          _      <- OpenAIModel(client).complete(gpt4o, conversation)
           asked  <- client.seen
         yield assertTrue(
           asked.exists(request => request.n.isEmpty && request.maxTokens.isEmpty && request.temperature.isEmpty),
@@ -36,18 +36,18 @@ object ChatCompletionModelSpec extends ZIOSpecDefault:
         )
       },
       test("what the instance always asks for, without the conversation saying so") {
-        val cool = OpenAiModel.Config(temperature = Some(0.1), maxTokens = Some(256))
+        val cool = OpenAIModel.Config(temperature = Some(0.1), maxTokens = Some(256))
         for
           client <- ClientStub.answering(said)
-          _      <- OpenAiModel(client, cool).complete(gpt4o, conversation)
+          _      <- OpenAIModel(client, cool).complete(gpt4o, conversation)
           asked  <- client.seen
         yield assertTrue(asked.flatMap(_.temperature) == Some(0.1), asked.flatMap(_.maxTokens) == Some(256))
       },
       test("what the instance asks for beyond the protocol this adapter models") {
-        val configured = OpenAiModel.Config(extra = Json.Obj("service_tier" -> Json.Str("flex")))
+        val configured = OpenAIModel.Config(extra = Json.Obj("service_tier" -> Json.Str("flex")))
         for
           client  <- ClientStub.answering(said)
-          _       <- OpenAiModel(client, configured).complete(gpt4o, conversation)
+          _       <- OpenAIModel(client, configured).complete(gpt4o, conversation)
           carried <- client.carried
         yield assertTrue(carried == Some(Json.Obj("service_tier" -> Json.Str("flex"))))
       },
@@ -58,7 +58,7 @@ object ChatCompletionModelSpec extends ZIOSpecDefault:
                         |"usage":{"prompt_tokens":11,"completion_tokens":3,"cost":0.00021}}""".stripMargin
         for
           client     <- ClientStub.answering(counted)
-          completion <- OpenAiModel(client).complete(gpt4o, conversation)
+          completion <- OpenAIModel(client).complete(gpt4o, conversation)
         yield assertTrue(
           completion.content == text("12 degrees"),
           completion.finish == Model.FinishReason.Stop,
@@ -71,7 +71,7 @@ object ChatCompletionModelSpec extends ZIOSpecDefault:
                        |"finish_reason":"tool_calls"}]}""".stripMargin
         for
           client     <- ClientStub.answering(called)
-          completion <- OpenAiModel(client).complete(gpt4o, conversation)
+          completion <- OpenAIModel(client).complete(gpt4o, conversation)
         yield assertTrue(
           completion.calls.map(_.name) == Chunk("weather"),
           completion.calls.map(_.arguments) == Chunk("""{"city":"Hamburg"}"""),
@@ -81,7 +81,7 @@ object ChatCompletionModelSpec extends ZIOSpecDefault:
       test("a reason the toolkit does not name is kept as the provider spelled it") {
         for
           client     <- ClientStub.answering("""{"choices":[{"message":{"content":"x"},"finish_reason":"error"}]}""")
-          completion <- OpenAiModel(client).complete(gpt4o, conversation)
+          completion <- OpenAIModel(client).complete(gpt4o, conversation)
         yield assertTrue(completion.finish == Model.FinishReason.Other("error"))
       },
     ),
@@ -89,8 +89,8 @@ object ChatCompletionModelSpec extends ZIOSpecDefault:
       test("a body with no choices has not answered") {
         for
           client  <- ClientStub.answering("""{"choices":[]}""")
-          failure <- OpenAiModel(client).complete(gpt4o, conversation).flip
-        yield assertTrue(failure == ChatCompletionError.Malformed("the response carried no choices"))
+          failure <- OpenAIModel(client).complete(gpt4o, conversation).flip
+        yield assertTrue(failure == OpenAIError.Malformed("the response carried no choices"))
       }
     ),
   )
@@ -118,7 +118,7 @@ object ChatCompletionModelSpec extends ZIOSpecDefault:
       override def complete(
         request: CompletionRequest,
         extra: Json.Obj = Json.Obj(),
-      ): IO[ChatCompletionError, CompletionResponse] =
+      ): IO[OpenAIError, CompletionResponse] =
         recorded.set(Some(request -> extra)).as(answer)
 
     object ClientStub:
