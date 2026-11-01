@@ -118,13 +118,13 @@ object OpenAIModel:
    * @param monitor observes each call
    * @return the model, holding a transport for as long as the scope; aborts when one cannot be opened
    */
-  def openAi(
+  def openAI(
     apiKey: String,
     organisation: Option[String] = None,
     config: Config = Config(),
     monitor: Monitor = Monitor.Noop,
   ): ZIO[Scope, OpenAIError, OpenAIModel] =
-    OpenAIClient.openAi(apiKey, organisation, monitor).map(OpenAIModel(_, config))
+    OpenAIClient.openAI(apiKey, organisation, monitor).map(OpenAIModel(_, config))
 
   /**
    * Anything else that serves this protocol, with a transport of its own.

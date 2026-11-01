@@ -45,7 +45,7 @@ object OpenAIClient:
   val OpenRouter: Uri = uri"https://openrouter.ai/api/v1/chat/completions"
 
   /** Where OpenAI serves them. */
-  val OpenAi: Uri = uri"https://api.openai.com/v1/chat/completions"
+  val OpenAI: Uri = uri"https://api.openai.com/v1/chat/completions"
 
   /**
    * OpenRouter, which fronts many providers and reports what a call cost.
@@ -91,12 +91,12 @@ object OpenAIClient:
    * @param monitor observes each call
    * @return the client, holding a transport for as long as the scope; aborts when one cannot be opened
    */
-  def openAi(
+  def openAI(
     apiKey: String,
     organisation: Option[String] = None,
     monitor: Monitor = Monitor.Noop,
   ): ZIO[Scope, OpenAIError, OpenAIClient] =
-    transport.map(backend => openAi(backend, apiKey, organisation, monitor))
+    transport.map(backend => openAI(backend, apiKey, organisation, monitor))
 
   /**
    * OpenAI, over a transport the caller holds.
@@ -107,14 +107,14 @@ object OpenAIClient:
    * @param monitor observes each call
    * @return the client
    */
-  def openAi(
+  def openAI(
     backend: Backend[Task],
     apiKey: String,
     organisation: Option[String],
     monitor: Monitor,
   ): OpenAIClient =
     val billed = organisation.fold(Map.empty[String, String])(org => Map("OpenAI-Organization" -> org))
-    HttpOpenAIClient(backend, OpenAi, bearer(apiKey) ++ billed, monitor)
+    HttpOpenAIClient(backend, OpenAI, bearer(apiKey) ++ billed, monitor)
 
   /**
    * Anything else that serves this protocol — a fast-inference host, or a server running locally.
