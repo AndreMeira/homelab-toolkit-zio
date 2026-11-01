@@ -88,7 +88,7 @@ A second wrapper, **`globalDrain`**, closes it by waiting for the whole `consume
        closing.flatMap: stopped =>
          if stopped then ZIO.interruptAs(refusal) else logic(value)
    }.catchSomeCause:
-     case cause if cause.interruptors.contains(refusal) => ZIO.never
+     case cause if cause.isInterruptedOnly && cause.interruptors == Set(refusal) => ZIO.never
    ```
 
    `refusal` is the id of a fiber forked and interrupted in `Shutdown.make`. A fiber id compares by number,
