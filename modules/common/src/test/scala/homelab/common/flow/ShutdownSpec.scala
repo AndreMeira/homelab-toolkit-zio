@@ -38,7 +38,7 @@ object ShutdownSpec extends ZIOSpecDefault:
           section  <- shutdown.graceful(started.succeed(()) *> gate.await.as("posted")).fork
           _        <- started.await
           waiting  <- shutdown.await.fork
-          _        <- untilParkedOrDone(waiting)
+          _        <- untilWaiting(waiting)
           before   <- waiting.poll
           _        <- gate.succeed(())
           _        <- waiting.join
@@ -51,7 +51,6 @@ object ShutdownSpec extends ZIOSpecDefault:
           _        <- shutdown.await
           ran      <- Ref.make(false)
           refused  <- shutdown.graceful(ran.set(true)).fork
-          _        <- untilParkedOrDone(refused)
           parked   <- refused.poll
           exit     <- refused.interrupt
           didRun   <- ran.get
@@ -71,7 +70,6 @@ object ShutdownSpec extends ZIOSpecDefault:
           _        <- gate.succeed(())
           _        <- waiting.join
           _        <- running.join
-          _        <- untilParkedOrDone(refused)
           parked   <- refused.poll
           didRun   <- ran.get
           _        <- refused.interrupt
@@ -214,15 +212,31 @@ object ShutdownSpec extends ZIOSpecDefault:
         .unit
 
     /**
-     * Wait until `fiber` is parked or done. Parked means suspended and blocking on another fiber: on a
-     * promise, which is what an `await` or refused work waits on. A fiber that has not started yet, or is
-     * between steps, also reports `Suspended`, but blocking on nobody, so `Suspended` alone would let a test
-     * look before anything was decided.
+     * Wait until `fiber` has stopped running: suspended, which for a refused step can only be the parking, or
+     * done.
      *
      * @param fiber the fiber to watch
-     * @return noop once the fiber is parked on a promise, or done
+     * @return noop once the fiber is suspended or done
      */
     def untilParkedOrDone(fiber: Fiber.Runtime[?, ?]): UIO[Unit] =
+      fiber.status
+        .repeatUntil:
+          case _: Fiber.Status.Suspended => true
+          case Fiber.Status.Done         => true
+          case _                         => false
+        .unit
+
+    /**
+     * Wait until `fiber` is waiting on a promise, as `await` does, or done. Waiting means suspended and
+     * blocking on another fiber: a fiber that has not started yet, or is between steps, also reports
+     * `Suspended`, but blocking on nobody, so `Suspended` alone would let a test look before it has begun to
+     * wait. Refused work parks on `ZIO.never`, which blocks on nobody too, so this is not for refused fibers;
+     * [[untilParkedOrDone]] is.
+     *
+     * @param fiber a fiber expected to wait on a promise
+     * @return noop once it is waiting on one, or done
+     */
+    def untilWaiting(fiber: Fiber.Runtime[?, ?]): UIO[Unit] =
       (ZIO.yieldNow *> fiber.status)
         .repeatUntil:
           case Fiber.Status.Suspended(_, _, blockingOn) => blockingOn != FiberId.None
