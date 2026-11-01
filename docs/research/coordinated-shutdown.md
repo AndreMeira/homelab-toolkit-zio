@@ -1,12 +1,16 @@
 ---
 title: "Coordinated shutdown — draining consumers and processors without losing work"
 type: research
-status: draft
+status: superseded
 updated: 2026-11-01
 tags: [shutdown, drain, interruption, consumer, processor, jetstream, scope, zio, incubator]
 ---
 
 # Coordinated shutdown
+
+> **Superseded** by [`../architecture/shutdown.md`](../architecture/shutdown.md): `Shutdown` now lives in
+> `homelab.common.flow`, and the drains are `Consumer.drainLocal` and `Consumer.globalDrain`. This note is
+> kept as written, the record of how the design got there.
 
 When an application stops, its scope closes and every fiber in it is interrupted. For a processor that is the
 wrong moment to be interrupted: a handler halfway through a message is cut off, and a fetch that is still
