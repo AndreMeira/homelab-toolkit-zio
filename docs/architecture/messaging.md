@@ -202,7 +202,7 @@ closed inside a single blocking call, which is the shape `homelab.nats`'s JetStr
 has: the fetch consumer exists only for the duration of that call.
 
 So open, drain and close all happen inside that call, with the close in a `try`/`finally`.
-`acquireRelease(open)(close)(drain)` would be correct too: ZIO does not run a release while an interrupted
+`ZIO.acquireReleaseWith(open)(close)(drain)` would be correct too: ZIO does not run a release while an interrupted
 blocking body is still running. Measured on ZIO 2.1.23, interrupting the drain 200 ms into a 1.5 s body:
 
 | The drain | Order of events |
