@@ -130,51 +130,68 @@ object ShutdownSpec extends ZIOSpecDefault:
           section     <- outcome.poll.flatMap(ZIO.foreach(_)(identity))
         yield assertTrue(before.isEmpty, section.contains("posted"))
       ,
-      test("refusing runs its step before shutdown begins"):
+      test("gated runs its effect before shutdown begins"):
         for
           shutdown <- Shutdown.make
-          value    <- shutdown.refusing(ZIO.succeed(7))
+          value    <- shutdown.gated(ZIO.succeed(7))
         yield assertTrue(value == 7)
       ,
-      test("refusing interrupts with the refusal, without running the step, once shutdown has begun"):
+      test("gated interrupts with the refusal, without running the effect, once shutdown has begun"):
         for
           shutdown <- Shutdown.make
           _        <- shutdown.await
           ran      <- Ref.make(false)
-          exit     <- shutdown.refusing(ran.set(true)).exit
+          exit     <- shutdown.gated(ran.set(true)).exit
           didRun   <- ran.get
         yield assertTrue(exit.isInterrupted, !didRun)
       ,
-      test("parkRefusals parks on the refusal, and stays interruptible"):
+      test("a section whose gated effect is refused is counted out, then parks until interrupted"):
         for
           shutdown <- Shutdown.make
-          _        <- shutdown.await
-          refused  <- shutdown.parkRefusals(shutdown.refusing(ZIO.unit)).fork
-          _        <- untilParkedOrDone(refused)
-          parked   <- refused.poll
-          exit     <- refused.interrupt
-        yield assertTrue(parked.isEmpty, exit.isInterrupted)
+          started  <- Promise.make[Nothing, Unit]
+          gate     <- Promise.make[Nothing, Unit]
+          ran      <- Ref.make(false)
+          section  <- shutdown.graceful(started.succeed(()) *> gate.await *> shutdown.gated(ran.set(true))).fork
+          _        <- started.await
+          waiting  <- shutdown.await.fork
+          _        <- untilClosing(shutdown)
+          _        <- gate.succeed(())
+          _        <- waiting.join
+          _        <- untilParkedOrDone(section)
+          parked   <- section.poll
+          exit     <- section.interrupt
+          didRun   <- ran.get
+        yield assertTrue(parked.isEmpty, exit.isInterrupted, !didRun)
       ,
-      test("parkRefusals lets any other interruption through"):
+      test("graceful lets any other interruption through"):
         for
           shutdown <- Shutdown.make
-          exit     <- shutdown.parkRefusals(ZIO.interrupt).exit
+          exit     <- shutdown.graceful(ZIO.interrupt).exit
         yield assertTrue(exit.isInterrupted)
       ,
-      test("parkRefusals lets a refusal joined with a defect through"):
+      test("graceful lets a refusal joined with a defect through"):
         for
           shutdown <- Shutdown.make
-          _        <- shutdown.await
-          mixed     = shutdown.refusing(ZIO.unit).catchAllCause(cause => ZIO.failCause(cause ++ Cause.die(new RuntimeException("cleanup died"))))
-          exit     <- shutdown.parkRefusals(mixed).exit
-        yield assertTrue(exit.causeOption.flatMap(_.dieOption).exists(_.getMessage == "cleanup died"))
+          started  <- Promise.make[Nothing, Unit]
+          gate     <- Promise.make[Nothing, Unit]
+          mixed     = shutdown
+                        .gated(ZIO.unit)
+                        .catchAllCause(cause => ZIO.failCause(cause ++ Cause.die(new RuntimeException("cleanup died"))))
+          section  <- shutdown.graceful(started.succeed(()) *> gate.await *> mixed).exit.fork
+          _        <- started.await
+          waiting  <- shutdown.await.fork
+          _        <- untilClosing(shutdown)
+          _        <- gate.succeed(())
+          _        <- waiting.join
+          exit     <- Live.live(section.join.timeout(2.seconds))
+        yield assertTrue(exit.exists(_.causeOption.flatMap(_.dieOption).exists(_.getMessage == "cleanup died")))
       ,
-      test("one instance does not park another's refusal"):
+      test("graceful does not park another instance's refusal"):
         for
-          closing  <- Shutdown.make
-          other    <- Shutdown.make
-          _        <- closing.await
-          exit     <- other.parkRefusals(closing.refusing(ZIO.unit)).exit
+          closing <- Shutdown.make
+          other   <- Shutdown.make
+          _       <- closing.await
+          exit    <- other.graceful(closing.gated(ZIO.unit)).exit
         yield assertTrue(exit.isInterrupted),
     ) @@ TestAspect.timeout(30.seconds)
 

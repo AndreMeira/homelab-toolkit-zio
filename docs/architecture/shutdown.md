@@ -16,7 +16,7 @@ It comes in two layers:
 
 | Layer | Where | What |
 |---|---|---|
-| `Shutdown` | `homelab.common.flow` | sections of work a shutdown waits for (`graceful`, `await`, `closing`), and the refusal of a step inside one (`refusing`, `parkRefusals`). Knows nothing of consumers. |
+| `Shutdown` | `homelab.common.flow` | sections of work a shutdown waits for (`graceful`, `await`, `closing`), and the refusal of an effect inside one (`gated`). Knows nothing of consumers. |
 | `drainLocal`, `globalDrain` | `homelab.common.messaging.Consumer` | consumer wrappers built from those, so a processor's intake drains |
 
 How it came to this shape, including what was tried and rejected, is in
@@ -60,12 +60,13 @@ After `await` has begun:
 
 - **A new section is refused by parking** (`ZIO.never`, interruptible). It never starts and never fails, so a
   fail-fast processor is not torn down; the closing scope ends it.
-- **A step inside an admitted section** (the `logic` after a `globalDrain` fetch) is refused by
-  `refusing`: it interrupts the fiber with the instance's own `FiberId`, before the step starts. The adapter
-  settles that as any interrupted handler, handing the message back at once (see
+- **A `gated` effect inside an admitted section** (the `logic` after a `globalDrain` fetch) is refused by
+  interrupting the fiber with the instance's own `FiberId`, before the effect starts. The adapter settles that
+  as any interrupted handler, handing the message back at once (see
   [messaging: settling a handler that was interrupted](messaging.md#settling-a-handler-that-was-interrupted)).
-  `parkRefusals`, outside the section, then catches that refusal **alone** and parks. A refusal joined with a
-  failure or a defect, and any other interruption, reach the caller.
+  The section then ends with that refusal: `graceful` counts it out and parks, outside the count, so `await`
+  is not held up. Only the refusal **alone** parks; a refusal joined with a failure or a defect, any other
+  interruption, and another instance's refusal reach the caller.
 
 ## Guarantees
 
@@ -93,7 +94,7 @@ With `await` added as the last finalizer:
 ## Tests
 
 - `flow/ShutdownSpec`: sections, `await`, the finalizer ordering, `make` inside an uninterruptible region,
-  `refusing` and `parkRefusals`.
+  `gated`, and how `graceful` parks a refusal.
 - `messaging/ConsumerDrainSpec`: both drains over in-memory and fake fetching intakes, the decoding order,
   mixed causes, and a `Processor.parallel` started before `await`.
 - `NatsSpec`, against a real broker: a message arriving while a `globalDrain` pull is open at shutdown is

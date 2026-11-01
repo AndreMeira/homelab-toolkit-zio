@@ -143,10 +143,10 @@ trait Consumer[+E, +A] { self =>
    *
    *   - a `consume` call started before `shutdown.await` is waited for, and if its value arrives before
    *     `await`, `logic` runs and completes;
-   *   - a value that arrives after `await` is refused (`shutdown.refusing`), by interrupting `logic` before it
+   *   - a value that arrives after `await` is refused (`shutdown.gated`), by interrupting `logic` before it
    *     starts, so the adapter hands it back at once, as it does any interrupted value (or loses it, where it
-   *     cannot hand back). The refusal is then caught (`shutdown.parkRefusals`) and the call parks outside
-   *     the section, so `await` is not held up and a fail-fast processor does not see it as a failure;
+   *     cannot hand back). The section then ends with the refusal and parks outside its count, so `await` is
+   *     not held up and a fail-fast processor does not see it as a failure;
    *   - a `consume` call started after `await` parks without reaching this consumer.
    *
    * `await` waits for every open fetch, so this consumer must make '''one bounded fetch per call''' and
@@ -167,9 +167,8 @@ trait Consumer[+E, +A] { self =>
    */
   def globalDrain(shutdown: Shutdown): Consumer[E, A] = new Consumer[E, A]:
     def consume[E2 >: E](logic: A => IO[E2, Unit]): IO[E2, Unit] =
-      shutdown.parkRefusals:
-        shutdown.graceful:
-          self.consume(value => shutdown.refusing(logic(value)))
+      shutdown.graceful:
+        self.consume(value => shutdown.gated(logic(value)))
 }
 
 

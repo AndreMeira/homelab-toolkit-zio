@@ -359,4 +359,3 @@ object ConsumerDrainSpec extends ZIOSpecDefault:
        */
       def make(fetches: Queue[Option[String]]): UIO[Fetching] =
         Ref.make(List.empty[String]).map(new Fetching(fetches, _))
-

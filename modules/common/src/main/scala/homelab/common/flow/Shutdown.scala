@@ -1,6 +1,5 @@
 package homelab.common.flow
 
-
 import zio.*
 
 
@@ -9,9 +8,19 @@ import zio.*
  * through [[graceful]], and [[await]] waits for every running section before the application closes its
  * scopes.
  *
- * Once [[await]] has begun, a new section is refused by parking it: it never starts, never fails, and stays
- * interruptible, so the scope closing afterwards interrupts it like any other waiting fiber. Parking rather
- * than failing keeps a refusal from tearing down a fail-fast caller.
+ * Once [[await]] has begun, work is refused by parking it: it never fails, and stays interruptible, so the
+ * scope closing afterwards interrupts it like any other waiting fiber. Parking rather than failing keeps a
+ * refusal from tearing down a fail-fast caller. Two things are refused:
+ *
+ *   - '''a new section''', which never starts;
+ *   - '''a [[gated]] effect inside a section admitted earlier''', which never starts either. It is refused by
+ *     interrupting the fiber with this instance's own refusal, so whatever runs it settles it as interrupted
+ *     work (a consumer's adapter hands its value back at once). The section ends with that refusal, is
+ *     counted out, and then parks, outside the count, so [[await]] is not held up.
+ *
+ * That second form is what a drain over a fetching intake needs: the fetch runs as a section, and the work on
+ * what it brings back is gated. The consumer drains, `Consumer.drainLocal` and `Consumer.globalDrain`, are
+ * built this way.
  *
  * '''`await` must run before the scope interrupts the work''', so the application adds it as the last
  * finalizer of its scope, after starting whatever runs the sections. Anything that keeps forking into that
@@ -25,35 +34,40 @@ import zio.*
  * A section must not run another through [[graceful]] inside itself: once shutdown has begun the inner one
  * parks, and the outer one, which [[await]] is waiting for, never finishes.
  *
- * Two more operations refuse work '''inside''' a section that was admitted before shutdown began, which is
- * what a drain over a fetching intake needs: [[refusing]] interrupts a step with this instance's own refusal
- * once shutdown has begun, and [[parkRefusals]] turns that refusal back into parking, outside the section.
- * The consumer drains, `Consumer.drainLocal` and `Consumer.globalDrain`, are built from these.
- *
  * @param state whether shutdown has begun, and how many sections are running
  * @param drained completed when the last running section finishes after shutdown has begun
- * @param refusal who a [[refusing]] step is interrupted by, so [[parkRefusals]] catches this instance's
- *                refusals and no other interruption
+ * @param refusal who a [[gated]] effect is interrupted by, so [[graceful]] parks this instance's refusals and
+ *                lets every other interruption through
  */
 final class Shutdown private (state: Ref[Shutdown.State], drained: Promise[Nothing, Unit], refusal: FiberId):
 
   /**
-   * Run `section` as work a shutdown waits for, or park it forever if shutdown has already begun.
+   * Run `section` as work a shutdown waits for, or park it forever if shutdown has already begun. A section
+   * that ends with this instance's refusal (a [[gated]] effect refused inside it) is counted out, then parks.
    *
    * The count is taken and released inside one uninterruptible region, with only `section` and the parking
-   * restored, so an interruption can never leave a section counted in that has stopped running.
+   * restored, so an interruption can never leave a section counted in that has stopped running. The refusal
+   * is caught after the count is released, so the parking does not hold up [[await]].
+   *
+   * Only the refusal '''alone''' parks: a cause that also holds a failure or a defect (a cleanup that died on
+   * the way out, say) is not a refusal any more, and reaches the caller. So does any other interruption,
+   * including one `section` raises itself, and another instance's refusal.
    *
    * @param section the work that should not be cut off
    * @tparam R the environment `section` needs
    * @tparam E the error `section` aborts with
    * @tparam A the value `section` produces
    * @return the value of `section`; aborts with `E` when `section` does; never completes, until interrupted,
-   *         when shutdown has begun
+   *         when shutdown has begun or when `section` ended with this instance's refusal
    */
   def graceful[R, E, A](section: ZIO[R, E, A]): ZIO[R, E, A] =
     ZIO.uninterruptibleMask: restore =>
       enter.flatMap: admitted =>
-        if admitted then restore(section).ensuring(leave)
+        if admitted then
+          restore(section)
+            .ensuring(leave)
+            .catchSomeCause:
+              case cause if refusedAlone(cause) => restore(ZIO.never)
         else restore(ZIO.never)
 
   /**
@@ -75,45 +89,35 @@ final class Shutdown private (state: Ref[Shutdown.State], drained: Promise[Nothi
   def closing: UIO[Boolean] = state.get.map(_.closing)
 
   /**
-   * Run `step`, or refuse it once shutdown has begun: the refusal interrupts the fiber with this instance's
-   * own id, before `step` starts.
+   * Run `effect`, or refuse it once shutdown has begun: the refusal interrupts the fiber with this instance's
+   * own id, before `effect` starts. Use it inside a [[graceful]] section, which then parks on the refusal.
    *
-   * It is an interruption rather than a failure so that whatever runs the step settles it as it settles any
+   * It is an interruption rather than a failure so that whatever runs the effect settles it as it settles any
    * interrupted work (a consumer's adapter hands the value back at once), and so that no error type has to
-   * make room for it. Being a self-interruption, it can be caught: [[parkRefusals]] does, outside the
-   * section, so it never reaches a fail-fast caller.
+   * make room for it. Being a self-interruption, it can be caught, which is what [[graceful]] does, outside
+   * its count, so it never reaches a fail-fast caller. Outside any section, the refusal reaches the caller as
+   * an interruption.
    *
-   * @param step the work to run unless shutdown has begun
-   * @tparam R the environment `step` needs
-   * @tparam E the error `step` aborts with
-   * @tparam A the value `step` produces
-   * @return the value of `step`; aborts with `E` when `step` does; is interrupted by this instance's refusal,
-   *         without running `step`, once shutdown has begun
-   */
-  def refusing[R, E, A](step: ZIO[R, E, A]): ZIO[R, E, A] =
-    closing.flatMap:
-      case true  => ZIO.interruptAs(refusal)
-      case false => step
-
-  /**
-   * Run `effect`, and park if it ends with this instance's refusal alone, as a [[refusing]] step inside it
-   * does once shutdown has begun. Put it around the section, so the parking is outside it and [[await]] is
-   * not held up.
-   *
-   * Only the refusal alone is caught: a cause that also holds a failure or a defect (a cleanup that died on
-   * the way out, say) is not a refusal any more, and reaches the caller. So does any other interruption,
-   * including one `effect` raises itself.
-   *
-   * @param effect the work that may end refused
+   * @param effect the work to run unless shutdown has begun
    * @tparam R the environment `effect` needs
    * @tparam E the error `effect` aborts with
    * @tparam A the value `effect` produces
-   * @return the value of `effect`; aborts with whatever it aborts with; never completes, until interrupted,
-   *         when it ended with this instance's refusal
+   * @return the value of `effect`; aborts with `E` when `effect` does; is interrupted by this instance's
+   *         refusal, without running `effect`, once shutdown has begun
    */
-  def parkRefusals[R, E, A](effect: ZIO[R, E, A]): ZIO[R, E, A] =
-    effect.catchSomeCause:
-      case cause if cause.isInterruptedOnly && cause.interruptors == Set(refusal) => ZIO.never
+  def gated[R, E, A](effect: ZIO[R, E, A]): ZIO[R, E, A] =
+    closing.flatMap:
+      case true  => ZIO.interruptAs(refusal)
+      case false => effect
+
+  /**
+   * Whether `cause` is this instance's refusal and nothing else.
+   *
+   * @param cause how a section ended
+   * @return true when `cause` is an interruption by [[gated]]'s refusal alone
+   */
+  private def refusedAlone(cause: Cause[Any]): Boolean =
+    cause.isInterruptedOnly && cause.interruptors == Set(refusal)
 
   /**
    * Count a section in, unless shutdown has begun.
