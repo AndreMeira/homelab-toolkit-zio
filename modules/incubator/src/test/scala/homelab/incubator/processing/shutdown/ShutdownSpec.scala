@@ -93,14 +93,14 @@ object ShutdownSpec extends ZIOSpecDefault:
           shutdown    <- Shutdown.make
           started     <- Promise.make[Nothing, Unit]
           gate        <- Promise.make[Nothing, Unit]
-          outcome     <- Promise.make[Nothing, Exit[Nothing, String]]
+          outcome     <- Promise.make[Nothing, String]
           ready       <- Promise.make[Nothing, Unit]
           app         <- ZIO.scoped {
                            for
+                             // the outcome is recorded inside the section: once the section returns, the scope
+                             // may interrupt its fiber before anything after it runs
                              _ <- shutdown
-                                    .graceful(started.succeed(()) *> gate.await.as("posted"))
-                                    .exit
-                                    .flatMap(outcome.succeed)
+                                    .graceful(started.succeed(()) *> gate.await *> outcome.succeed("posted"))
                                     .forkScoped
                              _ <- ZIO.addFinalizer(shutdown.await)
                              _ <- ready.succeed(())
@@ -115,8 +115,8 @@ object ShutdownSpec extends ZIOSpecDefault:
           before      <- outcome.poll
           _           <- gate.succeed(())
           _           <- terminating.join
-          section     <- outcome.await
-        yield assertTrue(before.isEmpty, section == Exit.succeed("posted"))
+          section     <- outcome.poll.flatMap(ZIO.foreach(_)(identity))
+        yield assertTrue(before.isEmpty, section.contains("posted"))
       ,
       test("a drainLocal consumer delivers as usual before shutdown begins"):
         for

@@ -161,6 +161,13 @@ With `await` added as the last finalizer of the application's scope:
   and on the class. Making `graceful` re-entrant (a `FiberRef` marking a fiber already inside an admitted
   section) would remove the trap; it was considered and not done.
 
+- **`graceful` protects the section, and nothing after it.** Once the last section returns, `await` returns
+  and the scope interrupts the fiber that ran it, possibly before the code after `graceful` has run.
+  *Workaround:* put everything that must happen inside the section. The adapters already do: the
+  JetStream consumers and `PollConsumer` settle in an uninterruptible step, so a `drainLocal` value's ack
+  still lands after its section has returned. The finalizer-ordering spec hung for exactly this reason: it
+  recorded its result after the section.
+
 - **The ordering is the application's job.** `await` only drains if it runs before the scope interrupts the
   work, which means it must be the last finalizer added. *Workaround:* none in code; a spec covers the
   ordering.
@@ -169,11 +176,22 @@ With `await` added as the last finalizer of the application's scope:
   single-pull fetching. A caller must not count calls as deliveries. *Workaround:* `Consumer.once` for a loop
   that means one value per step; the processors use it.
 
+## A hang in the spec, and what it showed
+
+The spec "await added as the last finalizer…" hung three times, each on the first run after a sizeable
+compile, and could not be reproduced in about 3,000 warm runs. Two races were behind it:
+
+- **The app could be interrupted before its finalizer was registered**, so the scope closed with no shutdown
+  at all. The spec now waits for a `ready` signal first.
+- **The result was recorded outside the section.** A fiber dump from `TestAspect.diagnose` showed the test
+  waiting on an outcome the section's fiber never wrote: the section returned, `await` returned, and the
+  scope interrupted that fiber before it reached the `outcome.succeed` after `graceful`. A 5 ms gap after
+  the section lost the outcome in 20 of 20 runs; recording it inside the section kept it in 20 of 20. A cold
+  JVM is what made the gap wide enough to hit.
+
+The second race is not specific to the test; it is the "nothing after the section" limitation above.
+
 ## Open
 
 - **A pull that expires on its own is assumed not to drop a message sent just before the expiry.** jnats
   should hand it over, but no `NatsSpec` case checks this yet.
-- **The spec "await added as the last finalizer…" has hung twice**, each time on the first run after a
-  sizeable compile. One race was found and fixed (the app could be interrupted before the finalizer was
-  registered), but it hung again after the fix. It could not be reproduced in about 3,000 runs.
-  `ShutdownSpec` now runs with `TestAspect.diagnose(20.seconds)`, so the next hang prints a fiber dump.
