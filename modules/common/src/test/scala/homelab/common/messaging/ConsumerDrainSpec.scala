@@ -195,7 +195,6 @@ object ConsumerDrainSpec extends ZIOSpecDefault:
           _         <- fetches.offer(Some("late"))
           _         <- waiting.join
           back      <- adapter.handedBack.get
-          _         <- untilWaiting(processor)
           running   <- processor.poll
           _         <- processor.interrupt
         yield assertTrue(back == List("late"), running.isEmpty)
