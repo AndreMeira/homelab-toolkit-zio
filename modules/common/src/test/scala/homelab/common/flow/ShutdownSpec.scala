@@ -199,17 +199,14 @@ object ShutdownSpec extends ZIOSpecDefault:
   private object Support:
 
     /**
-     * Wait until shutdown has begun, by probing with a section that runs only while it has not. Each probe that
-     * is admitted completes at once, and the first refused one is interrupted.
+     * Wait until shutdown has begun. `closing` reads the state `await` sets, so this is exact: a probe that
+     * timed out would not prove it, since a slow admitted probe times out too.
      *
      * @param shutdown the instance being shut down
-     * @return noop once a section would be refused
+     * @return noop once shutdown has begun
      */
     def untilClosing(shutdown: Shutdown): UIO[Unit] =
-      Live
-        .live(shutdown.graceful(ZIO.unit).timeout(10.millis))
-        .repeatUntil(_.isEmpty)
-        .unit
+      (ZIO.yieldNow *> shutdown.closing).repeatUntil(identity).unit
 
     /**
      * Wait until `fiber` has stopped running: suspended, which for a refused step can only be the parking, or

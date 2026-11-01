@@ -2,7 +2,7 @@
 title: Processing — Processor, Worker, Stateful, Workflow
 type: architecture
 status: current
-updated: 2026-09-29
+updated: 2026-11-01
 tags: [processing, processor, worker, stateful, workflow, actor]
 ---
 
@@ -112,6 +112,8 @@ Its own page: [`mailbox.md`](./mailbox.md).
 - **No lifecycle callbacks.** A `Scope` closing is the lifecycle; `Stateful.Next.Done` is the ending.
 - **No runner type for `Workflow`.** Combinators return workflows instead.
 - **No `Graph`.** Nothing in the package starts a processor: whoever owns one forks its `run` in the scope of
-  their choosing, and several forked under one scope race to the first failure. A `Graph` / `Node` pair that
+  their choosing. Forking only bounds a processor's lifetime: its failure does not reach the fiber that forked
+  it. An owner who wants the first failure to stop the rest combines the `run`s itself, for instance with
+  `ZIO.collectAllParDiscard`, which fails with the first error and interrupts the others. A `Graph` / `Node` pair that
   expanded owned children and started the set was removed on 2026-09-29 as premature; the idea is kept in
   [`research/processor-graph.md`](../research/processor-graph.md).
