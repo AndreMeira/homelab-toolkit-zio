@@ -6,8 +6,12 @@ import zio.test.*
 
 
 object ConsumerSpec extends ZIOSpecDefault:
+  import Support.*
 
-  def spec: Spec[TestEnvironment & Scope, Any] = suite("Consumer.serial")(
+  def spec: Spec[TestEnvironment & Scope, Any] = suite("Consumer")(serialSuite, onceSuite) @@ TestAspect.withLiveClock @@
+    TestAspect.timeout(60.seconds)
+
+  private def serialSuite = suite("serial")(
     test("serialises concurrent consume calls — logic never overlaps") {
       for
         inFlight <- Ref.make(0)
@@ -35,4 +39,45 @@ object ConsumerSpec extends ZIOSpecDefault:
         failed <- serial.consume(_ => ZIO.fail(boom)).either
       yield assertTrue(value == 42, failed == Left(boom))
     },
-  ) @@ TestAspect.withLiveClock @@ TestAspect.timeout(60.seconds)
+  )
+
+  private def onceSuite = suite("once")(
+    test("retries a consume that returned without running logic, until one value is processed") {
+      for
+        calls    <- Ref.make(0)
+        received <- Ref.make(List.empty[Int])
+        _        <- emptyThen(calls, 3, 7).once(value => received.update(_ :+ value))
+        made     <- calls.get
+        values   <- received.get
+      yield assertTrue(made == 4, values == List(7))
+    },
+    test("stops after the first processed value") {
+      for
+        calls <- Ref.make(0)
+        _     <- emptyThen(calls, 0, 7).once(_ => ZIO.unit)
+        made  <- calls.get
+      yield assertTrue(made == 1)
+    },
+    test("a failing logic aborts once, without retrying") {
+      for
+        calls  <- Ref.make(0)
+        failed <- emptyThen(calls, 0, 7).once(_ => ZIO.fail("refused")).either
+        made   <- calls.get
+      yield assertTrue(failed == Left("refused"), made == 1)
+    },
+  )
+
+  private object Support:
+
+    /**
+     * A consumer whose first `empty` calls return without running `logic`, as an empty fetch does, and which
+     * then hands `value` over on every call, counting every call.
+     *
+     * @param calls counts every `consume` call
+     * @param empty how many calls return empty first
+     * @param value what every later call hands over
+     * @return the consumer
+     */
+    def emptyThen(calls: Ref[Int], empty: Int, value: Int): Consumer[Nothing, Int] = new Consumer[Nothing, Int]:
+      def consume[E2 >: Nothing](logic: Int => IO[E2, Unit]): IO[E2, Unit] =
+        calls.getAndUpdate(_ + 1).flatMap(call => if call < empty then ZIO.unit else logic(value))

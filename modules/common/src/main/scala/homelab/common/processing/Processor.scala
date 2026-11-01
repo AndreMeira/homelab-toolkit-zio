@@ -94,7 +94,7 @@ object Processor {
    * @return never completes successfully; aborts with `E` on the first failure
    */
   def serial[E, A](input: Consumer[E, A])(handle: A => IO[E, Unit]): IO[E, Nothing] =
-    input.consume(handle).forever
+    input.once(handle).forever
 
   /**
    * Process up to `parallelism` values concurrently by spawning consume calls *on demand*: exactly one
@@ -163,8 +163,11 @@ object Processor {
                    // capacity to run: an intake that leases (a broker, a locking query) would otherwise have
                    // that value ageing toward redelivery while its fiber waited, and a keyed intake would
                    // hold the key for the wait. Signalling inside the consume keeps the spawn chain intact —
-                   // the next listener appears only once this one holds both a permit and a value.
-                   .withPermit(input.consume(value => started.succeed(()) *> handle(value)))
+                   // the next listener appears only once this one holds both a permit and a value. `once`
+                   // rather than `consume`, so a consume that returns without a value (an empty fetch) is
+                   // retried by the same listener instead of leaving the chain waiting on a signal that
+                   // never comes.
+                   .withPermit(input.once(value => started.succeed(()) *> handle(value)))
                    .catchAllCause(failure.failCause(_).unit)
                    .forkIn(scope)
       _       <- started.await

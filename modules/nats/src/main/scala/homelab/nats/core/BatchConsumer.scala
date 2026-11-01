@@ -11,7 +11,8 @@ import zio.*
 /**
  * A Core NATS batched [[ConsumerContract.Batched]] over messages — ephemeral, fire-and-forget. Drains up to
  * `batchSize` buffered messages from a [[CorePoll]] and runs `logic` on them. No ack (Core delivers once), so
- * a handler failure surfaces to the caller.
+ * a handler failure surfaces to the caller. An interrupted handler's batch is lost the same way, which is
+ * expected of this substrate.
  *
  * It consumes `Message`, not decoded values: decoding is layered on top by the `make[A]` factory, so this
  * class has no codec and no decode-failure policy. See [[BatchConsumer.make]].

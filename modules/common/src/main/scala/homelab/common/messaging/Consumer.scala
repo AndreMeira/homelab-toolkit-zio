@@ -11,6 +11,19 @@ import zio.*
  * acknowledgement handling never surface here. Because a message may be redelivered on failure,
  * '''`logic` must be idempotent'''.
  *
+ * '''A `consume` call may never run `logic`.''' An adapter that fetches with a timeout returns without
+ * calling it when the fetch comes back empty, and a wrapper may refuse a value it was handed (a draining
+ * shutdown does, handing it back). A
+ * caller must not count calls as deliveries, nor rely on `logic` to signal that a call has started.
+ *
+ * '''Interruption is not a failure.''' An adapter that can hand a message back settles an interrupted `logic`
+ * by handing its message back at once, whatever its failure policy says: nobody finished the work, so it must
+ * neither be dropped nor wait out a backoff or a lease. Failure handling (retry after a delay, discard,
+ * surface) is for work that ran and failed: typed failures and defects. A `logic` that completed just as the
+ * interrupt arrived is still settled by its outcome. This is what lets a closing scope interrupt in-flight
+ * work and have it redelivered promptly, on every restart. An adapter with no acknowledgement (Core NATS) has nothing to hand back: an
+ * interrupted message is lost, as it would be on a failure, since that substrate delivers once and forgets.
+ *
  * @tparam E the error consuming aborts with
  * @tparam A the value consumed
  */
@@ -18,13 +31,33 @@ trait Consumer[+E, +A] { self =>
 
   /**
    * Take the next value (or batch, for [[Consumer.Batched]]) and run `logic` on it, within the
-   * adapter's commit boundary. One call processes one noop; a run loop calls it repeatedly.
+   * adapter's commit boundary. One call processes at most one value; a run loop calls it repeatedly. An
+   * adapter that fetches with a timeout may return without calling `logic` when its fetch comes back empty,
+   * so a caller must not assume a returned call delivered anything.
    *
    * @param logic processes one consumed value
    * @tparam E2 the widened error, admitting `logic`'s failures
-   * @return noop once the value is processed and committed; aborts with `E2` on failure
+   * @return noop once the value is processed and committed, or once an empty fetch has returned; aborts with
+   *         `E2` on failure; when interrupted,
+   *         hands the value back (where the adapter can) before the interruption carries on
    */
   def consume[E2 >: E](logic: A => IO[E2, Unit]): IO[E2, Unit]
+
+  /**
+   * Consume until one value has been processed: call [[consume]], and call it again for as long as it
+   * returns without having run `logic` to completion (an empty fetch). A run loop that means "one value per
+   * step" calls this rather than [[consume]], so an empty fetch is retried rather than counted as a step.
+   *
+   * @param logic processes the one consumed value
+   * @tparam E2 the widened error, admitting `logic`'s failures
+   * @return noop once one value is processed and committed; aborts with `E2` on failure, without retrying
+   */
+  def once[E2 >: E](logic: A => IO[E2, Unit]): IO[E2, Unit] =
+    for
+      signal <- Promise.make[Nothing, Unit]
+      _      <- consume(logic(_) <* signal.succeed(()))
+                  .repeatUntilZIO(_ => signal.isDone)
+    yield ()
 
   /**
    * Adapt this consumer to deliver `B` by mapping each consumed `A`.

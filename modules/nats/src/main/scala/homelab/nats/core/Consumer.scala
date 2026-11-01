@@ -11,7 +11,8 @@ import zio.*
 /**
  * A Core NATS [[ConsumerContract]] over messages — ephemeral, fire-and-forget. A plain drain over a
  * [[CorePoll]]: take the next message, run `logic`. There is '''no ack''' (Core delivers once and forgets),
- * so a handler failure surfaces to the caller — the message is already gone, nothing to retry.
+ * so a handler failure surfaces to the caller — the message is already gone, nothing to retry. An
+ * interrupted handler's message is lost the same way, which is expected of this substrate.
  *
  * It consumes `Message`, not a decoded value: decoding is layered on top by the `make[A]` factory, so this
  * class has no codec and no decode-failure policy. See [[Consumer.make]] for what an undecodable payload does.

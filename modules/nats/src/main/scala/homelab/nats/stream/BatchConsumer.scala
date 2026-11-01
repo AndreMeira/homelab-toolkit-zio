@@ -42,8 +42,9 @@ final class BatchConsumer private (
     .build()
 
   /**
-   * Drain a batch, run `logic` on it (under the heartbeat), and settle it. One call processes one batch; a run
-   * loop calls it repeatedly.
+   * Fetch once and, if anything came back, run `logic` on the batch (under the heartbeat) and settle it. One
+   * call makes one fetch and processes at most one batch, returning without calling `logic` when the fetch
+   * expired empty; a run loop calls it repeatedly.
    *
    * Only the fetch and `logic` are interruptible; settling is not. An interrupted `logic` has its whole batch
    * `nak`ed at once, whatever `onFailure` says, and a `logic` that completed just as the interrupt arrived is
@@ -52,8 +53,9 @@ final class BatchConsumer private (
    *
    * @param logic processes one batch of consumed messages
    * @tparam E2 the widened error, admitting `logic`'s failures
-   * @return noop once the batch is settled; aborts with `E2` if `logic` fails under Surface, or with
-   *         [[NatsError.Ack]] if a settlement call fails
+   * @return noop once the batch is settled, or once the fetch expired empty; aborts with `E2` if `logic`
+   *         fails under Surface, with [[NatsError.Receive]] if the fetch fails, or with [[NatsError.Ack]] if
+   *         a settlement call fails
    */
   override def consume[E2 >: NatsError](logic: Chunk[Message] => IO[E2, Unit]): IO[E2, Unit] =
     ZIO.uninterruptibleMask: restore =>
@@ -85,18 +87,20 @@ final class BatchConsumer private (
           case None                            => retryAll(messages) *> ZIO.refailCause(cause)
 
   /**
-   * Fetch up to `batchSize` messages, asking again until at least one arrives.
+   * Fetch once: up to `batchSize` messages, or none if the stream stayed idle for `expiry`.
    *
    * The batch is requested when we are ready to work on it, which is what bounds the in-flight set: only
    * `batchSize` messages are ever outstanding, and their `ackWait` clocks start when we take them rather
-   * than while they wait in a buffer. The blocking calls are interruptible, so a closing scope does not
-   * wait out the fetch's expiry.
+   * than while they wait in a buffer. It is not asked again here, so a caller that stops calling `consume`
+   * stops fetching within `expiry`. The blocking calls are interruptible, so a closing scope does not wait
+   * out the fetch's expiry.
    *
    * The fetch consumer is opened, drained and closed within the one blocking call, so it outlives nothing
    * and belongs to no scope. `nextMessage` answers an `InterruptedException`, which is what carries an
    * interrupt through to the close.
    *
-   * @return the fetched messages (at least one); aborts with [[NatsError.Receive]] if the fetch fails
+   * @return the fetched messages, empty when the fetch expired with nothing; aborts with
+   *         [[NatsError.Receive]] if the fetch fails
    */
   private def fetch: IO[NatsError, Chunk[Message]] =
     ZIO
@@ -106,7 +110,6 @@ final class BatchConsumer private (
         try Chunk.fromIterator(data)
         finally consumer.close()
       .mapError(NatsError.Receive(_))
-      .flatMap(messages => if messages.isEmpty then fetch else ZIO.succeed(messages))
 
   /**
    * Settle the batch by the handler outcome: `ackAll` on success, else `onFailure`.
@@ -194,7 +197,9 @@ object BatchConsumer:
    * Tuning for a JetStream batched consumer.
    *
    * @param batchSize     the maximum messages fetched per `consume`, and so the whole in-flight set
-   * @param expiry        how long the server holds an unfilled fetch open before returning what it has
+   * @param expiry        how long the server holds an unfilled fetch open before returning what it has; also
+   *                      the longest a draining shutdown waits for an open fetch, so keep it within the
+   *                      deployment's shutdown grace period
    * @param ackWait       how long the server waits for an ack before redelivering
    * @param maxAckPending the server's ceiling on un-acked in-flight messages — a safety net, since a fetching
    *                      consumer is already bounded by `batchSize`

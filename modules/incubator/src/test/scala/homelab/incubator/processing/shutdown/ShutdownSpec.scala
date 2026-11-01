@@ -2,6 +2,7 @@ package homelab.incubator.processing.shutdown
 
 
 import homelab.common.messaging.Consumer
+import homelab.common.processing.Processor
 import zio.*
 import zio.test.*
 
@@ -93,6 +94,7 @@ object ShutdownSpec extends ZIOSpecDefault:
           started     <- Promise.make[Nothing, Unit]
           gate        <- Promise.make[Nothing, Unit]
           outcome     <- Promise.make[Nothing, Exit[Nothing, String]]
+          ready       <- Promise.make[Nothing, Unit]
           app         <- ZIO.scoped {
                            for
                              _ <- shutdown
@@ -101,10 +103,13 @@ object ShutdownSpec extends ZIOSpecDefault:
                                     .flatMap(outcome.succeed)
                                     .forkScoped
                              _ <- ZIO.addFinalizer(shutdown.await)
+                             _ <- ready.succeed(())
                              _ <- ZIO.never
                            yield ()
                          }.fork
           _           <- started.await
+          // interrupting before the finalizer is registered would close the scope with no shutdown at all
+          _           <- ready.await
           terminating <- app.interrupt.fork
           _           <- untilClosing(shutdown)
           before      <- outcome.poll
@@ -113,13 +118,13 @@ object ShutdownSpec extends ZIOSpecDefault:
           section     <- outcome.await
         yield assertTrue(before.isEmpty, section == Exit.succeed("posted"))
       ,
-      test("a gated consumer delivers as usual before shutdown begins"):
+      test("a drainLocal consumer delivers as usual before shutdown begins"):
         for
           shutdown <- Shutdown.make
           queue    <- Queue.unbounded[String]
           _        <- queue.offer("request")
           received <- Ref.make(Option.empty[String])
-          _        <- shutdown.gate(Consumer.fromQueue(queue)).consume(value => received.set(Some(value)))
+          _        <- shutdown.drainLocal(Consumer.fromQueue(queue)).consume(value => received.set(Some(value)))
           value    <- received.get
         yield assertTrue(value.contains("request"))
       ,
@@ -130,26 +135,153 @@ object ShutdownSpec extends ZIOSpecDefault:
           _        <- queue.offer("request")
           _        <- shutdown.await
           ran      <- Ref.make(false)
-          gated    <- shutdown.gate(Consumer.fromQueue(queue)).consume(_ => ran.set(true)).fork
+          gated    <- shutdown.drainLocal(Consumer.fromQueue(queue)).consume(_ => ran.set(true)).fork
           parked   <- gated.poll
           exit     <- gated.interrupt
           left     <- queue.size
           didRun   <- ran.get
         yield assertTrue(parked.isEmpty, exit.isInterrupted, left == 1, !didRun)
       ,
-      test("a consume already waiting when shutdown begins still delivers"):
+      test("await waits for a value a drainLocal consumer is already handling"):
         for
           shutdown <- Shutdown.make
           queue    <- Queue.unbounded[String]
-          received <- Promise.make[Nothing, String]
-          waiting  <- shutdown.gate(Consumer.fromQueue(queue)).consume(value => received.succeed(value).unit).fork
+          _        <- queue.offer("request")
+          started  <- Promise.make[Nothing, Unit]
+          gate     <- Promise.make[Nothing, Unit]
+          received <- Ref.make(Option.empty[String])
+          handling <- shutdown
+                        .drainLocal(Consumer.fromQueue(queue))
+                        .consume(value => started.succeed(()) *> gate.await *> received.set(Some(value)))
+                        .fork
+          _        <- started.await
+          waiting  <- shutdown.await.fork
+          _        <- untilClosing(shutdown)
+          before   <- waiting.poll
+          _        <- gate.succeed(())
+          _        <- waiting.join
+          _        <- handling.join
+          value    <- received.get
+        yield assertTrue(before.isEmpty, value.contains("request"))
+      ,
+      test("a value taken after shutdown began is refused, and parks until interrupted"):
+        for
+          shutdown <- Shutdown.make
+          queue    <- Queue.unbounded[String]
+          handed   <- Promise.make[Nothing, Unit]
+          ran      <- Ref.make(false)
+          waiting  <- shutdown.drainLocal(handing(queue, handed)).consume(_ => ran.set(true)).fork
           _        <- untilTaking(queue)
           _        <- shutdown.await
           _        <- queue.offer("request")
-          value    <- received.await
+          _        <- handed.await
+          _        <- untilParkedOrDone(waiting)
+          parked   <- waiting.poll
+          exit     <- waiting.interrupt
+          didRun   <- ran.get
+        yield assertTrue(parked.isEmpty, exit.isInterrupted, !didRun)
+      ,
+      test("globalDrain: await waits for an open fetch, which may end empty"):
+        for
+          shutdown <- Shutdown.make
+          fetches  <- Queue.unbounded[Option[String]]
+          adapter  <- Fetching.make(fetches)
+          ran      <- Ref.make(false)
+          pulling  <- shutdown.globalDrain(adapter).consume(_ => ran.set(true)).fork
+          _        <- untilTaking(fetches)
+          waiting  <- shutdown.await.fork
+          _        <- untilClosing(shutdown)
+          before   <- waiting.poll
+          _        <- fetches.offer(None)
           _        <- waiting.join
-        yield assertTrue(value == "request"),
-    )
+          _        <- pulling.join
+          didRun   <- ran.get
+        yield assertTrue(before.isEmpty, !didRun)
+      ,
+      test("globalDrain: a value on its way when shutdown begins is handed back at once, and the call parks"):
+        for
+          shutdown <- Shutdown.make
+          fetches  <- Queue.unbounded[Option[String]]
+          adapter  <- Fetching.make(fetches)
+          ran      <- Ref.make(false)
+          pulling  <- shutdown.globalDrain(adapter).consume(_ => ran.set(true)).fork
+          _        <- untilTaking(fetches)
+          waiting  <- shutdown.await.fork
+          _        <- untilClosing(shutdown)
+          _        <- fetches.offer(Some("late"))
+          _        <- waiting.join
+          back     <- adapter.handedBack.get
+          _        <- untilParkedOrDone(pulling)
+          parked   <- pulling.poll
+          exit     <- pulling.interrupt
+          didRun   <- ran.get
+        yield assertTrue(back == List("late"), parked.isEmpty, exit.isInterrupted, !didRun)
+      ,
+      test("globalDrain: a value that arrived before shutdown runs, and await waits for it"):
+        for
+          shutdown <- Shutdown.make
+          fetches  <- Queue.unbounded[Option[String]]
+          _        <- fetches.offer(Some("request"))
+          adapter  <- Fetching.make(fetches)
+          started  <- Promise.make[Nothing, Unit]
+          gate     <- Promise.make[Nothing, Unit]
+          received <- Ref.make(Option.empty[String])
+          handling <- shutdown
+                        .globalDrain(adapter)
+                        .consume(value => started.succeed(()) *> gate.await *> received.set(Some(value)))
+                        .fork
+          _        <- started.await
+          waiting  <- shutdown.await.fork
+          _        <- untilClosing(shutdown)
+          before   <- waiting.poll
+          _        <- gate.succeed(())
+          _        <- waiting.join
+          _        <- handling.join
+          value    <- received.get
+          back     <- adapter.handedBack.get
+        yield assertTrue(before.isEmpty, value.contains("request"), back.isEmpty)
+      ,
+      test("globalDrain: a consume started after shutdown began never fetches"):
+        for
+          shutdown <- Shutdown.make
+          fetches  <- Queue.unbounded[Option[String]]
+          _        <- fetches.offer(Some("request"))
+          adapter  <- Fetching.make(fetches)
+          _        <- shutdown.await
+          ran      <- Ref.make(false)
+          gated    <- shutdown.globalDrain(adapter).consume(_ => ran.set(true)).fork
+          parked   <- gated.poll
+          exit     <- gated.interrupt
+          left     <- fetches.size
+          didRun   <- ran.get
+        yield assertTrue(parked.isEmpty, exit.isInterrupted, left == 1, !didRun)
+      ,
+      test("globalDrain: a refusal does not fail the parallel processor running it"):
+        for
+          shutdown  <- Shutdown.make
+          fetches   <- Queue.unbounded[Option[String]]
+          adapter   <- Fetching.make(fetches)
+          processor <- Processor.parallel(shutdown.globalDrain(adapter), 4)(_ => ZIO.unit).forkScoped
+          _         <- untilTaking(fetches)
+          waiting   <- shutdown.await.fork
+          _         <- untilClosing(shutdown)
+          _         <- fetches.offer(Some("late"))
+          _         <- waiting.join
+          back      <- adapter.handedBack.get
+          running   <- processor.poll
+          _         <- processor.interrupt
+        yield assertTrue(back == List("late"), running.isEmpty)
+      ,
+      test("globalDrain: an interruption raised by logic itself is not mistaken for a refusal"):
+        for
+          shutdown <- Shutdown.make
+          fetches  <- Queue.unbounded[Option[String]]
+          _        <- fetches.offer(Some("request"))
+          adapter  <- Fetching.make(fetches)
+          exit     <- shutdown.globalDrain(adapter).consume(_ => ZIO.interrupt).exit
+          back     <- adapter.handedBack.get
+        yield assertTrue(exit.isInterrupted, back == List("request")),
+    ) @@ TestAspect.diagnose(20.seconds) @@ TestAspect.timeout(30.seconds)
 
   private object Support:
 
@@ -172,5 +304,62 @@ object ShutdownSpec extends ZIOSpecDefault:
      * @param queue the queue the consumer takes from
      * @return noop once one taker is waiting
      */
-    def untilTaking(queue: Queue[String]): UIO[Unit] =
+    def untilTaking(queue: Queue[?]): UIO[Unit] =
       queue.size.repeatUntil(_ < 0).unit
+
+    /**
+     * A consumer over `queue` that signals once it has taken a value and is about to hand it to `logic`, so a
+     * spec knows the value has left the queue before deciding anything about it.
+     *
+     * @param queue the queue to take from
+     * @param handed completed once a value has been taken
+     * @return the signalling consumer
+     */
+    def handing(queue: Queue[String], handed: Promise[Nothing, Unit]): Consumer[Nothing, String] =
+      new Consumer[Nothing, String]:
+        override def consume[E2 >: Nothing](logic: String => IO[E2, Unit]): IO[E2, Unit] =
+          queue.take.flatMap(value => handed.succeed(()) *> logic(value))
+
+    /**
+     * Wait until `fiber` has stopped running: suspended, which past [[handing]]'s signal can only be the
+     * refusal's parking, or done, which is what an admitted `logic` would lead to.
+     *
+     * @param fiber the fiber to watch
+     * @return noop once the fiber is suspended or done
+     */
+    def untilParkedOrDone(fiber: Fiber.Runtime[?, ?]): UIO[Unit] =
+      fiber.status
+        .repeatUntil:
+          case _: Fiber.Status.Suspended => true
+          case Fiber.Status.Done         => true
+          case _                         => false
+        .unit
+
+    /**
+     * A fake adapter that fetches with a timeout, as a JetStream pull does: each `consume` makes one fetch,
+     * which is a take from `fetches` (`None` an empty fetch, `Some` a value), and an interrupted `logic` has
+     * its value handed back, recorded in `handedBack`, before the interruption carries on.
+     *
+     * @param fetches what each fetch returns, in order
+     * @param handedBack the values handed back, oldest first
+     */
+    final class Fetching private (fetches: Queue[Option[String]], val handedBack: Ref[List[String]]) extends Consumer[Nothing, String]:
+
+      override def consume[E2 >: Nothing](logic: String => IO[E2, Unit]): IO[E2, Unit] =
+        ZIO.uninterruptibleMask: restore =>
+          restore(fetches.take).flatMap:
+            case None        => ZIO.unit
+            case Some(value) =>
+              restore(logic(value)).exit.flatMap: exit =>
+                handedBack.update(_ :+ value).when(exit.isInterrupted) *> ZIO.done(exit)
+
+    object Fetching:
+
+      /**
+       * A fake adapter over `fetches`, with nothing handed back yet.
+       *
+       * @param fetches what each fetch returns, in order
+       * @return the adapter; never fails
+       */
+      def make(fetches: Queue[Option[String]]): UIO[Fetching] =
+        Ref.make(List.empty[String]).map(new Fetching(fetches, _))
