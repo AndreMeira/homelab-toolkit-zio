@@ -27,11 +27,11 @@ object AnthropicClientSpec extends ZIOSpecDefault:
           backend   = HttpClient.stub(response = temperatureAnswer)
           monitor  <- Monitoring.make
           _        <- AnthropicClient.make(backend, "api-key", monitor).complete(userMessage)
-          recorded <- monitor.callNames.map(_.headOption)
-          tags     <- monitor.callTags.map(_.headOption)
+          recorded <- monitor.callNames
+          tags     <- monitor.callTags
         yield assertTrue(
-          recorded.contains("AnthropicClient.complete"),
-          tags.contains(Map("resource" -> "llm", "model" -> "claude-3-5-sonnet-latest")),
+          recorded == Chunk("AnthropicClient.complete"),
+          tags == Chunk(Map("resource" -> "llm", "model" -> "claude-3-5-sonnet-latest")),
         )
       },
       test("a refused call is measured too, since a failure is what a dashboard is for") {

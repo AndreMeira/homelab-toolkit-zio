@@ -107,7 +107,11 @@ nothing but the work:
 **Capacity is a token held, not a number computed.** A caller ready to run offers a *demand* token and the
 fetcher claims only as much demand as it holds, so no row is ever marked claimed with nobody free to run it.
 Because `consume` returns only once the outcome is *written*, a caller cannot spend a second token while its
-first element is recorded only in memory — so **outstanding leases never exceed `concurrency`**, end to end.
+first element is recorded only in memory — so **outstanding leases never exceed the number of fibers calling
+`consume`**, end to end. There is no `concurrency` setting: the callers are the concurrency, and `writeSize`
+only caps how many verdicts one statement writes. The one exception is a caller interrupted while it waits
+for its verdict: the verdict stays queued and is still written, but the caller is gone, so until the settler
+reaches it that lease is held by nobody who counts against the bound.
 
 **The fourth queue exists because demand is anonymous.** A token says somebody wants work, not *who*, so a
 caller interrupted while parked may already have had an element claimed for it. It cannot settle that element

@@ -19,9 +19,10 @@ import zio.*
  * number of fibers calling it''': nobody can claim a second element while their first is recorded only in
  * memory. Under
  * load that costs nothing — callers finishing together are written by one statement and released together,
- * which is precisely where the batching comes from.
+ * which is precisely where the batching comes from. The exception is a caller interrupted while waiting for
+ * its verdict: the verdict is still written, but until it is, its lease belongs to no caller.
  *
- * @param channel the three queues, the wake-up, and the failure promise
+ * @param channel the four queues, the wake-up, and the failure promise
  * @tparam E the error the store aborts with
  * @tparam A the element handled
  */
@@ -296,12 +297,15 @@ object PollConsumer:
     case Closed
 
   /**
-   * The three queues, plus the wake-up and the pool's death certificate.
+   * The four queues, plus the wake-up and the pool's death certificate.
    *
-   * '''Unbounded, and bounded in fact by the callers.''' One token exists per caller, and at any instant it
-   * is in exactly one place — the demand queue, the fetcher's hand, the supply queue, a worker's hand, the
-   * settlement queue, or the settler's hand. So no queue holds more than there are callers, whatever that
-   * number turns out to be, and no offer to any of them can block.
+   * '''Unbounded, and bounded in fact by the callers.''' A caller in `consume` holds one token, and at any
+   * instant it is in exactly one place — the demand queue, the fetcher's hand, the supply queue, a worker's
+   * hand, the settlement queue, or the settler's hand. A caller that leaves early leaves its token behind
+   * instead: one interrupted while parked leaves its demand where it was and adds a debt to `cancels`, and one
+   * interrupted while waiting for its verdict leaves the verdict on the settlement queue. Neither is counted
+   * against a caller any more. So the queues hold at most the callers present plus what departed callers
+   * left, which the canceller and the settler work off, and no offer to any of them can block.
    *
    * @param demand capacity offered by callers — one token is the right to claim one element
    * @param supply elements claimed and waiting for the worker whose demand paid for them
@@ -646,8 +650,8 @@ object PollConsumer:
       yield settler
 
   /**
-   * Build a consumer over `source` and start it, for the life of the scope: the three queues, the settler and
-   * fetcher behind them, and the worker in front.
+   * Build a consumer over `source` and start it, for the life of the scope: the four queues, the settler,
+   * fetcher and canceller behind them, and the worker in front.
    *
    * '''The settler is registered before the fetcher on purpose.''' Finalizers run last-registered-first, so
    * teardown goes: callers' own fibers interrupted → fetcher stopped → supply drained → settler stopped →
