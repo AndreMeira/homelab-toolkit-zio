@@ -309,7 +309,8 @@ object BatchConsumer:
     apply(subscriber, stream, durable, subject, config).map(decoded[A])
 
   /**
-   * Layer a decoder over a batched message consumer, keeping the batched shape that `mapZIO` erases.
+   * Layer a decoder over a batched message consumer. The result is still a `Consumer.Batched`, which is only a
+   * name for a consumer of chunks, so a `mapZIO` from chunk to chunk keeps it.
    *
    * @param consumer the batched message consumer to decode for
    * @tparam A the value consumed, with a [[Decoder]] in scope

@@ -13,9 +13,10 @@ import zio.*
  * [[Stateful]] advances a keyed state). One that fans out to several outputs — success plus dead-letter,
  * say — holds those producers itself, and overrides `run` only if the standard loop does not suit.
  *
- * Its failures are [[ApplicationError]]s: processors are started together and raced under one scope, which
- * has one error channel for everything in it. Wrap whatever a library throws at the adapter edge, as
- * everything else here does, rather than widening this.
+ * Its failures are [[ApplicationError]]s, so that processors run together, by whoever owns them, share one
+ * error channel. Nothing here runs them together: forking only bounds their lifetimes, and an owner who wants
+ * the first failure to stop the rest combines their `run`s itself. Wrap whatever a library throws at the
+ * adapter edge, as everything else here does, rather than widening this.
  *
  * @tparam E the error processing aborts with
  * @tparam A the value consumed
