@@ -422,7 +422,7 @@ object NatsSpec extends ZIOSpecDefault:
             // recorded below the drain: what the drained pull itself brought back, before the refusal
             recording    = consumer.mapZIO(message => pulled.update(_ :+ message).as(message))
             pulling     <- recording.globalDrain(shutdown).consume(_ => ran.set(true)).fork
-            _           <- ZIO.sleep(500.millis) // let the pull reach the server, with nothing to return yet
+            _           <- ZIO.sleep(100.millis) // let the pull reach the server, with nothing to return yet
             waiting     <- shutdown.await.fork
             _           <- shutdown.closing.repeatUntil(identity)
             _           <- producer.emit("late")
