@@ -36,6 +36,31 @@ object ProcessorParallelSpec extends ZIOSpecDefault:
         count   <- entered.get
       yield assertTrue(count == 1)
     },
+    test("a consume that returns without a value does not stop the spawn chain") {
+      // Fails with nothing handled if a listener calls `consume` rather than `once`: the first empty fetch
+      // ends the listener without the signal the spawn loop is waiting for.
+      for
+        handled <- Promise.make[Nothing, Int]
+        intake  <- emptyThen(3, 7)
+        _       <- ZIO.scoped(Processor.parallel(intake, parallelism)(value => handled.succeed(value).unit).forkScoped *> handled.await)
+        value   <- handled.await
+      yield assertTrue(value == 7)
+    },
+    test("a failure interrupts the other running handlers before it is returned") {
+      // Fails with none interrupted if the listeners live in the caller's scope: the failure then returns
+      // while the other handlers still run, until that scope closes.
+      for
+        queue       <- Queue.unbounded[String]
+        running     <- Ref.make(0)
+        interrupted <- Ref.make(0)
+        _           <- queue.offerAll(List("slow", "slow", "boom"))
+        handle       = (value: String) =>
+                         if value == "boom" then running.get.repeatUntil(_ == 2) *> ZIO.fail("boom")
+                         else (running.update(_ + 1) *> ZIO.never).onInterrupt(interrupted.update(_ + 1))
+        exit        <- Processor.parallel(Consumer.fromQueue(queue), parallelism)(handle).exit
+        cut         <- interrupted.get
+      yield assertTrue(exit == Exit.fail("boom"), cut == 2)
+    },
   ) @@ TestAspect.withLiveClock @@ TestAspect.timeout(1.minute)
 
   /** Long enough for the loop to reach its steady state, short enough to keep the suite quick. */
@@ -60,6 +85,22 @@ object ProcessorParallelSpec extends ZIOSpecDefault:
     override def consume[E2](logic: Int => IO[E2, Unit]): IO[E2, Unit] = entered.update(_ + 1) *> ZIO.never
 
   /**
+   * An intake whose first consumes return without a value, as an empty fetch does, and which then hands one
+   * over on every call.
+   *
+   * @param empty how many consumes return empty first
+   * @param value what every later consume hands over
+   * @return the consumer; never fails
+   */
+  private def emptyThen(empty: Int, value: Int): UIO[Consumer[Nothing, Int]] =
+    Ref
+      .make(0)
+      .map: calls =>
+        new Consumer[Nothing, Int]:
+          override def consume[E2](logic: Int => IO[E2, Unit]): IO[E2, Unit] =
+            calls.getAndUpdate(_ + 1).flatMap(call => if call < empty then ZIO.unit else logic(value))
+
+  /**
    * Occupy a slot long enough to overlap with its peers, recording the high-water mark.
    *
    * @param live how many handles are running now
@@ -74,6 +115,5 @@ object ProcessorParallelSpec extends ZIOSpecDefault:
 
   /** How many at once. */
   private object Support {
-
     val parallelism = 8
   }

@@ -1,6 +1,7 @@
 package homelab.nats
 
 
+import homelab.common.messaging.Consumer as ConsumerContract
 import homelab.nats.core.{ BatchConsumer as CoreBatchConsumer, Consumer as CoreConsumer, CoreSubscriber, Producer as CoreProducer }
 import homelab.nats.stream.{ BatchConsumer as StreamBatchConsumer, Consumer as StreamConsumer, Producer as StreamProducer }
 import io.nats.client.Connection
@@ -297,25 +298,23 @@ object NatsSpec extends ZIOSpecDefault:
       test("an interrupted handler's message is nacked, so redelivered well before ackWait") {
         ZIO.scoped:
           for
-            connection  <- ZIO.service[Connection]
-            _           <- NatsSpecLayers.stream(connection, "INTERRUPTED", "interrupted.>")
-            producer    <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(_ => "interrupted.in"))
-            consumer    <- StreamConsumer.make[String](
-                             connection,
-                             "INTERRUPTED",
-                             "worker",
-                             "interrupted.>",
-                             StreamConsumer.Config(ackWait = 30.seconds, expiry = 1.second, retryAfter = 10.seconds),
-                           )(using Codec.Decoder.utf8)
-            _           <- producer.emit("cut-off")
-            started     <- Promise.make[Nothing, Unit]
-            first       <- consumer.consume(_ => started.succeed(()) *> ZIO.never).fork
-            _           <- started.await
-            _           <- first.interrupt
-            redelivered <- Ref.make(Option.empty[String])
-            outcome     <- consumer.consume(message => redelivered.set(Some(message))).timeout(5.seconds)
-            out         <- redelivered.get
-          yield assertTrue(outcome.isDefined, out == Some("cut-off"))
+            connection <- ZIO.service[Connection]
+            _          <- NatsSpecLayers.stream(connection, "INTERRUPTED", "interrupted.>")
+            producer   <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(_ => "interrupted.in"))
+            consumer   <- StreamConsumer.make[String](
+                            connection,
+                            "INTERRUPTED",
+                            "worker",
+                            "interrupted.>",
+                            StreamConsumer.Config(ackWait = 30.seconds, expiry = 1.second, retryAfter = 10.seconds),
+                          )(using Codec.Decoder.utf8)
+            _          <- producer.emit("cut-off")
+            started    <- Promise.make[Nothing, Unit]
+            first      <- consumer.consume(_ => started.succeed(()) *> ZIO.never).fork
+            _          <- started.await
+            _          <- first.interrupt
+            out        <- deliveredWithin(consumer, 5.seconds)
+          yield assertTrue(out == Some("cut-off"))
       },
       test("a handler that completes while being interrupted is still acked") {
         ZIO.scoped:
@@ -340,7 +339,7 @@ object NatsSpec extends ZIOSpecDefault:
             _           <- gate.succeed(())
             exit        <- interrupted.join
             // not acked, it would be redelivered after ackWait (2 s)
-            again       <- consumer.consume(_ => ZIO.unit).timeout(4.seconds)
+            again       <- deliveredWithin(consumer, 4.seconds)
           yield assertTrue(exit.isInterrupted, again.isEmpty)
       },
       test("a failing handler's message is redelivered after retryAfter, not at once") {
@@ -354,7 +353,7 @@ object NatsSpec extends ZIOSpecDefault:
             _          <- producer.emit("x")
             _          <- consumer.consume(_ => ZIO.fail(NatsError.Decode("forced failure")))
             failedAt   <- Clock.nanoTime
-            outcome    <- consumer.consume(_ => ZIO.unit).timeout(10.seconds)
+            outcome    <- deliveredWithin(consumer, 10.seconds)
             backAt     <- Clock.nanoTime
           yield assertTrue(outcome.isDefined, Duration.fromNanos(backAt - failedAt) >= 1500.millis)
       },
@@ -368,29 +367,44 @@ object NatsSpec extends ZIOSpecDefault:
             consumer   <- StreamConsumer.make[String](connection, "DIED", "worker", "died.>", config)(using Codec.Decoder.utf8)
             _          <- producer.emit("x")
             died       <- consumer.consume(_ => ZIO.die(new IllegalStateException("handler bug"))).exit
-            outcome    <- consumer.consume(_ => ZIO.unit).timeout(6.seconds)
+            outcome    <- deliveredWithin(consumer, 6.seconds)
           yield assertTrue(died.isFailure, outcome.isDefined)
       },
       test("a message still held when the consumer's scope closes is nak'ed, so redelivered well before ackWait") {
         ZIO.scoped:
           for
-            connection  <- ZIO.service[Connection]
-            _           <- NatsSpecLayers.stream(connection, "HELD", "held.>")
-            producer    <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(_ => "held.in"))
-            config       = StreamConsumer.Config(ackWait = 30.seconds, expiry = 1.second)
-            _           <- producer.emit("in-flight")
-            started     <- Promise.make[Nothing, Unit]
+            connection <- ZIO.service[Connection]
+            _          <- NatsSpecLayers.stream(connection, "HELD", "held.>")
+            producer   <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(_ => "held.in"))
+            config      = StreamConsumer.Config(ackWait = 30.seconds, expiry = 1.second)
+            _          <- producer.emit("in-flight")
+            started    <- Promise.make[Nothing, Unit]
             // the first consumer's scope closes while its handler, forked outside that scope, still holds the message
-            handler     <- ZIO.scoped:
-                             StreamConsumer
-                               .make[String](connection, "HELD", "worker", "held.>", config)(using Codec.Decoder.utf8)
-                               .flatMap(first => first.consume(_ => started.succeed(()) *> ZIO.never).forkDaemon <* started.await)
-            second      <- StreamConsumer.make[String](connection, "HELD", "worker", "held.>", config)(using Codec.Decoder.utf8)
-            redelivered <- Ref.make(Option.empty[String])
-            outcome     <- second.consume(message => redelivered.set(Some(message))).timeout(5.seconds)
-            out         <- redelivered.get
-            _           <- handler.interrupt
-          yield assertTrue(outcome.isDefined, out == Some("in-flight"))
+            handler    <- ZIO.scoped:
+                            StreamConsumer
+                              .make[String](connection, "HELD", "worker", "held.>", config)(using Codec.Decoder.utf8)
+                              .flatMap(first => first.consume(_ => started.succeed(()) *> ZIO.never).forkDaemon <* started.await)
+            second     <- StreamConsumer.make[String](connection, "HELD", "worker", "held.>", config)(using Codec.Decoder.utf8)
+            out        <- deliveredWithin(second, 5.seconds)
+            _          <- handler.interrupt
+          yield assertTrue(out == Some("in-flight"))
+      },
+      test("a pull that expires empty returns without calling logic") {
+        ZIO.scoped:
+          for
+            connection <- ZIO.service[Connection]
+            _          <- NatsSpecLayers.stream(connection, "EMPTYPULL", "emptypull.>")
+            consumer   <- StreamConsumer.make[String](
+                            connection,
+                            "EMPTYPULL",
+                            "worker",
+                            "emptypull.>",
+                            StreamConsumer.Config(expiry = 1.second),
+                          )(using Codec.Decoder.utf8)
+            ran        <- Ref.make(false)
+            outcome    <- consumer.consume(_ => ran.set(true)).timeout(5.seconds)
+            didRun     <- ran.get
+          yield assertTrue(outcome.isDefined, !didRun)
       },
       test("a durable publish to a subject no stream captures fails with Publish") {
         ZIO.scoped:
@@ -450,6 +464,23 @@ object NatsSpec extends ZIOSpecDefault:
       },
     ),
     suite("jetstream batched")(
+      test("a fetch that expires empty returns without calling logic") {
+        ZIO.scoped:
+          for
+            connection <- ZIO.service[Connection]
+            _          <- NatsSpecLayers.stream(connection, "BATCHEMPTY", "batchempty.>")
+            consumer   <- StreamBatchConsumer.make[String](
+                            connection,
+                            "BATCHEMPTY",
+                            "worker",
+                            "batchempty.>",
+                            StreamBatchConsumer.Config(batchSize = 2, expiry = 1.second),
+                          )(using Codec.Decoder.utf8)
+            ran        <- Ref.make(false)
+            outcome    <- consumer.consume(_ => ran.set(true)).timeout(5.seconds)
+            didRun     <- ran.get
+          yield assertTrue(outcome.isDefined, !didRun)
+      },
       test("an interrupted batch handler's messages are nacked, so redelivered well before ackWait") {
         ZIO.scoped:
           for
@@ -600,8 +631,27 @@ object NatsSpec extends ZIOSpecDefault:
     ),
   ).provideShared(NatsSpecLayers.connection) @@ TestAspect.withLiveClock @@ TestAspect.timeout(90.seconds) @@ TestAspect.sequential
 
-  /** How an int is read off the wire. */
+  /** Helpers shared by the tests above. */
   private object Support {
+
+    /**
+     * Consume until a message is delivered or `within` runs out. One `consume` makes one pull, which can
+     * expire empty, so a test waiting for a delivery (a redelivery after a delay, say) keeps pulling.
+     *
+     * @param consumer the consumer to pull from
+     * @param within   how long to keep pulling
+     * @tparam E the error the consumer aborts with
+     * @return the first message delivered, or `None` if none was within `within`; aborts with `E` when a
+     *         consume does
+     */
+    def deliveredWithin[E](consumer: ConsumerContract[E, String], within: Duration): IO[E, Option[String]] =
+      Ref
+        .make(Option.empty[String])
+        .flatMap: seen =>
+          consumer
+            .consume(message => seen.set(Some(message)))
+            .repeatUntilZIO(_ => seen.get.map(_.isDefined))
+            .timeout(within) *> seen.get
 
     /** A `Decoder[Int]` over decimal text — decoding fails on non-numeric payloads (the poison-message probe). */
     val intDecoder: Codec.Decoder[Int] =

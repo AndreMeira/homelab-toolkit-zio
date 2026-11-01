@@ -36,8 +36,9 @@ final class Consumer private (
 ) extends ConsumerContract[NatsError, Message]:
 
   /**
-   * Take the next message, run `logic` on it (under the heartbeat), and settle by the outcome. One call
-   * processes one message; a run loop calls it repeatedly.
+   * Pull once and, if a message came back, run `logic` on it (under the heartbeat) and settle by the outcome.
+   * One call makes one pull and processes at most one message, returning without calling `logic` when the
+   * pull expired empty; a run loop calls it repeatedly.
    *
    * Only the pull and `logic` are interruptible; settling is not. An interrupted `logic` is `nak`ed at once,
    * whatever `onFailure` says, and a `logic` that completed just as the interrupt arrived is still settled by
@@ -46,15 +47,18 @@ final class Consumer private (
    *
    * @param logic processes one consumed message
    * @tparam E2 the widened error, admitting `logic`'s failures
-   * @return noop once the message is settled; aborts with `E2` if `logic` fails under Surface, or with
+   * @return noop once the message is settled, or once the pull expired empty; aborts with `E2` if `logic`
+   *         fails under Surface, or with [[NatsError.Receive]] if the pull fails, or with
    *         [[NatsError.Ack]] if a settlement call fails
    */
   override def consume[E2 >: NatsError](logic: Message => IO[E2, Unit]): IO[E2, Unit] =
     ZIO.uninterruptibleMask: restore =>
-      restore(next).flatMap: message =>
-        held.update(_ + message) *>
-          restore(Heartbeat.wrap(config.heartbeat, Chunk(message))(logic(message))).exit
-            .flatMap(settle(message, _))
+      restore(pull).flatMap:
+        case None          => ZIO.unit
+        case Some(message) =>
+          held.update(_ + message) *>
+            restore(Heartbeat.wrap(config.heartbeat, Chunk(message))(logic(message))).exit
+              .flatMap(settle(message, _))
 
   /**
    * Settle a message by how its handler ended: by outcome when it succeeded or failed, `nak` at once when it
@@ -76,19 +80,20 @@ final class Consumer private (
           case None                            => retry(message) *> ZIO.refailCause(cause)
 
   /**
-   * Pull the next message, asking again until one arrives.
+   * Pull once: the next message, or nothing if the stream stayed idle for `expiry`.
    *
    * Nothing is delivered that was not asked for, which is where this consumer's backpressure comes from: the
-   * server holds the request open for `expiry` and returns nothing if the stream is idle. The blocking call
-   * is interruptible, so a closing scope does not wait out the expiry.
+   * server holds the request open for `expiry` and returns nothing if the stream is idle. It is not asked
+   * again here, so a caller that stops calling `consume` stops pulling within `expiry`. The blocking call is
+   * interruptible, so a closing scope does not wait out the expiry.
    *
-   * @return the next message; aborts with [[NatsError.Receive]] if the pull fails
+   * @return the message, or `None` when the pull expired empty; aborts with [[NatsError.Receive]] if the
+   *         pull fails
    */
-  private def next: IO[NatsError, Message] =
+  private def pull: IO[NatsError, Option[Message]] =
     ZIO
-      .attemptBlockingInterrupt(context.next(config.expiry))
+      .attemptBlockingInterrupt(Option(context.next(config.expiry)))
       .mapError(NatsError.Receive(_))
-      .flatMap(message => if message == null then next else ZIO.succeed(message))
 
   /**
    * Settle a message by its handler outcome: `ack` on success, else `onFailure`.
@@ -174,7 +179,9 @@ object Consumer:
    *                      consumer only ever holds the one it asked for
    * @param heartbeat     `inProgress()` keepalive interval while the handler runs, or `None` to disable
    * @param onFailure     what to do when processing a message fails — decoding included, see [[make]]
-   * @param expiry        how long the server holds an unanswered pull open before returning nothing
+   * @param expiry        how long the server holds an unanswered pull open before returning nothing; also the
+   *                      longest a draining shutdown waits for an open pull, so keep it within the
+   *                      deployment's shutdown grace period
    * @param retryAfter    how long a message whose handler failed or died waits before it is delivered again
    */
   final case class Config(
