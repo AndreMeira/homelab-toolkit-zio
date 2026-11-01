@@ -120,12 +120,12 @@ object BatcherSpec extends ZIOSpecDefault:
             gate    <- Promise.make[Nothing, Unit]
             b       <- dedup(1024, _ => 0, recordingGatedLogic(seen, entered, gate))
             leader  <- b.run(1).fork
-            _       <- entered.await            // the key is now in flight
-            others  <- ZIO.foreachPar((2 to 101).toList)(b.run).fork
-            _       <- ZIO.yieldNow.repeatN(50) // let all 100 arrive and share one slot
+            _       <- entered.await                               // the key is now in flight
+            others  <- ZIO.foreach((2 to 101).toList)(i => b.run(i).fork)
+            _       <- ZIO.foreachDiscard(others)(parkedOnPromise) // all 100 have arrived and share one slot
             _       <- gate.succeed(())
             first   <- leader.join
-            rest    <- others.join
+            rest    <- ZIO.foreach(others)(_.join)
             batches <- seen.get
           yield assertTrue(
             batches.size == 2,           // the in-flight call, then one for all 100
@@ -155,12 +155,12 @@ object BatcherSpec extends ZIOSpecDefault:
             gate    <- Promise.make[Nothing, Unit]
             b       <- dedup(2, identity, recordingGatedLogic(seen, entered, gate))
             leader  <- b.run(0).fork
-            _       <- entered.await            // holds the first call open
-            queued  <- ZIO.foreachPar((1 to 6).toList)(b.run).fork
-            _       <- ZIO.yieldNow.repeatN(50) // six distinct keys pile up behind it
+            _       <- entered.await                               // holds the first call open
+            queued  <- ZIO.foreach((1 to 6).toList)(i => b.run(i).fork)
+            _       <- ZIO.foreachDiscard(queued)(parkedOnPromise) // six distinct keys have piled up behind it
             _       <- gate.succeed(())
             _       <- leader.join
-            out     <- queued.join
+            out     <- ZIO.foreach(queued)(_.join)
             batches <- seen.get
           yield assertTrue(
             batches.forall(_.size <= 2),
@@ -169,7 +169,9 @@ object BatcherSpec extends ZIOSpecDefault:
           )
       },
       test("interrupting one sharer does not disturb the others") {
-        // Duplicates share a promise, so an abandoned caller must not take its siblings' result with it.
+        // Duplicates share a promise, so an abandoned caller must not take its siblings' result with it. The
+        // two sharers wait on the follow-up for the key the leader holds in flight, so they share each other's
+        // promise, not the leader's.
         ZIO.scoped:
           for
             entered <- Promise.make[Nothing, Unit]
@@ -177,12 +179,15 @@ object BatcherSpec extends ZIOSpecDefault:
             b       <- dedup(1024, _ => 0, gatedLogic(entered, gate))
             leader  <- b.run(1).fork
             _       <- entered.await
-            sharer  <- b.run(2).fork
-            _       <- ZIO.yieldNow.repeatN(20)
-            _       <- sharer.interrupt // one duplicate walks away
+            leaving <- b.run(2).fork
+            _       <- parkedOnPromise(leaving)
+            staying <- b.run(3).fork
+            _       <- parkedOnPromise(staying)
+            _       <- leaving.interrupt // one sharer walks away
             _       <- gate.succeed(())
-            result  <- leader.join
-          yield assertTrue(result == 10)
+            first   <- leader.join
+            shared  <- staying.join
+          yield assertTrue(first == 10, shared == 20) // the follow-up ran on the first sharer's request, 2
       },
     ),
     suite("distributed")(
@@ -293,6 +298,21 @@ object BatcherSpec extends ZIOSpecDefault:
       gate: Promise[Nothing, Unit],
     ): Batcher.Logic[Nothing, Nothing, Int, Int] =
       in => entered.succeed(()) *> gate.await.as(in.map(_ * 10))
+
+    /**
+     * Wait until `fiber` is parked on a promise: suspended, and blocking on the fiber that made it. A fiber
+     * that has not started yet, or is between steps, also reports `Suspended`, but blocking on nobody. Inside
+     * `run` the only such wait is on the key's shared promise, so a parked caller has registered.
+     *
+     * @param fiber a fiber running `run`
+     * @return noop once it is parked on its key's promise
+     */
+    def parkedOnPromise(fiber: Fiber.Runtime[?, ?]): UIO[Unit] =
+      (ZIO.yieldNow *> fiber.status)
+        .repeatUntil:
+          case Fiber.Status.Suspended(_, _, blockingOn) => blockingOn != FiberId.None
+          case _                                        => false
+        .unit
 
     val mapped: Batcher.Logic[Nothing, Nothing, Int, Int] =
       in => ZIO.succeed(in.map(_ * 10))
