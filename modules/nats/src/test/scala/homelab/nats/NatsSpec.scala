@@ -413,20 +413,25 @@ object NatsSpec extends ZIOSpecDefault:
             connection  <- ZIO.service[Connection]
             _           <- NatsSpecLayers.stream(connection, "DRAINGLOBAL", "drainglobal.>")
             producer    <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(_ => "drainglobal.in"))
-            config       = StreamConsumer.Config(ackWait = 30.seconds, expiry = 3.seconds)
+            // a long expiry, so the pull opened below is certainly still open when "late" is published
+            config       = StreamConsumer.Config(ackWait = 30.seconds, expiry = 10.seconds)
             consumer    <- StreamConsumer.make[String](connection, "DRAINGLOBAL", "worker", "drainglobal.>", config)(using Codec.Decoder.utf8)
             shutdown    <- Shutdown.make
+            pulled      <- Ref.make(List.empty[String])
             ran         <- Ref.make(false)
-            pulling     <- consumer.globalDrain(shutdown).consume(_ => ran.set(true)).fork
+            // recorded below the drain: what the drained pull itself brought back, before the refusal
+            recording    = consumer.mapZIO(message => pulled.update(_ :+ message).as(message))
+            pulling     <- recording.globalDrain(shutdown).consume(_ => ran.set(true)).fork
             _           <- ZIO.sleep(500.millis) // let the pull reach the server, with nothing to return yet
             waiting     <- shutdown.await.fork
             _           <- shutdown.closing.repeatUntil(identity)
             _           <- producer.emit("late")
             _           <- waiting.join          // the pull brought the message back, and it was refused
+            first       <- pulled.get
             didRun      <- ran.get
             redelivered <- deliveredWithin(consumer, 5.seconds)
             _           <- pulling.interrupt
-          yield assertTrue(!didRun, redelivered == Some("late"))
+          yield assertTrue(first == List("late"), !didRun, redelivered == Some("late"))
       },
       test("drainLocal: a handler running when shutdown begins finishes, and its message is acked") {
         ZIO.scoped:
