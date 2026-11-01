@@ -2,7 +2,7 @@
 title: Messaging — the two ports everything else is built from
 type: architecture
 status: current
-updated: 2026-10-25
+updated: 2026-11-01
 tags: [messaging, producer, consumer, pipe, partitioner, hub, router, inmemory, pollconsumer, polling]
 ---
 
@@ -201,25 +201,26 @@ An adapter that pulls a batch from a blocking client has a resource to close, an
 closed inside a single blocking call, which is the shape `homelab.nats`'s JetStream `BatchConsumer.fetch`
 has: the fetch consumer exists only for the duration of that call.
 
-The reason is what a release does on interruption. Measured with a blocking body that ignores
-`Thread.interrupt`:
+So open, drain and close all happen inside that call, with the close in a `try`/`finally`.
+`acquireRelease(open)(close)(drain)` would be correct too: ZIO does not run a release while an interrupted
+blocking body is still running. Measured on ZIO 2.1.23, interrupting the drain 200 ms into a 1.5 s body:
 
-```
-acquire -> release -> interrupt-returned          # the body never reported finishing
-```
+| The drain | Order of events |
+|---|---|
+| `attemptBlockingInterrupt`, body answers `Thread.interrupt` (as `nextMessage` does) | body interrupted at 201 ms → release → interrupt returns |
+| `attemptBlockingInterrupt`, body ignores `Thread.interrupt` | body ends at 1503 ms → release → interrupt returns |
+| `attemptBlocking`, body ignores it | body ends at 1500 ms → release → interrupt returns |
+| `attemptBlocking(…).disconnect`, body ignores it | release at 205 ms → interrupt returns → body ends at 1501 ms |
 
-The release runs **on the fiber**, promptly, while the blocking thread is abandoned and still running. Split
-a fetch into `acquireRelease(open)(close)(drain)` and `close` can therefore be called while a thread is
-still inside `nextMessage` on the same consumer — a race on an object with no documented thread safety. A
-`try`/`finally` inside the one blocking call keeps open, drain and close on one thread, in order.
+The release waits for the body to end, whether or not the body answers the interrupt. Only `.disconnect`
+abandons the thread, and only then does a release run while the body is still going: that is the one way
+`close` could race a thread still inside `nextMessage`. So the choice is not about a race. A resource that
+lives for exactly one blocking call stays inside that call, with no `Scope` to carry for it.
 
-Two facts make that safe rather than merely simple. `FetchConsumer.nextMessage` declares
+Two facts make the `try`/`finally` work. `FetchConsumer.nextMessage` declares
 `throws InterruptedException`, so `attemptBlockingInterrupt` delivers an interrupt as an exception and the
 `finally` runs. And `expiresIn` is what makes the interruptible variant necessary at all: the call can block
 for that long, so a scope closing without interrupting the thread would leave it parked.
-
-The trade is a delayed close against a concurrent one. For a resource with no thread safety, delayed is the
-safer failure.
 
 Thread affinity is not the reason: creating the fetch consumer on one blocking thread and draining it on
 another works against a live server. `FetchConsumeOptions` is immutable and built once on the class, since
