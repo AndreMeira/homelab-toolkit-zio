@@ -1,137 +1,17 @@
-package homelab.incubator.processing.shutdown
+package homelab.common.messaging
 
 
-import homelab.common.messaging.Consumer
+import homelab.common.flow.Shutdown
 import homelab.common.processing.Processor
 import zio.*
 import zio.test.*
 
 
-object ShutdownSpec extends ZIOSpecDefault:
+object ConsumerDrainSpec extends ZIOSpecDefault:
   import Support.*
 
   override def spec: Spec[TestEnvironment & Scope, Any] =
-    suite("Shutdown")(
-      test("make completes inside an uninterruptible region, as an acquisition is"):
-        // Fails unfinished if make forks a fiber that inherits the region's status: interrupting it then waits
-        // forever. Run on a fiber of its own and awaited from outside, so the timeout can fire.
-        for
-          making   <- ZIO.uninterruptible(Shutdown.make).fork
-          finished <- Live.live(making.await.timeout(2.seconds))
-        yield assertTrue(finished.exists(_.isSuccess))
-      ,
-      test("make completes as the acquisition of a resource released by await"):
-        for
-          acquired <- ZIO.scoped(ZIO.acquireRelease(Shutdown.make)(_.await)).fork
-          finished <- Live.live(acquired.await.timeout(2.seconds))
-        yield assertTrue(finished.exists(_.isSuccess))
-      ,
-      test("await returns at once when no section is running"):
-        for
-          shutdown <- Shutdown.make
-          _        <- shutdown.await
-        yield assertCompletes
-      ,
-      test("await waits for a running section, which completes with its value"):
-        for
-          shutdown <- Shutdown.make
-          started  <- Promise.make[Nothing, Unit]
-          gate     <- Promise.make[Nothing, Unit]
-          section  <- shutdown.graceful(started.succeed(()) *> gate.await.as("posted")).fork
-          _        <- started.await
-          waiting  <- shutdown.await.fork
-          before   <- waiting.poll
-          _        <- gate.succeed(())
-          _        <- waiting.join
-          value    <- section.join
-        yield assertTrue(before.isEmpty, value == "posted")
-      ,
-      test("a section started after shutdown began never starts, and parks until interrupted"):
-        for
-          shutdown <- Shutdown.make
-          _        <- shutdown.await
-          ran      <- Ref.make(false)
-          refused  <- shutdown.graceful(ran.set(true)).fork
-          parked   <- refused.poll
-          exit     <- refused.interrupt
-          didRun   <- ran.get
-        yield assertTrue(parked.isEmpty, exit.isInterrupted, !didRun)
-      ,
-      test("a refused section does not hold up the shutdown that refused it"):
-        for
-          shutdown <- Shutdown.make
-          started  <- Promise.make[Nothing, Unit]
-          gate     <- Promise.make[Nothing, Unit]
-          running  <- shutdown.graceful(started.succeed(()) *> gate.await).fork
-          _        <- started.await
-          waiting  <- shutdown.await.fork
-          _        <- untilClosing(shutdown)
-          ran      <- Ref.make(false)
-          refused  <- shutdown.graceful(ran.set(true)).fork
-          _        <- gate.succeed(())
-          _        <- waiting.join
-          _        <- running.join
-          parked   <- refused.poll
-          didRun   <- ran.get
-          _        <- refused.interrupt
-        yield assertTrue(parked.isEmpty, !didRun)
-      ,
-      test("an interrupted section is counted out"):
-        for
-          shutdown <- Shutdown.make
-          started  <- Promise.make[Nothing, Unit]
-          section  <- shutdown.graceful(started.succeed(()) *> ZIO.never).fork
-          _        <- started.await
-          _        <- section.interrupt
-          _        <- shutdown.await
-        yield assertCompletes
-      ,
-      test("a failing section passes its error through and is counted out"):
-        for
-          shutdown <- Shutdown.make
-          exit     <- shutdown.graceful(ZIO.fail("refused by the remote")).exit
-          _        <- shutdown.await
-        yield assertTrue(exit == Exit.fail("refused by the remote"))
-      ,
-      test("a refused section is interrupted when its scope closes"):
-        for
-          shutdown <- Shutdown.make
-          _        <- shutdown.await
-          ran      <- Ref.make(false)
-          exit     <- ZIO.scoped(shutdown.graceful(ran.set(true)).forkScoped).flatMap(_.await)
-          didRun   <- ran.get
-        yield assertTrue(exit.isInterrupted, !didRun)
-      ,
-      test("await added as the last finalizer drains before an interrupted app's scope interrupts its work"):
-        for
-          shutdown    <- Shutdown.make
-          started     <- Promise.make[Nothing, Unit]
-          gate        <- Promise.make[Nothing, Unit]
-          outcome     <- Promise.make[Nothing, String]
-          ready       <- Promise.make[Nothing, Unit]
-          app         <- ZIO.scoped {
-                           for
-                             // the outcome is recorded inside the section: once the section returns, the scope
-                             // may interrupt its fiber before anything after it runs
-                             _ <- shutdown
-                                    .graceful(started.succeed(()) *> gate.await *> outcome.succeed("posted"))
-                                    .forkScoped
-                             _ <- ZIO.addFinalizer(shutdown.await)
-                             _ <- ready.succeed(())
-                             _ <- ZIO.never
-                           yield ()
-                         }.fork
-          _           <- started.await
-          // interrupting before the finalizer is registered would close the scope with no shutdown at all
-          _           <- ready.await
-          terminating <- app.interrupt.fork
-          _           <- untilClosing(shutdown)
-          before      <- outcome.poll
-          _           <- gate.succeed(())
-          _           <- terminating.join
-          section     <- outcome.poll.flatMap(ZIO.foreach(_)(identity))
-        yield assertTrue(before.isEmpty, section.contains("posted"))
-      ,
+    suite("Consumer drains")(
       test("await waits for the handlers of a parallel processor started in the same scope before it"):
         // Fails with none finished if the processor forks its listeners into the app's scope: their finalizers
         // are installed after await's, so they run first and cut the handlers before await can wait.
@@ -145,7 +25,7 @@ object ShutdownSpec extends ZIOSpecDefault:
           handle    = (_: Int) => running.update(_ + 1) *> gate.await *> finished.update(_ + 1)
           app      <- ZIO.scoped {
                         for
-                          _ <- Processor.parallel(shutdown.drainLocal(Consumer.fromQueue(queue)), 4)(handle).forkScoped
+                          _ <- Processor.parallel(Consumer.fromQueue(queue).drainLocal(shutdown), 4)(handle).forkScoped
                           _ <- ZIO.addFinalizer(shutdown.await)
                           _ <- ready.succeed(())
                           _ <- ZIO.never
@@ -167,7 +47,7 @@ object ShutdownSpec extends ZIOSpecDefault:
           queue    <- Queue.unbounded[String]
           _        <- queue.offer("request")
           received <- Ref.make(Option.empty[String])
-          _        <- shutdown.drainLocal(Consumer.fromQueue(queue)).consume(value => received.set(Some(value)))
+          _        <- Consumer.fromQueue(queue).drainLocal(shutdown).consume(value => received.set(Some(value)))
           value    <- received.get
         yield assertTrue(value.contains("request"))
       ,
@@ -178,7 +58,7 @@ object ShutdownSpec extends ZIOSpecDefault:
           _        <- queue.offer("request")
           _        <- shutdown.await
           ran      <- Ref.make(false)
-          gated    <- shutdown.drainLocal(Consumer.fromQueue(queue)).consume(_ => ran.set(true)).fork
+          gated    <- Consumer.fromQueue(queue).drainLocal(shutdown).consume(_ => ran.set(true)).fork
           parked   <- gated.poll
           exit     <- gated.interrupt
           left     <- queue.size
@@ -193,8 +73,9 @@ object ShutdownSpec extends ZIOSpecDefault:
           started  <- Promise.make[Nothing, Unit]
           gate     <- Promise.make[Nothing, Unit]
           received <- Ref.make(Option.empty[String])
-          handling <- shutdown
-                        .drainLocal(Consumer.fromQueue(queue))
+          handling <- Consumer
+                        .fromQueue(queue)
+                        .drainLocal(shutdown)
                         .consume(value => started.succeed(()) *> gate.await *> received.set(Some(value)))
                         .fork
           _        <- started.await
@@ -213,7 +94,7 @@ object ShutdownSpec extends ZIOSpecDefault:
           queue    <- Queue.unbounded[String]
           handed   <- Promise.make[Nothing, Unit]
           ran      <- Ref.make(false)
-          waiting  <- shutdown.drainLocal(handing(queue, handed)).consume(_ => ran.set(true)).fork
+          waiting  <- handing(queue, handed).drainLocal(shutdown).consume(_ => ran.set(true)).fork
           _        <- untilTaking(queue)
           _        <- shutdown.await
           _        <- queue.offer("request")
@@ -230,7 +111,7 @@ object ShutdownSpec extends ZIOSpecDefault:
           fetches  <- Queue.unbounded[Option[String]]
           adapter  <- Fetching.make(fetches)
           ran      <- Ref.make(false)
-          pulling  <- shutdown.globalDrain(adapter).consume(_ => ran.set(true)).fork
+          pulling  <- adapter.globalDrain(shutdown).consume(_ => ran.set(true)).fork
           _        <- untilTaking(fetches)
           waiting  <- shutdown.await.fork
           _        <- untilClosing(shutdown)
@@ -247,7 +128,7 @@ object ShutdownSpec extends ZIOSpecDefault:
           fetches  <- Queue.unbounded[Option[String]]
           adapter  <- Fetching.make(fetches)
           ran      <- Ref.make(false)
-          pulling  <- shutdown.globalDrain(adapter).consume(_ => ran.set(true)).fork
+          pulling  <- adapter.globalDrain(shutdown).consume(_ => ran.set(true)).fork
           _        <- untilTaking(fetches)
           waiting  <- shutdown.await.fork
           _        <- untilClosing(shutdown)
@@ -269,8 +150,8 @@ object ShutdownSpec extends ZIOSpecDefault:
           started  <- Promise.make[Nothing, Unit]
           gate     <- Promise.make[Nothing, Unit]
           received <- Ref.make(Option.empty[String])
-          handling <- shutdown
-                        .globalDrain(adapter)
+          handling <- adapter
+                        .globalDrain(shutdown)
                         .consume(value => started.succeed(()) *> gate.await *> received.set(Some(value)))
                         .fork
           _        <- started.await
@@ -292,7 +173,7 @@ object ShutdownSpec extends ZIOSpecDefault:
           adapter  <- Fetching.make(fetches)
           _        <- shutdown.await
           ran      <- Ref.make(false)
-          gated    <- shutdown.globalDrain(adapter).consume(_ => ran.set(true)).fork
+          gated    <- adapter.globalDrain(shutdown).consume(_ => ran.set(true)).fork
           parked   <- gated.poll
           exit     <- gated.interrupt
           left     <- fetches.size
@@ -304,7 +185,7 @@ object ShutdownSpec extends ZIOSpecDefault:
           shutdown  <- Shutdown.make
           fetches   <- Queue.unbounded[Option[String]]
           adapter   <- Fetching.make(fetches)
-          processor <- Processor.parallel(shutdown.globalDrain(adapter), 4)(_ => ZIO.unit).forkScoped
+          processor <- Processor.parallel(adapter.globalDrain(shutdown), 4)(_ => ZIO.unit).forkScoped
           _         <- untilTaking(fetches)
           waiting   <- shutdown.await.fork
           _         <- untilClosing(shutdown)
@@ -320,7 +201,7 @@ object ShutdownSpec extends ZIOSpecDefault:
           shutdown <- Shutdown.make
           fetches  <- Queue.unbounded[Option[String]]
           adapter  <- Fetching.make(fetches)
-          pulling  <- shutdown.globalDrain(adapter).mapZIO(decode).consume(_ => ZIO.unit).fork
+          pulling  <- adapter.globalDrain(shutdown).mapZIO(decode).consume(_ => ZIO.unit).fork
           _        <- untilTaking(fetches)
           waiting  <- shutdown.await.fork
           _        <- untilClosing(shutdown)
@@ -337,7 +218,7 @@ object ShutdownSpec extends ZIOSpecDefault:
           shutdown <- Shutdown.make
           fetches  <- Queue.unbounded[Option[String]]
           adapter  <- Fetching.make(fetches)
-          pulling  <- shutdown.globalDrain(adapter.mapZIO(decode)).consume(_ => ZIO.unit).exit.fork
+          pulling  <- adapter.mapZIO(decode).globalDrain(shutdown).consume(_ => ZIO.unit).exit.fork
           _        <- untilTaking(fetches)
           waiting  <- shutdown.await.fork
           _        <- untilClosing(shutdown)
@@ -354,7 +235,7 @@ object ShutdownSpec extends ZIOSpecDefault:
           shutdown <- Shutdown.make
           fetches  <- Queue.unbounded[Option[String]]
           adapter  <- Fetching.make(fetches)
-          pulling  <- shutdown.globalDrain(dyingOnHandBack(adapter)).consume(_ => ZIO.unit).exit.fork
+          pulling  <- dyingOnHandBack(adapter).globalDrain(shutdown).consume(_ => ZIO.unit).exit.fork
           _        <- untilTaking(fetches)
           waiting  <- shutdown.await.fork
           _        <- untilClosing(shutdown)
@@ -369,10 +250,10 @@ object ShutdownSpec extends ZIOSpecDefault:
           fetches  <- Queue.unbounded[Option[String]]
           _        <- fetches.offer(Some("request"))
           adapter  <- Fetching.make(fetches)
-          exit     <- shutdown.globalDrain(adapter).consume(_ => ZIO.interrupt).exit
+          exit     <- adapter.globalDrain(shutdown).consume(_ => ZIO.interrupt).exit
           back     <- adapter.handedBack.get
         yield assertTrue(exit.isInterrupted, back == List("request")),
-    ) @@ TestAspect.diagnose(20.seconds) @@ TestAspect.timeout(30.seconds)
+    ) @@ TestAspect.timeout(30.seconds)
 
   private object Support:
 
@@ -478,3 +359,4 @@ object ShutdownSpec extends ZIOSpecDefault:
        */
       def make(fetches: Queue[Option[String]]): UIO[Fetching] =
         Ref.make(List.empty[String]).map(new Fetching(fetches, _))
+

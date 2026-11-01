@@ -185,6 +185,9 @@ redelivered at once. Normally nothing is left — an interrupted `consume` settl
 the backstop for a settle that did not land. It assumes the scope outlives the `consume` calls on it, or a
 message could be handed back while its handler still runs.
 
+This rule is what a draining shutdown builds on: a value refused after shutdown has begun is settled as an
+interrupted one, so it is handed back at once. See [shutdown](shutdown.md).
+
 One gap is left, the same one `PollConsumer` documents: an interrupt landing as the pull returns drops that
 message on the client, and it comes back after `ackWait`. Covered in `NatsSpec` ("an interrupted handler's
 message is nacked…", "a handler that completes while being interrupted is still acked", and the batched

@@ -1,7 +1,7 @@
 package homelab.common.messaging
 
 
-import homelab.common.flow.KeyedQueue
+import homelab.common.flow.{ KeyedQueue, Shutdown }
 import zio.*
 
 
@@ -106,6 +106,70 @@ trait Consumer[+E, +A] { self =>
     yield new Consumer[E, A]:
       def consume[E2 >: E](logic: A => IO[E2, Unit]): IO[E2, Unit] =
         lock.withPermit(self.consume(logic))
+
+  /**
+   * Wraps this consumer so that a shutdown waits for its in-process work, and it stops taking work once
+   * shutdown has begun. Each delivered value runs through `shutdown.graceful`, so:
+   *
+   *   - a value whose `logic` is already running when `shutdown.await` is called is waited for, and
+   *     completes;
+   *   - a `consume` call started after `await` parks without reaching this consumer, so nothing more is
+   *     pulled or claimed, and the closing scope interrupts it holding nothing;
+   *   - a `consume` call that had already reached this consumer, and receives a value after `await`, is
+   *     refused: `logic` never runs, the call parks, and the closing scope interrupts it, so the adapter hands
+   *     the value back as it does any interrupted one (or loses it, where it cannot hand back).
+   *
+   * A value is refused where the drain sits in the chain, so anything layered '''inside''' it (a decoding
+   * `mapZIO`) runs first. To have every late value refused, decode on top of the drain:
+   * `raw.drainLocal(shutdown).mapZIO(decode)`.
+   *
+   * `logic` must not itself run a section through `shutdown.graceful`: it is one already, and the inner one
+   * would park once shutdown began, holding up `await` forever.
+   *
+   * @param shutdown the shutdown that waits for this consumer's work
+   * @return the draining consumer
+   */
+  def drainLocal(shutdown: Shutdown): Consumer[E, A] = new Consumer[E, A]:
+    def consume[E2 >: E](logic: A => IO[E2, Unit]): IO[E2, Unit] =
+      shutdown.closing.flatMap: stopped =>
+        if stopped then ZIO.never
+        else self.consume(value => shutdown.graceful(logic(value)))
+
+  /**
+   * Wraps this consumer so that a shutdown waits for its whole `consume` call, the fetch included, and it
+   * stops taking work once shutdown has begun. Where [[drainLocal]] waits only for `logic`, this also waits
+   * for a fetch that is still open, so a message the server sends while shutdown begins is not lost on its
+   * way but delivered, refused and handed back:
+   *
+   *   - a `consume` call started before `shutdown.await` is waited for, and if its value arrives before
+   *     `await`, `logic` runs and completes;
+   *   - a value that arrives after `await` is refused (`shutdown.refusing`), by interrupting `logic` before it
+   *     starts, so the adapter hands it back at once, as it does any interrupted value (or loses it, where it
+   *     cannot hand back). The refusal is then caught (`shutdown.parkRefusals`) and the call parks outside
+   *     the section, so `await` is not held up and a fail-fast processor does not see it as a failure;
+   *   - a `consume` call started after `await` parks without reaching this consumer.
+   *
+   * `await` waits for every open fetch, so this consumer must make '''one bounded fetch per call''' and
+   * return without calling `logic` when it comes back empty, as the JetStream consumers do. A consumer that
+   * blocks until a value arrives (an in-memory queue, a fetch loop) would hold up `await` for as long as its
+   * intake stays idle; drain those with [[drainLocal]], which loses nothing there.
+   *
+   * A value is refused where the drain sits in the chain, so anything layered '''inside''' it runs first: a
+   * late value that a decoding `mapZIO` below the drain cannot read reaches the adapter's failure policy, as
+   * a poison message does at any other time. To have every late value refused, decode on top of the drain:
+   * `raw.globalDrain(shutdown).mapZIO(decode)`.
+   *
+   * `logic` must not itself run a section through `shutdown.graceful`: it runs inside one, and the inner one
+   * would park once shutdown began, holding up `await` forever.
+   *
+   * @param shutdown the shutdown that waits for this consumer's calls
+   * @return the draining consumer
+   */
+  def globalDrain(shutdown: Shutdown): Consumer[E, A] = new Consumer[E, A]:
+    def consume[E2 >: E](logic: A => IO[E2, Unit]): IO[E2, Unit] =
+      shutdown.parkRefusals:
+        shutdown.graceful:
+          self.consume(value => shutdown.refusing(logic(value)))
 }
 
 

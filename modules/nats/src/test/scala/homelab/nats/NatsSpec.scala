@@ -1,6 +1,7 @@
 package homelab.nats
 
 
+import homelab.common.flow.Shutdown
 import homelab.common.messaging.Consumer as ConsumerContract
 import homelab.nats.core.{ BatchConsumer as CoreBatchConsumer, Consumer as CoreConsumer, CoreSubscriber, Producer as CoreProducer }
 import homelab.nats.stream.{ BatchConsumer as StreamBatchConsumer, Consumer as StreamConsumer, Producer as StreamProducer }
@@ -405,6 +406,51 @@ object NatsSpec extends ZIOSpecDefault:
             outcome    <- consumer.consume(_ => ran.set(true)).timeout(5.seconds)
             didRun     <- ran.get
           yield assertTrue(outcome.isDefined, !didRun)
+      },
+      test("globalDrain: a message that arrives while a pull is open at shutdown is handed back at once") {
+        ZIO.scoped:
+          for
+            connection  <- ZIO.service[Connection]
+            _           <- NatsSpecLayers.stream(connection, "DRAINGLOBAL", "drainglobal.>")
+            producer    <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(_ => "drainglobal.in"))
+            config       = StreamConsumer.Config(ackWait = 30.seconds, expiry = 3.seconds)
+            consumer    <- StreamConsumer.make[String](connection, "DRAINGLOBAL", "worker", "drainglobal.>", config)(using Codec.Decoder.utf8)
+            shutdown    <- Shutdown.make
+            ran         <- Ref.make(false)
+            pulling     <- consumer.globalDrain(shutdown).consume(_ => ran.set(true)).fork
+            _           <- ZIO.sleep(500.millis) // let the pull reach the server, with nothing to return yet
+            waiting     <- shutdown.await.fork
+            _           <- shutdown.closing.repeatUntil(identity)
+            _           <- producer.emit("late")
+            _           <- waiting.join          // the pull brought the message back, and it was refused
+            didRun      <- ran.get
+            redelivered <- deliveredWithin(consumer, 5.seconds)
+            _           <- pulling.interrupt
+          yield assertTrue(!didRun, redelivered == Some("late"))
+      },
+      test("drainLocal: a handler running when shutdown begins finishes, and its message is acked") {
+        ZIO.scoped:
+          for
+            connection <- ZIO.service[Connection]
+            _          <- NatsSpecLayers.stream(connection, "DRAINLOCAL", "drainlocal.>")
+            producer   <- StreamProducer.make[String](connection)(using Codec.Encoder.utf8(_ => "drainlocal.in"))
+            config      = StreamConsumer.Config(ackWait = 2.seconds, expiry = 1.second)
+            consumer   <- StreamConsumer.make[String](connection, "DRAINLOCAL", "worker", "drainlocal.>", config)(using Codec.Decoder.utf8)
+            shutdown   <- Shutdown.make
+            started    <- Promise.make[Nothing, Unit]
+            gate       <- Promise.make[Nothing, Unit]
+            _          <- producer.emit("work")
+            handling   <- consumer.drainLocal(shutdown).consume(_ => started.succeed(()) *> gate.await).fork
+            _          <- started.await
+            waiting    <- shutdown.await.fork
+            _          <- shutdown.closing.repeatUntil(identity)
+            before     <- waiting.poll
+            _          <- gate.succeed(())
+            _          <- waiting.join
+            _          <- handling.join
+            // not acked, it would be redelivered after ackWait (2 s)
+            again      <- deliveredWithin(consumer, 4.seconds)
+          yield assertTrue(before.isEmpty, again.isEmpty)
       },
       test("a durable publish to a subject no stream captures fails with Publish") {
         ZIO.scoped:
