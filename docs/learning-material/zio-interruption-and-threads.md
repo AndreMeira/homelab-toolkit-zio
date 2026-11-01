@@ -64,6 +64,16 @@ Two more rules complete the picture:
 long step, `interrupt` takes as long as the step. The operators built on interruption inherit that wait:
 `timeout` and `race` interrupt the loser and wait for it before returning.
 
+Ending includes the fiber's **finalizers**, which run uninterruptibly: an `ensuring`, the release of an
+`acquireRelease`, a scope closing. So an effect that owns a resource takes as long to interrupt as its
+cleanup takes, even with no long step in sight. Observed, with a 1 s finalizer:
+
+```
+ZIO.never.ensuring(sleep 1 s).timeout(200 ms)              returned after 1215 ms
+fiber.interrupt on ZIO.never.ensuring(sleep 1 s)           returned after 1006 ms
+ZIO.never.ensuring(sleep 1 s).disconnect.timeout(200 ms)   returned after  206 ms
+```
+
 | Operation, over a 1.5 s blocking body that ignores `Thread.interrupt` | Returned after | Body |
 |---|---|---|
 | `fiber.interrupt` | 1296 ms | ran to the end |
@@ -135,8 +145,9 @@ short, and they run in an uninterruptible step anyway, because a settlement must
 
 - **A long synchronous body is one step.** Nothing interrupts it; the interrupt waits. Keep such bodies short,
   or run them with a variant that can wake them.
-- **`interrupt`, `timeout` and `race` wait for the interrupted fiber.** Their latency is the latency of the
-  step being interrupted. Use `interruptFork` or `.disconnect` only when not waiting is really what you want.
+- **`interrupt`, `timeout` and `race` wait for the interrupted fiber to end.** Their latency is the step
+  being interrupted plus the fiber's finalizers, which run uninterruptibly. Use `interruptFork` or
+  `.disconnect` only when not waiting is really what you want.
 - **Pick the blocking variant from how the call can be woken:** `Thread.interrupt` →
   `attemptBlockingInterrupt`; closing or cancelling something → `attemptBlockingCancelable`; nothing →
   bound the call, or `.disconnect` and accept the leaked thread.
