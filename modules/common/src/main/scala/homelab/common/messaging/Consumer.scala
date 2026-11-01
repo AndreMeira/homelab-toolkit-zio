@@ -132,7 +132,7 @@ trait Consumer[+E, +A] { self =>
   def drainLocal(shutdown: Shutdown): Consumer[E, A] = new Consumer[E, A]:
     def consume[E2 >: E](logic: A => IO[E2, Unit]): IO[E2, Unit] =
       shutdown.closing.flatMap: stopped =>
-        if stopped then ZIO.never
+        if stopped then shutdown.park
         else self.consume(value => shutdown.graceful(logic(value)))
 
   /**

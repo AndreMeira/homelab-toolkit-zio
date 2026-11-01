@@ -10,7 +10,10 @@ import zio.*
  *
  * Once [[await]] has begun, work is refused by parking it: it never fails, and stays interruptible, so the
  * scope closing afterwards interrupts it like any other waiting fiber. Parking rather than failing keeps a
- * refusal from tearing down a fail-fast caller. Two things are refused:
+ * refusal from tearing down a fail-fast caller. A parked fiber waits on a promise of this instance's that is
+ * never completed, rather than on `ZIO.never`, so it shows as blocked on the fiber that made the instance: a
+ * fiber dump says what it waits for, and a test can tell a parked fiber from one that has not run yet, which
+ * `ZIO.never` cannot. Two things are refused:
  *
  *   - '''a new section''', which never starts;
  *   - '''a [[gated]] effect inside a section admitted earlier''', which never starts either. It is refused by
@@ -36,10 +39,16 @@ import zio.*
  *
  * @param state whether shutdown has begun, and how many sections are running
  * @param drained completed when the last running section finishes after shutdown has begun
+ * @param parking never completed: what refused work waits on
  * @param refusal who a [[gated]] effect is interrupted by, so [[graceful]] parks this instance's refusals and
  *                lets every other interruption through
  */
-final class Shutdown private (state: Ref[Shutdown.State], drained: Promise[Nothing, Unit], refusal: FiberId):
+final class Shutdown private (
+  state: Ref[Shutdown.State],
+  drained: Promise[Nothing, Unit],
+  parking: Promise[Nothing, Nothing],
+  refusal: FiberId,
+):
 
   /**
    * Run `section` as work a shutdown waits for, or park it forever if shutdown has already begun. A section
@@ -67,8 +76,8 @@ final class Shutdown private (state: Ref[Shutdown.State], drained: Promise[Nothi
           restore(section)
             .ensuring(leave)
             .catchSomeCause:
-              case cause if refusedAlone(cause) => restore(ZIO.never)
-        else restore(ZIO.never)
+              case cause if refusedAlone(cause) => restore(park)
+        else restore(park)
 
   /**
    * Begin shutdown: refuse every section started from now on, then wait for the running ones to finish.
@@ -87,6 +96,14 @@ final class Shutdown private (state: Ref[Shutdown.State], drained: Promise[Nothi
    * @return true once [[await]] has been called
    */
   def closing: UIO[Boolean] = state.get.map(_.closing)
+
+  /**
+   * Park, as refused work does: wait on a promise that is never completed, until interrupted. For the
+   * drains, which park a `consume` call before it reaches the consumer.
+   *
+   * @return never completes, until interrupted
+   */
+  private[common] def park: UIO[Nothing] = parking.await
 
   /**
    * Run `effect`, or refuse it once shutdown has begun: the refusal interrupts the fiber with this instance's
@@ -159,8 +176,9 @@ object Shutdown:
     for
       state   <- Ref.make(State(closing = false, running = 0))
       drained <- Promise.make[Nothing, Unit]
+      parking <- Promise.make[Nothing, Nothing]
       refusal <- ZIO.never.interruptible.fork.flatMap(fiber => fiber.interrupt.as(fiber.id))
-    yield new Shutdown(state, drained, refusal)
+    yield new Shutdown(state, drained, parking, refusal)
 
   /**
    * Where a [[Shutdown]] stands.

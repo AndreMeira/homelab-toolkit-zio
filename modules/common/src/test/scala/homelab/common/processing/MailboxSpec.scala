@@ -230,14 +230,20 @@ object MailboxSpec extends ZIOSpecDefault:
       yield Fixture(inbox, pipe, forwarded)
 
     /**
-     * Wait until `fiber` has actually parked. `yieldNow` only offers it the chance to run; a test that turns
-     * on whether the wait has begun needs to know that it has, or it silently stops discriminating.
+     * Wait until `fiber` has actually parked: suspended, and blocking on another fiber. `yieldNow` only offers
+     * it the chance to run, and `Suspended` alone is not enough either: a fiber that has not started yet, or
+     * is between steps, also reports it, but blocking on nobody. A test that turns on whether the wait has
+     * begun needs to know that it has, or it silently stops discriminating.
+     *
+     * @param fiber the fiber expected to park on a wait
+     * @return noop once it is parked
      */
     def parked(fiber: Fiber.Runtime[?, ?]): UIO[Unit] =
-      (ZIO.yieldNow *> fiber.status).repeatUntil {
-        case _: Fiber.Status.Suspended => true
-        case _                         => false
-      }.unit
+      (ZIO.yieldNow *> fiber.status)
+        .repeatUntil:
+          case Fiber.Status.Suspended(_, _, blockingOn) => blockingOn != FiberId.None
+          case _                                        => false
+        .unit
 
     /** The payloads that reached a recorder, decoded as text, in arrival order. */
     def texts(messages: List[Message]): List[String] = messages.map(message => new String(message.payload))

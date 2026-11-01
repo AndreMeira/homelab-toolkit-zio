@@ -58,8 +58,11 @@ policy, like any poison message, instead of being handed back.
 
 After `await` has begun:
 
-- **A new section is refused by parking** (`ZIO.never`, interruptible). It never starts and never fails, so a
-  fail-fast processor is not torn down; the closing scope ends it.
+- **A new section is refused by parking**: it waits, interruptibly, on a promise of the instance's that is
+  never completed. It never starts and never fails, so a fail-fast processor is not torn down; the closing
+  scope ends it. Parking on that promise rather than on `ZIO.never` makes a parked fiber show as blocked on
+  the fiber that made the instance, so a fiber dump says what it waits for, and a test can tell it from a
+  fiber that has not run yet.
 - **A `gated` effect inside an admitted section** (the `logic` after a `globalDrain` fetch) is refused by
   interrupting the fiber with the instance's own `FiberId`, before the effect starts. The adapter settles that
   as any interrupted handler, handing the message back at once (see
