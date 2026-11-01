@@ -2,7 +2,7 @@ package homelab.llm.openai
 
 
 import homelab.common.monitor.Monitor
-import homelab.llm.openai.error.ChatCompletionError
+import homelab.llm.openai.error.OpenAIError
 import homelab.llm.openai.request.CompletionRequest
 import homelab.llm.openai.response.{ CompletionResponse, FailureResponse }
 import sttp.client4.*
@@ -17,7 +17,7 @@ import zio.{ IO, Scope, Task, ZIO }
  *
  * One method, and nothing withheld: a request carries everything the protocol takes and a response gives
  * back everything it answered with — every choice, not the first, and the reason and usage as they came.
- * What a caller does with that is theirs; [[OpenAiModel]] is one thing to do with it, and holding
+ * What a caller does with that is theirs; [[OpenAIModel]] is one thing to do with it, and holding
  * this instead is how to reach what a port has no field for.
  *
  * Streaming is deliberately absent: a request here is one call and one answer.
@@ -32,7 +32,7 @@ trait OpenAIClient {
    *              last did — a field this type already names belongs in the field
    * @return what the provider answered; aborts with what it or the transport refused
    */
-  def complete(request: CompletionRequest, extra: Json.Obj = Json.Obj()): IO[ChatCompletionError, CompletionResponse]
+  def complete(request: CompletionRequest, extra: Json.Obj = Json.Obj()): IO[OpenAIError, CompletionResponse]
 }
 
 
@@ -62,7 +62,7 @@ object OpenAIClient:
     apiKey: String,
     referer: Option[String] = None,
     monitor: Monitor = Monitor.Noop,
-  ): ZIO[Scope, ChatCompletionError, OpenAIClient] =
+  ): ZIO[Scope, OpenAIError, OpenAIClient] =
     transport.map(backend => openRouter(backend, apiKey, referer, monitor))
 
   /**
@@ -95,7 +95,7 @@ object OpenAIClient:
     apiKey: String,
     organisation: Option[String] = None,
     monitor: Monitor = Monitor.Noop,
-  ): ZIO[Scope, ChatCompletionError, OpenAIClient] =
+  ): ZIO[Scope, OpenAIError, OpenAIClient] =
     transport.map(backend => openAi(backend, apiKey, organisation, monitor))
 
   /**
@@ -131,7 +131,7 @@ object OpenAIClient:
     endpoint: Uri,
     apiKey: Option[String] = None,
     monitor: Monitor = Monitor.Noop,
-  ): ZIO[Scope, ChatCompletionError, OpenAIClient] =
+  ): ZIO[Scope, OpenAIError, OpenAIClient] =
     transport.map(backend => compatible(backend, endpoint, apiKey, monitor))
 
   /**
@@ -156,8 +156,8 @@ object OpenAIClient:
    *
    * @return the backend; aborts when one cannot be opened
    */
-  private def transport: ZIO[Scope, ChatCompletionError, Backend[Task]] =
-    HttpClientZioBackend.scoped().mapError(failure => ChatCompletionError.Unavailable(failure.getMessage))
+  private def transport: ZIO[Scope, OpenAIError, Backend[Task]] =
+    HttpClientZioBackend.scoped().mapError(failure => OpenAIError.Unavailable(failure.getMessage))
 
   /**
    * The credential, as most of them take it.

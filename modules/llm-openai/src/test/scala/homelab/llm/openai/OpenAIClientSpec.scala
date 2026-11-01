@@ -4,7 +4,7 @@ package homelab.llm.openai
 import homelab.common.error.ApplicationError
 import homelab.common.monitor.Monitor
 import homelab.llm.Model
-import homelab.llm.openai.error.ChatCompletionError
+import homelab.llm.openai.error.OpenAIError
 import homelab.llm.openai.request.{ CompletionRequest, MessageRequest, ResponseFormat, ToolChoice }
 import homelab.llm.schema.{ JsonSchema, Node, Shape }
 import sttp.client4.impl.zio.RIOMonadAsyncError
@@ -17,7 +17,7 @@ import zio.{ Chunk, Ref, Scope, Task, UIO, ZIO }
 
 
 /** The call itself: what goes out, and everything a provider's answer carries back — without a network. */
-object ChatCompletionClientSpec extends ZIOSpecDefault:
+object OpenAIClientSpec extends ZIOSpecDefault:
   import Support.*
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("OpenAIClient")(
@@ -200,7 +200,7 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
           backend  = HttpClient.stub(response = """{"unexpected":true}""")
           client   = OpenAIClient.openRouter(backend, "api-key", None, Monitor.Noop)
           failure <- client.complete(userMessage).flip
-        yield assertTrue(failure.isInstanceOf[ChatCompletionError.Malformed], failure.message.contains("unexpected"))
+        yield assertTrue(failure.isInstanceOf[OpenAIError.Malformed], failure.message.contains("unexpected"))
       },
       test("a refused credential is not worth retrying") {
         for
@@ -208,7 +208,7 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
           client   = OpenAIClient.openRouter(backend, "api-key", None, Monitor.Noop)
           failure <- client.complete(userMessage).flip
         yield assertTrue(
-          failure == ChatCompletionError.Refused("No auth credentials found"),
+          failure == OpenAIError.Refused("No auth credentials found"),
           !failure.isInstanceOf[ApplicationError.TransientError],
         )
       },
@@ -228,14 +228,14 @@ object ChatCompletionClientSpec extends ZIOSpecDefault:
           backend  = HttpClient.stub(response = """{"error":{"message":"model not found"}}""", StatusCode.NotFound)
           client   = OpenAIClient.openRouter(backend, "api-key", None, Monitor.Noop)
           failure <- client.complete(userMessage).flip
-        yield assertTrue(failure == ChatCompletionError.Rejected(404, "model not found"))
+        yield assertTrue(failure == OpenAIError.Rejected(404, "model not found"))
       },
       test("a refusal that is not an error object keeps what it said anyway") {
         for
           backend  = HttpClient.stub(response = "upstream timeout", StatusCode.BadRequest)
           client   = OpenAIClient.openRouter(backend, "api-key", None, Monitor.Noop)
           failure <- client.complete(userMessage).flip
-        yield assertTrue(failure == ChatCompletionError.Rejected(400, "upstream timeout"))
+        yield assertTrue(failure == OpenAIError.Rejected(400, "upstream timeout"))
       },
     ),
   )

@@ -1,7 +1,7 @@
 package homelab.llm.openai.response
 
 
-import homelab.llm.openai.error.ChatCompletionError
+import homelab.llm.openai.error.OpenAIError
 import homelab.llm.{ Message, Model, Tool }
 import zio.Chunk
 import zio.json.*
@@ -92,7 +92,7 @@ object CompletionResponse:
   /**
    * One completion, read out of a decoded body.
    *
-   * Every refusal is an [[error.ChatCompletionError.Malformed]]: the body parsed as JSON and still did not say what a
+   * Every refusal is an [[error.OpenAIError.Malformed]]: the body parsed as JSON and still did not say what a
    * completion needs. A gateway that answers with no choices has not answered.
    *
    * Only the first choice is read, and the rest are dropped. There is more than one only when a caller
@@ -103,10 +103,10 @@ object CompletionResponse:
    * @param response what the gateway sent
    * @return the completion; refuses when the body carries no choice to read
    */
-  def completion(response: CompletionResponse): Either[ChatCompletionError, Model.Completion] =
+  def completion(response: CompletionResponse): Either[OpenAIError, Model.Completion] =
     response.choices.headOption match
       case Some(choice) => Right(completed(choice, response.usage))
-      case None         => Left(ChatCompletionError.Malformed("the response carried no choices"))
+      case None         => Left(OpenAIError.Malformed("the response carried no choices"))
 
   /**
    * One answer, as the toolkit holds it.
