@@ -161,15 +161,15 @@ object OpenAIClientSpec extends ZIOSpecDefault:
           request  <- recorder.seen
         yield assertTrue(request.exists(sent => !sent.headers.exists(_.name == "HTTP-Referer")))
       },
-      test("openAi posts to openai, and names an organisation when given one") {
+      test("openAI posts to openai, and names an organisation when given one") {
         for
           recorder <- Recorder.make
           backend   = recorder.httpClient(response = empty)
-          client    = OpenAIClient.openAi(backend, "api-key", Some("org-1"), Monitor.Noop)
+          client    = OpenAIClient.openAI(backend, "api-key", Some("org-1"), Monitor.Noop)
           _        <- client.complete(userMessage).ignore
           request  <- recorder.seen
         yield assertTrue(
-          request.exists(_.uri == OpenAIClient.OpenAi),
+          request.exists(_.uri == OpenAIClient.OpenAI),
           request.exists(_.headers.exists(header => header.name == "OpenAI-Organization" && header.value == "org-1")),
         )
       },
@@ -190,7 +190,7 @@ object OpenAIClientSpec extends ZIOSpecDefault:
     suite("a transport of its own")(
       test("a caller with no opinion gets one, and it is closed with the scope") {
         ZIO
-          .scoped(OpenAIClient.openAi("api-key"))
+          .scoped(OpenAIClient.openAI("api-key"))
           .map(client => assertTrue(client.isInstanceOf[OpenAIClient]))
       }
     ),
