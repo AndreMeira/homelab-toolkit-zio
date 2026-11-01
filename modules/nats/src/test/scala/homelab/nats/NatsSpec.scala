@@ -553,7 +553,7 @@ object NatsSpec extends ZIOSpecDefault:
                             "BATCH_DLQ",
                             "worker",
                             "batchdlq.>",
-                            StreamBatchConsumer.Config(batchSize = 10, onFailure = HandlerFailurePolicy.Discard),
+                            StreamBatchConsumer.Config(batchSize = 10, expiry = 1.second, onFailure = HandlerFailurePolicy.Discard),
                           )(using intDecoder)
             received   <- Ref.make(Set.empty[Int])
             done       <- Promise.make[Nothing, Unit]
