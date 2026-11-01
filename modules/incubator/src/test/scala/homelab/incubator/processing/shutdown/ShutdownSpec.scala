@@ -12,6 +12,20 @@ object ShutdownSpec extends ZIOSpecDefault:
 
   override def spec: Spec[TestEnvironment & Scope, Any] =
     suite("Shutdown")(
+      test("make completes inside an uninterruptible region, as an acquisition is"):
+        // Fails unfinished if make forks a fiber that inherits the region's status: interrupting it then waits
+        // forever. Run on a fiber of its own and awaited from outside, so the timeout can fire.
+        for
+          making   <- ZIO.uninterruptible(Shutdown.make).fork
+          finished <- Live.live(making.await.timeout(2.seconds))
+        yield assertTrue(finished.exists(_.isSuccess))
+      ,
+      test("make completes as the acquisition of a resource released by await"):
+        for
+          acquired <- ZIO.scoped(ZIO.acquireRelease(Shutdown.make)(_.await)).fork
+          finished <- Live.live(acquired.await.timeout(2.seconds))
+        yield assertTrue(finished.exists(_.isSuccess))
+      ,
       test("await returns at once when no section is running"):
         for
           shutdown <- Shutdown.make
@@ -117,6 +131,35 @@ object ShutdownSpec extends ZIOSpecDefault:
           _           <- terminating.join
           section     <- outcome.poll.flatMap(ZIO.foreach(_)(identity))
         yield assertTrue(before.isEmpty, section.contains("posted"))
+      ,
+      test("await waits for the handlers of a parallel processor started in the same scope before it"):
+        // Fails with none finished if the processor forks its listeners into the app's scope: their finalizers
+        // are installed after await's, so they run first and cut the handlers before await can wait.
+        for
+          shutdown <- Shutdown.make
+          queue    <- Queue.unbounded[Int]
+          gate     <- Promise.make[Nothing, Unit]
+          running  <- Ref.make(0)
+          finished <- Ref.make(0)
+          ready    <- Promise.make[Nothing, Unit]
+          handle    = (_: Int) => running.update(_ + 1) *> gate.await *> finished.update(_ + 1)
+          app      <- ZIO.scoped {
+                        for
+                          _ <- Processor.parallel(shutdown.drainLocal(Consumer.fromQueue(queue)), 4)(handle).forkScoped
+                          _ <- ZIO.addFinalizer(shutdown.await)
+                          _ <- ready.succeed(())
+                          _ <- ZIO.never
+                        yield ()
+                      }.fork
+          _        <- ready.await
+          _        <- queue.offerAll(List(1, 2))
+          _        <- running.get.repeatUntil(_ == 2)
+          stop     <- app.interrupt.fork
+          _        <- untilClosing(shutdown)
+          _        <- gate.succeed(())
+          _        <- stop.join
+          done     <- finished.get
+        yield assertTrue(done == 2)
       ,
       test("a drainLocal consumer delivers as usual before shutdown begins"):
         for
@@ -272,6 +315,54 @@ object ShutdownSpec extends ZIOSpecDefault:
           _         <- processor.interrupt
         yield assertTrue(back == List("late"), running.isEmpty)
       ,
+      test("globalDrain: with decoding on top of the drain, a late value that does not decode is still refused"):
+        for
+          shutdown <- Shutdown.make
+          fetches  <- Queue.unbounded[Option[String]]
+          adapter  <- Fetching.make(fetches)
+          pulling  <- shutdown.globalDrain(adapter).mapZIO(decode).consume(_ => ZIO.unit).fork
+          _        <- untilTaking(fetches)
+          waiting  <- shutdown.await.fork
+          _        <- untilClosing(shutdown)
+          _        <- fetches.offer(Some("oops"))
+          _        <- waiting.join
+          back     <- adapter.handedBack.get
+          _        <- untilParkedOrDone(pulling)
+          parked   <- pulling.poll
+          _        <- pulling.interrupt
+        yield assertTrue(back == List("oops"), parked.isEmpty)
+      ,
+      test("globalDrain: with decoding inside the drain, a late value that does not decode reaches the failure"):
+        for
+          shutdown <- Shutdown.make
+          fetches  <- Queue.unbounded[Option[String]]
+          adapter  <- Fetching.make(fetches)
+          pulling  <- shutdown.globalDrain(adapter.mapZIO(decode)).consume(_ => ZIO.unit).exit.fork
+          _        <- untilTaking(fetches)
+          waiting  <- shutdown.await.fork
+          _        <- untilClosing(shutdown)
+          _        <- fetches.offer(Some("oops"))
+          _        <- waiting.join
+          exit     <- pulling.join
+          back     <- adapter.handedBack.get
+        yield assertTrue(exit == Exit.fail("not a number: oops"), back.isEmpty)
+      ,
+      test("globalDrain: a refusal that comes back with a defect is not swallowed"):
+        // Fails parked if the wrapper catches any cause that contains its refusal: the defect would be hidden
+        // and the fail-fast processor would never see it.
+        for
+          shutdown <- Shutdown.make
+          fetches  <- Queue.unbounded[Option[String]]
+          adapter  <- Fetching.make(fetches)
+          pulling  <- shutdown.globalDrain(dyingOnHandBack(adapter)).consume(_ => ZIO.unit).exit.fork
+          _        <- untilTaking(fetches)
+          waiting  <- shutdown.await.fork
+          _        <- untilClosing(shutdown)
+          _        <- fetches.offer(Some("late"))
+          _        <- waiting.join
+          exit     <- Live.live(pulling.join.timeout(2.seconds))
+        yield assertTrue(exit.exists(_.causeOption.flatMap(_.dieOption).exists(_.getMessage == "cleanup died")))
+      ,
       test("globalDrain: an interruption raised by logic itself is not mistaken for a refusal"):
         for
           shutdown <- Shutdown.make
@@ -334,6 +425,30 @@ object ShutdownSpec extends ZIOSpecDefault:
           case Fiber.Status.Done         => true
           case _                         => false
         .unit
+
+    /**
+     * A consumer whose cleanup dies whenever `logic` is interrupted, so an interruption comes back joined
+     * with a defect, as a failing finalizer would make it.
+     *
+     * @param consumer the consumer to wrap
+     * @return the consumer; dies with "cleanup died" on top of any interruption of `logic`
+     */
+    def dyingOnHandBack(consumer: Consumer[Nothing, String]): Consumer[Nothing, String] = new Consumer[Nothing, String]:
+      override def consume[E2 >: Nothing](logic: String => IO[E2, Unit]): IO[E2, Unit] =
+        consumer
+          .consume(logic)
+          .catchAllCause: cause =>
+            if cause.isInterrupted then ZIO.failCause(cause ++ Cause.die(new RuntimeException("cleanup died")))
+            else ZIO.failCause(cause)
+
+    /**
+     * Decode a fetched value as a number, as a decoding consumer's `mapZIO` would.
+     *
+     * @param value the fetched text
+     * @return the number; aborts with a message when `value` is not one
+     */
+    def decode(value: String): IO[String, Int] =
+      ZIO.fromOption(value.toIntOption).orElseFail(s"not a number: $value")
 
     /**
      * A fake adapter that fetches with a timeout, as a JetStream pull does: each `consume` makes one fetch,

@@ -124,7 +124,10 @@ With `await` added as the last finalizer of the application's scope:
   nothing more is pulled, fetched or claimed.
 - **No message is lost on its way** (`globalDrain`). A fetch that is open when shutdown begins is waited for,
   never interrupted. A message it brings back is refused and, on an acknowledging adapter, handed back at once
-  rather than after `ackWait`.
+  rather than after `ackWait`. That holds for every message only when the drain wraps the raw message
+  consumer, with decoding on top (`shutdown.globalDrain(rawConsumer).mapZIO(decode)`). Wrapped around a
+  decoding consumer (`stream.Consumer.make[A]`), decoding runs first, so a late message that does not
+  decode is settled by the failure policy instead, as a poison message is at any other time.
 - **A refusal is never a failure.** A refused value parks; a fail-fast processor running the wrapper does not
   see it. Only the wrapper's own refusal is caught; any other interruption, including one raised by `logic`,
   passes through.
@@ -169,8 +172,14 @@ With `await` added as the last finalizer of the application's scope:
   recorded its result after the section.
 
 - **The ordering is the application's job.** `await` only drains if it runs before the scope interrupts the
-  work, which means it must be the last finalizer added. *Workaround:* none in code; a spec covers the
-  ordering.
+  work, which means it must be the last finalizer added: start the processors, then add `await`.
+  *Workaround:* none in code; a spec covers the ordering.
+
+  That rule only holds if nothing keeps installing finalizers after startup. `Processor.parallel` used to:
+  it forked every listener into the caller's scope, so each listener's finalizer landed after `await`'s and
+  ran first, cutting its handler before `await` could wait. A probe lost both running handlers in 20 of 20
+  runs. `parallel` now runs its listeners in a scope of its own, and `Processor.run` no longer takes the
+  caller's `Scope` at all, so a processor installs nothing in it after it starts.
 
 - **`consume` may never run `logic`.** This is now part of the `Consumer` contract, and the cost of
   single-pull fetching. A caller must not count calls as deliveries. *Workaround:* `Consumer.once` for a loop

@@ -44,18 +44,25 @@ trait Consumer[+E, +A] { self =>
   def consume[E2 >: E](logic: A => IO[E2, Unit]): IO[E2, Unit]
 
   /**
-   * Consume until one value has been processed: call [[consume]], and call it again for as long as it
-   * returns without having run `logic` to completion (an empty fetch). A run loop that means "one value per
+   * Consume until one value has been delivered: call [[consume]], and call it again for as long as it
+   * returns without having handed `logic` a value (an empty fetch). A run loop that means "one value per
    * step" calls this rather than [[consume]], so an empty fetch is retried rather than counted as a step.
+   *
+   * The delivery is recorded '''before''' `logic` runs, for two reasons. A step after `logic` would be an
+   * interruptible gap between its end and the adapter's settlement: a `logic` that completes while an
+   * interrupt is pending would be interrupted there, and the adapter would hand back work that was done. And
+   * a value whose failure the adapter settles itself (a redelivery or discard policy) has been delivered: it
+   * must end this call, not be followed by another fetch.
    *
    * @param logic processes the one consumed value
    * @tparam E2 the widened error, admitting `logic`'s failures
-   * @return noop once one value is processed and committed; aborts with `E2` on failure, without retrying
+   * @return noop once one value has been delivered and settled; aborts with `E2` when the call delivering it
+   *         does, without retrying
    */
   def once[E2 >: E](logic: A => IO[E2, Unit]): IO[E2, Unit] =
     for
       signal <- Promise.make[Nothing, Unit]
-      _      <- consume(logic(_) <* signal.succeed(()))
+      _      <- consume(value => signal.succeed(()) *> logic(value))
                   .repeatUntilZIO(_ => signal.isDone)
     yield ()
 

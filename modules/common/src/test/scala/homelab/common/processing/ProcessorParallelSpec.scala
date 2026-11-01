@@ -46,6 +46,21 @@ object ProcessorParallelSpec extends ZIOSpecDefault:
         value   <- handled.await
       yield assertTrue(value == 7)
     },
+    test("a failure interrupts the other running handlers before it is returned") {
+      // Fails with none interrupted if the listeners live in the caller's scope: the failure then returns
+      // while the other handlers still run, until that scope closes.
+      for
+        queue       <- Queue.unbounded[String]
+        running     <- Ref.make(0)
+        interrupted <- Ref.make(0)
+        _           <- queue.offerAll(List("slow", "slow", "boom"))
+        handle       = (value: String) =>
+                         if value == "boom" then running.get.repeatUntil(_ == 2) *> ZIO.fail("boom")
+                         else (running.update(_ + 1) *> ZIO.never).onInterrupt(interrupted.update(_ + 1))
+        exit        <- Processor.parallel(Consumer.fromQueue(queue), parallelism)(handle).exit
+        cut         <- interrupted.get
+      yield assertTrue(exit == Exit.fail("boom"), cut == 2)
+    },
   ) @@ TestAspect.withLiveClock @@ TestAspect.timeout(1.minute)
 
   /** Long enough for the loop to reach its steady state, short enough to keep the suite quick. */

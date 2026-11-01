@@ -65,9 +65,60 @@ object ConsumerSpec extends ZIOSpecDefault:
         made   <- calls.get
       yield assertTrue(failed == Left("refused"), made == 1)
     },
+    test("a value whose failure the adapter settles itself ends once, without another fetch") {
+      // Fails if once retries after a delivered value whose failure did not escape consume: every later call
+      // delivers and fails again, so once never returns, and the timeout leaves it unfinished.
+      for
+        calls    <- Ref.make(0)
+        finished <- settlingFailures(calls, 7).once(_ => ZIO.fail("refused")).timeout(1.second)
+        made     <- calls.get
+      yield assertTrue(finished.isDefined, made == 1)
+    },
+    test("a logic that completes while an interrupt is pending is still settled as done") {
+      // Fails with "handed back" if once adds an interruptible step after logic: the pending interrupt
+      // lands there, and the adapter sees an interrupted handler.
+      for
+        settled <- Promise.make[Nothing, String]
+        started <- Promise.make[Nothing, Unit]
+        gate    <- Promise.make[Nothing, Unit]
+        handler  = (_: Int) => ZIO.uninterruptible(started.succeed(()) *> gate.await)
+        fiber   <- settlingByExit(settled, 7).once(handler).fork
+        _       <- started.await
+        _       <- fiber.interruptFork
+        _       <- gate.succeed(())
+        _       <- fiber.await
+        verdict <- settled.await
+      yield assertTrue(verdict == "done")
+    },
   )
 
   private object Support:
+
+    /**
+     * A consumer that settles a failed `logic` itself, as a redelivery or discard policy does, so the call
+     * returns successfully whatever `logic` did. Counts every call.
+     *
+     * @param calls counts every `consume` call
+     * @param value what every call hands over
+     * @return the consumer
+     */
+    def settlingFailures(calls: Ref[Int], value: Int): Consumer[Nothing, Int] = new Consumer[Nothing, Int]:
+      def consume[E2 >: Nothing](logic: Int => IO[E2, Unit]): IO[E2, Unit] =
+        calls.update(_ + 1) *> logic(value).ignore
+
+    /**
+     * A consumer that settles by how `logic` ended, as the JetStream consumers do: `logic` runs
+     * interruptibly, the rest does not, and the verdict is recorded in `settled`.
+     *
+     * @param settled completed with "done" or "handed back"
+     * @param value what every call hands over
+     * @return the consumer
+     */
+    def settlingByExit(settled: Promise[Nothing, String], value: Int): Consumer[Nothing, Int] = new Consumer[Nothing, Int]:
+      def consume[E2 >: Nothing](logic: Int => IO[E2, Unit]): IO[E2, Unit] =
+        ZIO.uninterruptibleMask: restore =>
+          restore(logic(value)).exit.flatMap: exit =>
+            settled.succeed(if exit.isInterrupted then "handed back" else "done") *> ZIO.done(exit)
 
     /**
      * A consumer whose first `empty` calls return without running `logic`, as an empty fetch does, and which

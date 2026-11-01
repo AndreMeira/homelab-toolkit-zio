@@ -17,6 +17,13 @@ import zio.*
  * acknowledgement (Core NATS) loses it, as it would lose any interrupted message. Parking rather than failing
  * also keeps a refusal from tearing down a fail-fast processor.
  *
+ * A drain refuses a value where it sits in the chain of consumers, so anything layered '''inside''' it runs
+ * first. The decoding consumers (`stream.Consumer.make[A]`) decode through `mapZIO` below the drain, so a
+ * late value that does not decode reaches the adapter's failure policy instead of the refusal: it is
+ * settled as a poison message is at any other time, not handed back at once. To have every late value
+ * refused, wrap the raw message consumer and decode on top of the drain:
+ * `shutdown.globalDrain(rawConsumer).mapZIO(decode)`.
+ *
  * A section must not run another through [[graceful]] inside itself: once shutdown has begun the inner one
  * parks, and the outer one, which [[await]] is waiting for, never finishes. That includes the `logic` given
  * to a [[drainLocal]] or [[globalDrain]] consumer, which already runs inside a section.
@@ -117,7 +124,9 @@ final class Shutdown private (state: Ref[Shutdown.State], drained: Promise[Nothi
             case true  => ZIO.interruptAs(refusal)
             case false => logic(value)
       .catchSomeCause:
-        case cause if cause.interruptors.contains(refusal) => ZIO.never
+        // only the refusal alone: a cause that also holds a failure or a defect (a cleanup that died on the
+        // way out, say) is not a refusal any more, and must reach the caller
+        case cause if cause.isInterruptedOnly && cause.interruptors == Set(refusal) => ZIO.never
 
   /**
    * Whether shutdown has begun.
@@ -164,7 +173,7 @@ object Shutdown:
     for
       state   <- Ref.make(State(closing = false, running = 0))
       drained <- Promise.make[Nothing, Unit]
-      refusal <- ZIO.never.fork.flatMap(fiber => fiber.interrupt.as(fiber.id))
+      refusal <- ZIO.never.interruptible.fork.flatMap(fiber => fiber.interrupt.as(fiber.id))
     yield new Shutdown(state, drained, refusal)
 
   /**
