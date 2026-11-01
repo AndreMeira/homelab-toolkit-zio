@@ -1,8 +1,11 @@
 # Dependency updates.
 #
 # Two ecosystems. The Scala dependencies in build.sbt, and the actions the workflows pin — the second is not
-# an afterthought, since the v0.0.5 release run warned that `actions/setup-java@v4` is deprecated and that
-# `ubuntu-latest` migrates to Ubuntu 26 in October 2026, and nothing was watching for either.
+# an afterthought, since the v0.0.5 release run warned that `actions/setup-java@v4` is deprecated, and
+# nothing was watching for it.
+#
+# Runner images are not covered. Dependabot reads `uses:` references only, never `runs-on:`, so the
+# workflows' `ubuntu-latest` moves to a new Ubuntu whenever GitHub moves the label, and no PR announces it.
 #
 # This repo is the one whose versions the rest of the homelab inherits: a consumer pins `toolkitVersion` and
 # gets whatever ZIO and sttp were resolved here. So a bump landing here is a bump every consumer takes on
