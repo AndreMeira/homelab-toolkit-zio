@@ -109,9 +109,11 @@ fetcher claims only as much demand as it holds, so no row is ever marked claimed
 Because `consume` returns only once the outcome is *written*, a caller cannot spend a second token while its
 first element is recorded only in memory — so **outstanding leases never exceed the number of fibers calling
 `consume`**, end to end. There is no `concurrency` setting: the callers are the concurrency, and `writeSize`
-only caps how many verdicts one statement writes. The one exception is a caller interrupted while it waits
-for its verdict: the verdict stays queued and is still written, but the caller is gone, so until the settler
-reaches it that lease is held by nobody who counts against the bound.
+only caps how many verdicts one statement writes. The exceptions are callers that leave early, whose leases
+are still out but held by nobody who counts against the bound. A caller interrupted while waiting for its
+verdict leaves that verdict queued, and the lease stays out until the settler writes it. A caller interrupted
+while waiting for work leaves its demand behind, which can still buy a claim, and that lease stays out until
+the canceller hands it back.
 
 **The fourth queue exists because demand is anonymous.** A token says somebody wants work, not *who*, so a
 caller interrupted while parked may already have had an element claimed for it. It cannot settle that element

@@ -19,8 +19,10 @@ import zio.*
  * number of fibers calling it''': nobody can claim a second element while their first is recorded only in
  * memory. Under
  * load that costs nothing — callers finishing together are written by one statement and released together,
- * which is precisely where the batching comes from. The exception is a caller interrupted while waiting for
- * its verdict: the verdict is still written, but until it is, its lease belongs to no caller.
+ * which is precisely where the batching comes from. The exceptions are callers that leave early. One
+ * interrupted while waiting for its verdict leaves a lease that belongs to no caller until the settler
+ * writes it. One interrupted while waiting for work leaves demand that can still buy a claim, and that
+ * lease belongs to no caller until the canceller hands it back.
  *
  * @param channel the four queues, the wake-up, and the failure promise
  * @tparam E the error the store aborts with
