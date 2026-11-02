@@ -73,7 +73,7 @@ object RecursionSpec extends ZIOSpecDefault:
       },
       test("a cancel held by the step that reaches the answer ends the run interrupted: the answer is lost") {
         // The step is uninterruptible, so the cancel waits for it, then takes effect at the next interruptible
-        // point. With no next step, that point is the run handing its answer back to an interruptible caller.
+        // point. For a driven step, that is the `.map` after the transition, inside the restored step.
         for
           entered <- Promise.make[Nothing, Unit]
           gate    <- Promise.make[Nothing, Unit]
@@ -82,6 +82,7 @@ object RecursionSpec extends ZIOSpecDefault:
         yield assertTrue(exit.isInterrupted)
       } @@ TestAspect.nonFlaky(50),
       test("the same holds for a reflective step") {
+        // No `.map` follows a reflective step, so the point is the run handing its answer back.
         for
           entered <- Promise.make[Nothing, Unit]
           gate    <- Promise.make[Nothing, Unit]
