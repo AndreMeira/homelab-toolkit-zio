@@ -2,7 +2,7 @@
 title: "ZIO interruption and threads — what an interrupt can stop, and what it waits for"
 type: learning-material
 status: current
-updated: 2026-11-01
+updated: 2026-11-02
 tags: [zio, interruption, fibers, threads, blocking, attemptBlocking, timeout, race, shutdown, jnats]
 ---
 
@@ -54,6 +54,10 @@ Two more rules complete the picture:
   It is acted on at the **first interruptible step after the region**. That step is often not where you'd
   expect: a `logic <* signal.succeed(())` whose `logic` finished uninterruptibly was interrupted on the
   `signal` step, so the adapter settled finished work as interrupted (`Consumer.once`, before the fix).
+- **Where exactly a held interrupt lands, and what it can drop**, is the subject of
+  [`zio-interruption-regions-and-restore.md`](zio-interruption-regions-and-restore.md): entering a `restore`,
+  and leaving an uninterruptible region, are both check points, and a finished step's result can be lost at
+  either.
 - **A forked fiber inherits the interruptibility of the place it was forked.** A `ZIO.never.fork` inside an
   acquisition is uninterruptible, so interrupting it waits forever. `.interruptible` on the forked effect is
   the fix (`Shutdown.make`; `ScopeOrderingSpec` shows the inheritance).
