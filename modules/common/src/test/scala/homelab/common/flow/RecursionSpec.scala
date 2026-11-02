@@ -71,9 +71,37 @@ object RecursionSpec extends ZIOSpecDefault:
           gaveBack <- released.get
         yield assertTrue(gaveBack)
       },
-      test("a step already past its handlers is not undone by an interrupt arriving after it") {
-        // The other half: the space between two steps is not interruptible, so a completed step stays
-        // completed and the run is stopped at a state, never between two.
+      test("a cancel held by the step that reaches the answer ends the run interrupted: the answer is lost") {
+        // The step is uninterruptible, so the cancel waits for it, then takes effect at the next interruptible
+        // point. With no next step, that point is the run handing its answer back to an interruptible caller.
+        for
+          entered <- Promise.make[Nothing, Unit]
+          gate    <- Promise.make[Nothing, Unit]
+          step     = ZIO.uninterruptible(entered.succeed(()) *> gate.await.as(1))
+          exit    <- cancelledDuring(entered, gate, Recursion(0)(_ => step).terminate { case 1 => "answer" })
+        yield assertTrue(exit.isInterrupted)
+      } @@ TestAspect.nonFlaky(50),
+      test("the same holds for a reflective step") {
+        for
+          entered <- Promise.make[Nothing, Unit]
+          gate    <- Promise.make[Nothing, Unit]
+          start    = Masked(ZIO.uninterruptible(entered.succeed(()) *> gate.await.as(Done)))
+          exit    <- cancelledDuring(entered, gate, start.terminate { case Done => "answer" })
+        yield assertTrue(exit.isInterrupted)
+      } @@ TestAspect.nonFlaky(50),
+      test("a cancel held by a step that does not answer stops the run before the next step") {
+        for
+          entered <- Promise.make[Nothing, Unit]
+          gate    <- Promise.make[Nothing, Unit]
+          second  <- Ref.make(false)
+          stepping = Recursion(0):
+                       case 0 => ZIO.uninterruptible(entered.succeed(()) *> gate.await.as(1))
+                       case _ => second.set(true).as(2)
+          exit    <- cancelledDuring(entered, gate, stepping.terminate { case 2 => "answer" })
+          started <- second.get
+        yield assertTrue(exit.isInterrupted, !started)
+      } @@ TestAspect.nonFlaky(50),
+      test("every completed step's work stays done, and the run stops at the state the question recognises") {
         for
           completed <- Ref.make(0)
           stepping   = Recursion(0)(n => completed.update(_ + 1).as(n + 1))
@@ -118,4 +146,31 @@ object RecursionSpec extends ZIOSpecDefault:
     def held: PartialFunction[Wait, Option[String]] =
       case Granted(hold) => Some(hold)
       case GaveUp        => None
+
+    // A family of two reflective states, the first stepping to the second with whatever effect it is given.
+    sealed trait Two extends Recursion.Reflective[Any, Nothing, Two]
+
+    case class Masked(step: UIO[Two]) extends Two:
+      def next: UIO[Two] = step
+
+    case object Done extends Two:
+      def next: UIO[Two] = ZIO.succeed(this)
+
+    /**
+     * Run `run`, cancel it while its step is held at `gate`, then let the step finish.
+     *
+     * @param entered completed by the step once it is running
+     * @param gate what the step waits for before it finishes
+     * @param run the run to cancel
+     * @tparam A what the run answers with
+     * @return how the run ended
+     */
+    def cancelledDuring[A](entered: Promise[Nothing, Unit], gate: Promise[Nothing, Unit], run: UIO[A]): UIO[Exit[Nothing, A]] =
+      for
+        fiber <- run.fork
+        _     <- entered.await
+        _     <- fiber.interruptFork
+        _     <- gate.succeed(())
+        exit  <- fiber.await
+      yield exit
   }

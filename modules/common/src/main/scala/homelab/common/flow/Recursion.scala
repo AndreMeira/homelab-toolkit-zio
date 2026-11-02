@@ -35,8 +35,7 @@ trait Recursion[-R, +E, S]:
   /**
    * Follow this recursion until `fn` recognises the state it has reached.
    *
-   * The fluent form of [[Recursion.run]], and its contract: a step runs interruptible, the space between
-   * two steps does not, and what one step takes for another to release falls outside that.
+   * The fluent form of [[Recursion.run]]; see it for what cancelling a run does.
    *
    * @param fn the states that end this run, and what each of them reports
    * @tparam A what this run reports
@@ -89,10 +88,28 @@ object Recursion:
   /**
    * Follow the remainder until a question recognises the state it has reached.
    *
-   * A step runs interruptible and the space between two steps does not, so a step's own handlers are what
-   * decide the fate of anything that step holds. What one step takes for another to release is outside
-   * that: an interrupt pending when the next step is reached ends the run before that step, and its
-   * handlers with it. A resource that crosses a step boundary needs a deadline of its own.
+   * '''Cancelling a run.''' A step runs interruptible, so a cancel normally takes effect inside it, where the
+   * step's own handlers (`onExit`, `ensuring`, `acquireRelease`) see it and can give back what the step
+   * holds.
+   *
+   * A cancel that arrives while a step is uninterruptible (a store call, say) waits for the step to finish,
+   * then takes effect at the next point the run is interruptible: as the next step starts, so that step
+   * never runs, or, when the state reached answers the question, as the run hands the answer back. Either
+   * way the state that step reached is lost, although the step finished and its handlers saw it succeed.
+   *
+   * So anything a step acquires and puts in the state it returns, for the next step to release or as the
+   * answer, needs a release that outlives the step. Acquire it in a scope around the whole run, and release
+   * it when the run did not answer:
+   *
+   * {{{
+   * ZIO.scoped:
+   *   Recursion(start)(step).terminate { … }
+   *
+   * // inside the step
+   * ZIO.acquireReleaseExit(take):
+   *   case (taken, Exit.Failure(_)) => giveBack(taken)
+   *   case _                        => ZIO.unit
+   * }}}
    *
    * The question is the caller's: the same states stopped at one answer with a grant, and stopped at
    * another report where they stand.
@@ -107,13 +124,13 @@ object Recursion:
    */
   def run[R, E, S, A](from: Recursion[R, E, S])(terminal: PartialFunction[S, A]): ZIO[R, E, A] =
     ZIO.uninterruptibleMask: restore =>
-      terminal.lift(from.state) match
-        case Some(answer) => ZIO.succeed(answer)
-        case None         =>
-          for
-            reached <- restore(from.next)
-            answer  <- restore(run(reached)(terminal))
-          yield answer
+      // One mask for the whole run: only a step is restored,
+      // and the question is asked masked.
+      def loop(current: Recursion[R, E, S]): ZIO[R, E, A] =
+        terminal.lift(current.state) match
+          case Some(answer) => ZIO.succeed(answer)
+          case None         => restore(current.next).flatMap(loop)
+      loop(from)
 
   /**
    * A recursion from a state and a step over its family.
