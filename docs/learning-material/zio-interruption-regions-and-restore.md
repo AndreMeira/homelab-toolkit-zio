@@ -48,9 +48,11 @@ case object MakeInterruptible extends InterruptibilityRestorer {
 ```
 
 So `restore(step)` is a value meaning "switch interruption on, run `step`, switch it back". The other restorer,
-`MakeUninterruptible`, does nothing. **Which one you get is decided when the mask is created**, from the
-interruptibility at that moment. A mask opened inside an uninterruptible region hands back the restorer that
-does nothing.
+`MakeUninterruptible`, builds the same node with interruption switched **off**. **Which one you get is decided
+when the mask is created**, from the interruptibility at that moment: `restore` puts back what the code around
+the mask was, not "interruptible". A mask opened inside an uninterruptible region hands back the restorer that
+switches interruption off. Around code that is already uninterruptible it changes nothing, but inside an
+`.interruptible` region nested in the mask's body it makes the step uninterruptible again.
 
 ## Where a held cancel takes effect
 
@@ -121,20 +123,30 @@ ZIO.uninterruptibleMask: restore =>
   loop(from)
 ```
 
-With a step that is uninterruptible (a store call) and a cancel arriving during it:
+With a step that is uninterruptible (a store call) and a cancel arriving during it, where the cancel takes
+effect depends on the kind of step:
 
-- If the state reached does not answer, the cancel takes effect before the next step runs. Check point 2 makes
-  sure the next step never starts. Anything the first step put in the state, for the next step to release, is
-  released by nobody.
-- If the state reached answers, the cancel takes effect as the answer is handed back, because `run` returns
-  into its caller's interruptibility (check point 3). The answer is lost.
+- **A driven step** (`Recursion(state)(transition)`) is `transition(state).map(…)`, and that `.map` runs
+  inside `restore(current.next)`. The transition exits into the restored region with the `.map` as the next
+  frame, so the cancel takes effect right there (check point 3, row 2 of the table above), inside the step and
+  before the question is asked.
+- **A reflective step**, whose whole `next` is uninterruptible, has no such frame: its region exits straight
+  into `restore`'s own exit, and the result reaches the masked `loop`. If the state reached does not answer,
+  the cancel takes effect as the next step starts (check point 2), so that step never starts. If it answers,
+  the cancel takes effect as the answer is handed back, because `run` returns into its caller's
+  interruptibility (check point 3).
+
+Either way, the state the step reached is lost. Anything the step put in it, for the next step to release or
+as the answer, is released by nobody.
 
 **No version of `Recursion` can do better for an interruptible caller.** An earlier `run` opened a mask per
-step and restored the recursive call, so the cancel took effect at other places: `Driven`'s `.map`, or the
-entry of `restore(run(reached))`, before the question was asked. Rewriting it as above, and masking `Driven`'s
-`.map` as well, moved those places and changed nothing a caller can see: the next step still never started,
-and the answer was still lost on the way out of `run`. The rewrite was kept because it reads better. The only way to receive the answer is to call `run` from an uninterruptible region. But then
-the mask inside `run` hands out the restorer that does nothing, and no step, not even a park, can be cancelled.
+step and restored the recursive call, so the cancel took effect at other places, such as the entry of
+`restore(run(reached))`, before the question was asked. Rewriting it as above moved those places and changed
+nothing a caller can see: the next step still never started, and the answer was still lost on the way out of
+`run`. The rewrite was kept because it reads better. An experiment that also masked `Driven`'s `.map` changed
+nothing a caller can see either, and was not kept: `Driven.next` is still an interruptible `.map`. The only
+way to receive the answer is to call `run` from an uninterruptible region. But then the mask inside `run` hands
+out the restorer that switches interruption off, and no step, not even a park, can be cancelled.
 
 `RecursionSpec` pins this behaviour: "a cancel held by a step that does not answer stops the run before the next
 step", "a cancel held by the step that reaches the answer ends the run interrupted: the answer is lost".
@@ -194,7 +206,7 @@ Each of these was tried, and each one leaks.
 - **Registering the release after the loop returns.** The cancel takes effect before the loop returns, so the
   registering line never runs.
 - **Wrapping the loop in `ZIO.uninterruptible` to close the gaps.** Every mask inside it now hands out the
-  restorer that does nothing, so the parks can't be cancelled either. A run that waits forever can then never
+  restorer that switches interruption off, so the parks can't be cancelled either. A run that waits forever can then never
   be stopped.
 - **Trusting a step's handlers for something the step hands on.** They see success, and the value is dropped
   after them.
@@ -209,8 +221,9 @@ Each of these was tried, and each one leaks.
 - **A finished uninterruptible step can still lose its result.** Its handlers saw success; the code it returns
   into may not.
 - **`restore` builds a region, and entering it is a check point.** The effect inside may never start.
-- **A mask opened inside an uninterruptible region restores nothing.** Check the interruptibility at the place
-  the mask is created.
+- **`restore` puts back the interruptibility the mask found, not "interruptible".** A mask opened inside an
+  uninterruptible region restores uninterruptibility. Check the interruptibility at the place the mask is
+  created.
 - **Release a handed-on resource from a scope around its consumer**, keyed on that scope's `Exit`, with
   `acquireReleaseExit` at the place it is acquired.
 - **Prove an interruption claim with a cancel sent at the exact moment**: two promises, one the step completes

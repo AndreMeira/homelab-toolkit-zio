@@ -93,9 +93,11 @@ object Recursion:
    * holds.
    *
    * A cancel that arrives while a step is uninterruptible (a store call, say) waits for the step to finish,
-   * then takes effect at the next point the run is interruptible: as the next step starts, so that step
-   * never runs, or, when the state reached answers the question, as the run hands the answer back. Either
-   * way the state that step reached is lost, although the step finished and its handlers saw it succeed.
+   * then takes effect at the next point the run is interruptible. For a [[Driven]] step, that is as soon as
+   * its transition returns, inside the step and before the question is asked. For a [[Reflective]] step
+   * whose whole `next` is uninterruptible, it is as the next step starts, so that step never runs, or, when
+   * the state reached answers the question, as the run hands the answer back. Either way the state that step
+   * reached is lost, although the step finished and its handlers saw it succeed.
    *
    * So anything a step acquires and puts in the state it returns, for the next step to release or as the
    * answer, needs a release that outlives the step. Acquire it in a scope around the whole run, and release
