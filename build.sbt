@@ -214,11 +214,14 @@ lazy val nats = project
   .settings(
     name := "homelab-nats",
     libraryDependencies ++= Seq(
-      "dev.zio"           %% "zio-streams"    % zioVersion,
-      "io.nats"            % "jnats"          % "2.26.4",
-      "dev.zio"           %% "zio-test"       % zioVersion            % Test,
-      "dev.zio"           %% "zio-test-sbt"   % zioVersion            % Test,
-      "org.testcontainers" % "testcontainers" % testcontainersVersion % Test,
+      "dev.zio"           %% "zio-streams"         % zioVersion,
+      "io.nats"            % "jnats"               % "2.26.4",
+      // Codecs built from a zio-schema `Schema`: protobuf by default, JSON on request (see `Codec`).
+      "dev.zio"           %% "zio-schema-protobuf" % zioSchemaVersion,
+      "dev.zio"           %% "zio-schema-json"     % zioSchemaVersion,
+      "dev.zio"           %% "zio-test"            % zioVersion            % Test,
+      "dev.zio"           %% "zio-test-sbt"        % zioVersion            % Test,
+      "org.testcontainers" % "testcontainers"      % testcontainersVersion % Test,
     ),
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
   )

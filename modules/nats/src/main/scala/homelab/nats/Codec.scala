@@ -3,6 +3,9 @@ package homelab.nats
 
 import io.nats.client.Message
 import io.nats.client.impl.NatsMessage
+import zio.Chunk
+import zio.schema.Schema
+import zio.schema.codec.{ BinaryCodec, JsonCodec, ProtobufCodec }
 
 import java.nio.charset.StandardCharsets
 
@@ -18,6 +21,10 @@ import java.nio.charset.StandardCharsets
  *
  * The two are separate typeclasses because call sites are one-directional: a producer only writes, a consumer
  * only reads, and asking for both would make each demand a capability it never uses.
+ *
+ * Both can be built from a zio-schema `Schema[A]` (`fromSchema`): protobuf by default, compact and stable
+ * across field reordering, or JSON on request (`json.fromSchema`), readable on the wire. Underneath, either
+ * rests on any zio-schema `BinaryCodec[A]` (`fromBinaryCodec`), so another format plugs in the same way.
  */
 object Codec {
 
@@ -56,6 +63,43 @@ object Codec {
      */
     def utf8(subjectOf: String => String): Encoder[String] = value =>
       NatsMessage.builder().subject(subjectOf(value)).data(value.getBytes(StandardCharsets.UTF_8)).build()
+
+    /**
+     * A value written by a zio-schema binary codec, onto the subject `subjectOf` gives it.
+     *
+     * @param codec how a value becomes bytes
+     * @param subjectOf derives a value's subject (its partition key)
+     * @tparam A the domain value
+     * @return an encoder writing the codec's bytes to that subject
+     */
+    def fromBinaryCodec[A](codec: BinaryCodec[A], subjectOf: A => String): Encoder[A] = value =>
+      NatsMessage.builder().subject(subjectOf(value)).data(codec.encode(value).toArray).build()
+
+    /**
+     * A value written as protobuf, as its `Schema` describes it, onto the subject `subjectOf` gives it.
+     *
+     * @param subjectOf derives a value's subject (its partition key)
+     * @param schema what the value looks like
+     * @tparam A the domain value
+     * @return an encoder writing protobuf bytes to that subject
+     */
+    def fromSchema[A](subjectOf: A => String)(using schema: Schema[A]): Encoder[A] =
+      fromBinaryCodec(ProtobufCodec.protobufCodec(using schema), subjectOf)
+
+    /** Encoders writing JSON instead of protobuf, readable on the wire. */
+    object json {
+
+      /**
+       * A value written as JSON, as its `Schema` describes it, onto the subject `subjectOf` gives it.
+       *
+       * @param subjectOf derives a value's subject (its partition key)
+       * @param schema what the value looks like
+       * @tparam A the domain value
+       * @return an encoder writing JSON bytes to that subject
+       */
+      def fromSchema[A](subjectOf: A => String)(using schema: Schema[A]): Encoder[A] =
+        fromBinaryCodec(JsonCodec.schemaBasedBinaryCodec(using schema), subjectOf)
+    }
   }
 
   /**
@@ -85,6 +129,41 @@ object Codec {
     def apply[A](using decoder: Decoder[A]): Decoder[A] = decoder
 
     /** A UTF-8 text decoder — a plain instance to pass explicitly (`using Codec.Decoder.utf8`). */
-    val utf8: Decoder[String] = message => Right(new String(message.getData, StandardCharsets.UTF_8))
+    val utf8: Decoder[String] = message =>
+      Right(new String(message.getData, StandardCharsets.UTF_8))
+
+    /**
+     * A value read from a message's bytes by a zio-schema binary codec.
+     *
+     * @param codec how bytes become a value
+     * @tparam A the domain value
+     * @return a decoder reading the message's data, or a `Left` with the codec's reason
+     */
+    def fromBinaryCodec[A](codec: BinaryCodec[A]): Decoder[A] = message =>
+      codec.decode(Chunk.fromArray(message.getData)).left.map(_.message)
+
+    /**
+     * A value read from protobuf, as its `Schema` describes it.
+     *
+     * @param schema what the value looks like
+     * @tparam A the domain value
+     * @return a decoder reading protobuf bytes, or a `Left` with the reason they don't decode
+     */
+    def fromSchema[A](using schema: Schema[A]): Decoder[A] =
+      fromBinaryCodec(ProtobufCodec.protobufCodec(using schema))
+
+    /** Decoders reading JSON instead of protobuf. */
+    object json {
+
+      /**
+       * A value read from JSON, as its `Schema` describes it.
+       *
+       * @param schema what the value looks like
+       * @tparam A the domain value
+       * @return a decoder reading JSON bytes, or a `Left` with the reason they don't decode
+       */
+      def fromSchema[A](using schema: Schema[A]): Decoder[A] =
+        fromBinaryCodec(JsonCodec.schemaBasedBinaryCodec(using schema))
+    }
   }
 }
