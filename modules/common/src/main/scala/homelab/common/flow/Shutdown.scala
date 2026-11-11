@@ -19,7 +19,7 @@ import zio.*
  *     counted out, and then parks, outside the count, so [[await]] is not held up.
  *
  * That second form is what a drain over a fetching intake needs: the fetch runs as a section, and the work on
- * what it brings back is gated. The consumer drains, `Consumer.drainLocal` and `Consumer.globalDrain`, are
+ * what it brings back is gated. The consumer drains, `Consumer.localDrain` and `Consumer.globalDrain`, are
  * built this way.
  *
  * '''`await` must run before the scope interrupts the work''', so the application adds it as the last

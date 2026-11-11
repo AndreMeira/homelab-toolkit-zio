@@ -17,7 +17,7 @@ It comes in two layers:
 | Layer | Where | What |
 |---|---|---|
 | `Shutdown` | `homelab.common.flow` | sections of work a shutdown waits for (`graceful`, `await`, `closing`), and the refusal of an effect inside one (`gated`). Knows nothing of consumers. |
-| `drainLocal`, `globalDrain` | `homelab.common.messaging.Consumer` | consumer wrappers built from those, so a processor's intake drains |
+| `localDrain`, `globalDrain` | `homelab.common.messaging.Consumer` | consumer wrappers built from those, so a processor's intake drains |
 
 How it came to this shape, including what was tried and rejected, is in
 [`../research/coordinated-shutdown.md`](../research/coordinated-shutdown.md).
@@ -44,7 +44,7 @@ after startup that could run ahead of it.
 
 | Drain | Waits for | Use over | Why |
 |---|---|---|---|
-| `drainLocal` | running `logic` | any consumer, including ones that block until a value arrives (`Consumer.fromQueue`, `PollConsumer`, Core NATS) | interrupting their wait loses nothing |
+| `localDrain` | running `logic` | any consumer, including ones that block until a value arrives (`Consumer.fromQueue`, `PollConsumer`, Core NATS) | interrupting their wait loses nothing |
 | `globalDrain` | the whole `consume`, fetch included | consumers making **one bounded fetch per call** (the JetStream `stream.Consumer` and `stream.BatchConsumer`) | a pull still open at shutdown can bring back a message; it is refused and handed back at once |
 
 `globalDrain` over a consumer that blocks until a value arrives holds `await` for as long as its intake stays
@@ -98,7 +98,7 @@ With `await` added as the last finalizer:
 - `messaging/ConsumerDrainSpec`: both drains over in-memory and fake fetching intakes, the decoding order,
   mixed causes, and a `Processor.parallel` started before `await`.
 - `NatsSpec`, against a real broker: a message arriving while a `globalDrain` pull is open at shutdown is
-  redelivered well before `ackWait`, and a `drainLocal` handler running at shutdown finishes and is acked.
+  redelivered well before `ackWait`, and a `localDrain` handler running at shutdown finishes and is acked.
 
 ## Open
 
