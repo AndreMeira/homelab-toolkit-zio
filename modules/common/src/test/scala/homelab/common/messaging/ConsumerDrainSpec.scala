@@ -25,7 +25,7 @@ object ConsumerDrainSpec extends ZIOSpecDefault:
           handle    = (_: Int) => running.update(_ + 1) *> gate.await *> finished.update(_ + 1)
           app      <- ZIO.scoped {
                         for
-                          _ <- Processor.parallel(Consumer.fromQueue(queue).drainLocal(shutdown), 4)(handle).forkScoped
+                          _ <- Processor.parallel(Consumer.fromQueue(queue).localDrain(shutdown), 4)(handle).forkScoped
                           _ <- ZIO.addFinalizer(shutdown.await)
                           _ <- ready.succeed(())
                           _ <- ZIO.never
@@ -41,13 +41,13 @@ object ConsumerDrainSpec extends ZIOSpecDefault:
           done     <- finished.get
         yield assertTrue(done == 2)
       ,
-      test("a drainLocal consumer delivers as usual before shutdown begins"):
+      test("a localDrain consumer delivers as usual before shutdown begins"):
         for
           shutdown <- Shutdown.make
           queue    <- Queue.unbounded[String]
           _        <- queue.offer("request")
           received <- Ref.make(Option.empty[String])
-          _        <- Consumer.fromQueue(queue).drainLocal(shutdown).consume(value => received.set(Some(value)))
+          _        <- Consumer.fromQueue(queue).localDrain(shutdown).consume(value => received.set(Some(value)))
           value    <- received.get
         yield assertTrue(value.contains("request"))
       ,
@@ -58,14 +58,14 @@ object ConsumerDrainSpec extends ZIOSpecDefault:
           _        <- queue.offer("request")
           _        <- shutdown.await
           ran      <- Ref.make(false)
-          gated    <- Consumer.fromQueue(queue).drainLocal(shutdown).consume(_ => ran.set(true)).fork
+          gated    <- Consumer.fromQueue(queue).localDrain(shutdown).consume(_ => ran.set(true)).fork
           parked   <- gated.poll
           exit     <- gated.interrupt
           left     <- queue.size
           didRun   <- ran.get
         yield assertTrue(parked.isEmpty, exit.isInterrupted, left == 1, !didRun)
       ,
-      test("await waits for a value a drainLocal consumer is already handling"):
+      test("await waits for a value a localDrain consumer is already handling"):
         for
           shutdown <- Shutdown.make
           queue    <- Queue.unbounded[String]
@@ -75,7 +75,7 @@ object ConsumerDrainSpec extends ZIOSpecDefault:
           received <- Ref.make(Option.empty[String])
           handling <- Consumer
                         .fromQueue(queue)
-                        .drainLocal(shutdown)
+                        .localDrain(shutdown)
                         .consume(value => started.succeed(()) *> gate.await *> received.set(Some(value)))
                         .fork
           _        <- started.await
@@ -95,7 +95,7 @@ object ConsumerDrainSpec extends ZIOSpecDefault:
           queue    <- Queue.unbounded[String]
           handed   <- Promise.make[Nothing, Unit]
           ran      <- Ref.make(false)
-          waiting  <- handing(queue, handed).drainLocal(shutdown).consume(_ => ran.set(true)).fork
+          waiting  <- handing(queue, handed).localDrain(shutdown).consume(_ => ran.set(true)).fork
           _        <- untilTaking(queue)
           _        <- shutdown.await
           _        <- queue.offer("request")

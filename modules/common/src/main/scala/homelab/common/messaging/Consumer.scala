@@ -121,7 +121,7 @@ trait Consumer[+E, +A] { self =>
    *
    * A value is refused where the drain sits in the chain, so anything layered '''inside''' it (a decoding
    * `mapZIO`) runs first. To have every late value refused, decode on top of the drain:
-   * `raw.drainLocal(shutdown).mapZIO(decode)`.
+   * `raw.localDrain(shutdown).mapZIO(decode)`.
    *
    * `logic` must not itself run a section through `shutdown.graceful`: it is one already, and the inner one
    * would park once shutdown began, holding up `await` forever.
@@ -129,7 +129,7 @@ trait Consumer[+E, +A] { self =>
    * @param shutdown the shutdown that waits for this consumer's work
    * @return the draining consumer
    */
-  def drainLocal(shutdown: Shutdown): Consumer[E, A] = new Consumer[E, A]:
+  def localDrain(shutdown: Shutdown): Consumer[E, A] = new Consumer[E, A]:
     def consume[E2 >: E](logic: A => IO[E2, Unit]): IO[E2, Unit] =
       shutdown.closing.flatMap: stopped =>
         if stopped then ZIO.never
@@ -137,7 +137,7 @@ trait Consumer[+E, +A] { self =>
 
   /**
    * Wraps this consumer so that a shutdown waits for its whole `consume` call, the fetch included, and it
-   * stops taking work once shutdown has begun. Where [[drainLocal]] waits only for `logic`, this also waits
+   * stops taking work once shutdown has begun. Where [[localDrain]] waits only for `logic`, this also waits
    * for a fetch that is still open, so a message the server sends while shutdown begins is not lost on its
    * way but delivered, refused and handed back:
    *
@@ -152,7 +152,7 @@ trait Consumer[+E, +A] { self =>
    * `await` waits for every open fetch, so this consumer must make '''one bounded fetch per call''' and
    * return without calling `logic` when it comes back empty, as the JetStream consumers do. A consumer that
    * blocks until a value arrives (an in-memory queue, a fetch loop) would hold up `await` for as long as its
-   * intake stays idle; drain those with [[drainLocal]], which loses nothing there.
+   * intake stays idle; drain those with [[localDrain]], which loses nothing there.
    *
    * A value is refused where the drain sits in the chain, so anything layered '''inside''' it runs first: a
    * late value that a decoding `mapZIO` below the drain cannot read reaches the adapter's failure policy, as

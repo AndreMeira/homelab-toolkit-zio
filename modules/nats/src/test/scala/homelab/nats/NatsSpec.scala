@@ -433,7 +433,7 @@ object NatsSpec extends ZIOSpecDefault:
             _           <- pulling.interrupt
           yield assertTrue(first == List("late"), !didRun, redelivered == Some("late"))
       },
-      test("drainLocal: a handler running when shutdown begins finishes, and its message is acked") {
+      test("localDrain: a handler running when shutdown begins finishes, and its message is acked") {
         ZIO.scoped:
           for
             connection <- ZIO.service[Connection]
@@ -445,7 +445,7 @@ object NatsSpec extends ZIOSpecDefault:
             started    <- Promise.make[Nothing, Unit]
             gate       <- Promise.make[Nothing, Unit]
             _          <- producer.emit("work")
-            handling   <- consumer.drainLocal(shutdown).consume(_ => started.succeed(()) *> gate.await).fork
+            handling   <- consumer.localDrain(shutdown).consume(_ => started.succeed(()) *> gate.await).fork
             _          <- started.await
             waiting    <- shutdown.await.fork
             _          <- shutdown.closing.repeatUntil(identity)
