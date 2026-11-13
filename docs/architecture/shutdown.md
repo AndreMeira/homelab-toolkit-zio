@@ -2,7 +2,7 @@
 title: "Shutdown — draining consumers and processors without losing work"
 type: architecture
 status: current
-updated: 2026-11-01
+updated: 2026-11-11
 tags: [shutdown, drain, interruption, consumer, processor, jetstream, scope, flow, messaging]
 ---
 
@@ -90,6 +90,41 @@ With `await` added as the last finalizer:
 | `logic` must not call `graceful`: it already runs inside a section, and a nested one parks once shutdown has begun, so `await` never returns | Documented on both drains. A re-entrant `graceful` would remove the trap; not done |
 | `graceful` protects the section and nothing after it: once the last section returns, the scope may interrupt its fiber before the next line | Put what must happen inside the section. The adapters settle in an uninterruptible step, so an ack lands |
 | `consume` may return without running `logic` (an empty fetch, a refusal) | Loops that mean one value per step call `Consumer.once`; the processors do |
+
+## Alternatives considered: ZStream
+
+The question comes back whenever a processor is a stream: couldn't ZStream stop it gracefully instead? It
+can't, independently of the rule that keeps `ZStream` off the toolkit's public types. ZStream has two ways
+to stop a stream (zio-streams 2.1.23):
+- **`interruptWhen(signal)`** "will also interrupt any in-progress element being pulled". That is exactly the
+  cut `Shutdown` exists to avoid: a handler stopped halfway, and a pull cut off with a message on its way.
+- **`haltWhen(signal)`** is the closer one: "an element in the process of being pulled will not be
+  interrupted". It lets an open fetch finish, then stops pulling.
+
+Even `haltWhen` leaves the problem unsolved, for four reasons:
+
+1. **Nobody waits for the halt.** `haltWhen` makes a stream end *eventually*, but the closing scope still
+   interrupts the fiber running it. Something has to fire the signal, then wait for every stream, in every
+   processor, to finish its in-flight work, all before the scope's interruption. That signal and that
+   barrier are `Shutdown`: `await`, run as the first finalizer. ZStream stops one stream. It doesn't wait for
+   work across an application.
+2. **Settling is the consumer's job, not the stream's.** `consume(logic)` lets the adapter settle around
+   `logic`: ack when it succeeds, nak at once when it is interrupted ("interruption is not a failure"). In a
+   stream of messages, an element leaves the adapter as soon as it is emitted, and settling it becomes
+   downstream's job. A halted or interrupted downstream naks nothing it was holding, unless every element
+   carries a bracket of its own.
+3. **Buffers hide what's in flight.** Chunked pulls, `buffer` and `mapZIOPar` pull ahead of the processing.
+   A halt downstream of them drops the elements already taken without acking or nakking them, so they wait
+   out `ackWait`. That's the message on its way again, just in a buffer. `graceful` sections count exactly
+   the work in flight, wherever it is.
+4. **A late message is refused, not let through.** `globalDrain` refuses a value that arrives after shutdown
+   began and hands it back at once, so `await` stays bounded and another instance picks it up. `haltWhen`
+   has no notion of refusing and handing back. The value reaches `logic`, or is dropped, depending on where
+   the halt sits.
+
+So ZStream can stop a stream, but `Shutdown` is about *finishing* what's in flight, across the whole
+application and before the interruption, with each message settled correctly. `graceful` also covers work
+that is not a stream at all, a `Worker` or a request handler, so one mechanism serves every kind of work.
 
 ## Tests
 
