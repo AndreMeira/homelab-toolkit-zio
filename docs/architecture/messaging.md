@@ -2,7 +2,7 @@
 title: Messaging — the two ports everything else is built from
 type: architecture
 status: current
-updated: 2026-11-01
+updated: 2026-11-11
 tags: [messaging, producer, consumer, pipe, partitioner, hub, router, inmemory, pollconsumer, polling]
 ---
 
@@ -37,6 +37,18 @@ Combinators are the whole API surface: `contramap` on the emitting side, `map` /
 side, and `serial` to force one `consume` at a time. Layering a codec over a transport is `contramap` one way
 and `mapZIO` the other — which is exactly how `homelab.nats` turns a `Producer[E, Message]` into a
 `Producer[E, A]`.
+
+The codec itself is `homelab.nats.Codec`: an `Encoder[A]` that builds the whole message, subject included,
+and a `Decoder[A]` that reads one back, or gives the reason it cannot. For a type with a zio-schema `Schema`,
+both come from the schema:
+- **Protobuf, the default:** `Codec.Encoder.fromSchema[A](subjectOf)` and `Codec.Decoder.fromSchema[A]`.
+- **JSON, readable on the wire:** `Codec.Encoder.json.fromSchema[A](subjectOf)` and
+  `Codec.Decoder.json.fromSchema[A]`.
+- **Any other zio-schema format:** `fromBinaryCodec(codec)` (with `subjectOf` for the encoder) takes a
+  `BinaryCodec[A]` directly.
+
+The encoder always needs `subjectOf`, because a NATS message cannot exist without a subject and a `Schema`
+cannot supply one.
 
 ## Emission is where topology lives
 
