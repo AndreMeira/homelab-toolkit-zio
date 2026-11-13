@@ -129,8 +129,7 @@ object Codec {
     def apply[A](using decoder: Decoder[A]): Decoder[A] = decoder
 
     /** A UTF-8 text decoder — a plain instance to pass explicitly (`using Codec.Decoder.utf8`). */
-    val utf8: Decoder[String] = message =>
-      Right(new String(message.getData, StandardCharsets.UTF_8))
+    val utf8: Decoder[String] = message => Right(new String(message.getData, StandardCharsets.UTF_8))
 
     /**
      * A value read from a message's bytes by a zio-schema binary codec.
@@ -139,8 +138,7 @@ object Codec {
      * @tparam A the domain value
      * @return a decoder reading the message's data, or a `Left` with the codec's reason
      */
-    def fromBinaryCodec[A](codec: BinaryCodec[A]): Decoder[A] = message =>
-      codec.decode(Chunk.fromArray(message.getData)).left.map(_.message)
+    def fromBinaryCodec[A](codec: BinaryCodec[A]): Decoder[A] = message => codec.decode(Chunk.fromArray(message.getData)).left.map(_.message)
 
     /**
      * A value read from protobuf, as its `Schema` describes it.
