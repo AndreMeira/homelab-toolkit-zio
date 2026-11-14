@@ -56,18 +56,24 @@ final class TimeLatch private (state: Ref[State], slack: Duration) {
    * compared without leaving the range of an `Instant`. (`fromInterval` falls back to seconds when the gap
    * overflows nanoseconds, so it does not throw either, across the whole range.)
    *
+   * Uninterruptible: replacing the state and waking the waiters of the replaced one are one step. A caller
+   * interrupted between the two would leave the waiters on a promise nothing completes any more (every later
+   * trigger completes the newer state's), so they would sleep through the earlier instant to the old one.
+   * Nothing in the step blocks, so it costs nothing.
+   *
    * @param instant when to fire, at the latest
    * @return noop
    */
   def triggerAt(instant: Instant): UIO[Unit] =
-    for
-      fresh <- Promise.make[Nothing, Unit]
-      moved <- state.modify: current =>
-                 if Duration.fromInterval(instant, current.when).compareTo(slack) < 0
-                 then None                 -> current
-                 else Some(current.signal) -> State(instant, fresh)
-      _     <- wake(moved)
-    yield ()
+    ZIO.uninterruptible:
+      for
+        fresh <- Promise.make[Nothing, Unit]
+        moved <- state.modify: current =>
+                   if Duration.fromInterval(instant, current.when).compareTo(slack) < 0
+                   then None                 -> current
+                   else Some(current.signal) -> State(instant, fresh)
+        _     <- wake(moved)
+      yield ()
 
   /**
    * Wait until the latch fires.

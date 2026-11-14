@@ -88,6 +88,26 @@ object TimeLatchSpec extends ZIOSpecDefault:
         _      <- waiter.join
       yield assertCompletes
     } @@ TestAspect.nonFlaky(200),
+    test("a trigger interrupted mid-way either moves the latch and wakes its waiters, or does neither") {
+      // The interruption lands at a random point of the trigger. Had it landed between replacing the state and
+      // waking the replaced state's waiters, a fresh waiter would see the earlier instant while the original one
+      // slept on to the old deadline. So at the earlier instant, the original is done whenever the fresh one is.
+      // Probabilistic: with `triggerAt` made interruptible again, about one repetition in 250 lands in that
+      // window, so 300 repetitions catch the regression in about two runs out of three (measured 2026-11-14).
+      for
+        latch    <- TimeLatch.make(10.seconds, Duration.Zero)
+        original <- latch.await.fork
+        _        <- suspended(original)
+        trigger  <- latch.triggerIn(1.second).fork
+        _        <- trigger.interrupt
+        fresh    <- latch.await.fork
+        _        <- TestClock.adjust(1.second)
+        early    <- original.poll
+        moved    <- fresh.poll
+        _        <- original.interrupt
+        _        <- fresh.interrupt
+      yield assertTrue(moved.isEmpty || early.isDefined)
+    } @@ TestAspect.nonFlaky(300),
     test("a trigger with a negative delay fires it now") {
       for
         latch  <- TimeLatch.make(10.seconds, Duration.Zero)
@@ -143,6 +163,31 @@ object TimeLatchSpec extends ZIOSpecDefault:
 
     /** Two billion years in seconds: added to 1970, where the `TestClock` starts, beyond `Instant.MAX`. */
     val twoBillionYears: Long = 2 * billionYears
+
+    /**
+     * Wait until a fiber is suspended, here: asleep in `await`, so that a trigger lands on a waiter that has
+     * already read the firing instant.
+     *
+     * @param fiber the fiber to wait on
+     * @return noop once it is suspended
+     */
+    def suspended(fiber: Fiber.Runtime[?, ?]): UIO[Unit] =
+      for
+        status <- fiber.status
+        _      <- waitUnlessSuspended(fiber, status)
+      yield ()
+
+    /**
+     * Yield and look again, unless the fiber is already suspended.
+     *
+     * @param fiber the fiber being waited on
+     * @param status its status, as last read
+     * @return noop once it is suspended
+     */
+    def waitUnlessSuspended(fiber: Fiber.Runtime[?, ?], status: Fiber.Status): UIO[Unit] =
+      status match
+        case _: Fiber.Status.Suspended => ZIO.unit
+        case _                         => ZIO.yieldNow *> suspended(fiber)
 
     /**
      * Wait until at least `count` fibers are asleep on the `TestClock`, so that moving the clock wakes them
