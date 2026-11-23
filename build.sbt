@@ -21,10 +21,10 @@ val flywayVersion         = "12.9.0"
 val postgresqlVersion     = "42.7.14"
 val hikariVersion         = "7.1.0"
 val zioOtelVersion        = "3.1.21"
-val otelVersion           = "1.67.0"
+val otelVersion           = "1.68.0"
 val fabric8Version        = "8.0.0"
 val testcontainersVersion = "1.20.6"
-val sttpVersion           = "4.1.1"
+val sttpVersion           = "4.1.3"
 
 ThisBuild / scalaVersion := scala3Version
 ThisBuild / organization := "com.andremeira.homelab"
@@ -215,7 +215,7 @@ lazy val nats = project
     name := "homelab-nats",
     libraryDependencies ++= Seq(
       "dev.zio"           %% "zio-streams"         % zioVersion,
-      "io.nats"            % "jnats"               % "2.26.4",
+      "io.nats"            % "jnats"               % "2.27.0",
       // Codecs built from a zio-schema `Schema`: protobuf by default, JSON on request (see `Codec`).
       "dev.zio"           %% "zio-schema-protobuf" % zioSchemaVersion,
       "dev.zio"           %% "zio-schema-json"     % zioSchemaVersion,
@@ -244,7 +244,7 @@ lazy val incubator = project
       "dev.zio"                       %% "zio-http"       % zioHttpVersion,
       "com.softwaremill.sttp.client4" %% "zio"            % sttpVersion, // llm sketch: sttp4 ZIO backend + SSE (core/model/shared-zio transitively)
       "dev.zio"                       %% "zio-streams"    % zioVersion, // adapter-internal only (NATS callback bridge); never surfaced
-      "io.nats"                        % "jnats"          % "2.26.4", // NATS exploration sketch (messaging/nats)
+      "io.nats"                        % "jnats"          % "2.27.0", // NATS exploration sketch (messaging/nats)
       // Redis stream sketch (messaging/redis): the same client distributed-keyed-queue uses.
       "io.lettuce"                     % "lettuce-core"   % "7.9.0.RELEASE",
       // Codecs derived from the *same* zio-schema the advertised JSON Schema comes from — one description,
